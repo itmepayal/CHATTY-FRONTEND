@@ -16,6 +16,9 @@ const seedPrefs = (user) => {
   useAppearanceStore.getState().initFromUser(user);
 };
 
+const MAX_SERVER_DISCONNECT_RETRIES = 3;
+let serverDisconnectRetries = 0;
+
 export const useAuthStore = create((set, get) => ({
   authUser: null,
   isSigninUp: false,
@@ -27,11 +30,10 @@ export const useAuthStore = create((set, get) => ({
   isFetchingUser: false,
   isDeletingAccount: false,
   onlineUsers: [],
-  hiddenUsers: [], // connected but showOnlineStatus = OFF (status-hidden, not offline)
+  hiddenUsers: [],
   socket: null,
 
-  // 2FA challenge — set when the server returns twoFactorRequired:true during login
-  twoFactorChallenge: null, // { challengeToken: string, email: string } | null
+  twoFactorChallenge: null,
   isVerifyingTwoFactor: false,
 
   checkAuth: async () => {
@@ -96,7 +98,6 @@ export const useAuthStore = create((set, get) => ({
         withCredentials: true,
       });
 
-      // Server returns twoFactorRequired:true when 2FA is enabled for this account
       const resData = res?.data?.data;
       if (resData?.twoFactorRequired) {
         set({
@@ -105,7 +106,7 @@ export const useAuthStore = create((set, get) => ({
             email: data.email,
           },
         });
-        return; // LoginPage will detect twoFactorChallenge and show the 2FA modal
+        return;
       }
 
       const user = extractUser(res) || res?.data?.data?.user;
@@ -126,7 +127,6 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Complete 2FA login — called from the 2FA modal with the TOTP or recovery code
   verifyTwoFactor: async ({ code, useRecoveryCode = false }) => {
     const { twoFactorChallenge } = get();
     if (!twoFactorChallenge?.challengeToken) {
@@ -168,7 +168,6 @@ export const useAuthStore = create((set, get) => ({
       await axiosInstance.post("/auth/logout", {}, { withCredentials: true });
       get().disconnectSocket();
       set({ authUser: null });
-      // useAppearanceStore.getState().reset();
       toast.success("You have been logged out successfully.");
     } catch (error) {
       console.error("Logout error:", error);
@@ -210,7 +209,7 @@ export const useAuthStore = create((set, get) => ({
       const message =
         error?.response?.data?.message || "Failed to change password.";
       toast.error(message);
-      throw error; // re-throw so the form can handle inline error display
+      throw error;
     } finally {
       set({ isChangingPassword: false });
     }
@@ -253,8 +252,6 @@ export const useAuthStore = create((set, get) => ({
       set({ isUpdatingAvatar: false });
     }
   },
-
-  /* ---------- block / unblock / favorite ---------- */
 
   blockUser: async (id) => {
     try {
@@ -301,13 +298,8 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  /**
-   * Delete the authenticated user's account.
-   * Clears auth state and disconnects the socket only after backend confirms success.
-   * Throws on failure so the caller can show inline errors and preserve form state.
-   */
   deleteAccount: async ({ password, code, useRecoveryCode }) => {
-    if (get().isDeletingAccount) return; // prevent duplicate submissions
+    if (get().isDeletingAccount) return;
     set({ isDeletingAccount: true });
     try {
       await axiosInstance.delete("/auth/account", {
@@ -334,21 +326,16 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  /* ---------- socket ---------- */
-
   connectSocket: () => {
     const { authUser, socket: existing } = get();
     if (!authUser) return;
     if (existing?.connected) return;
 
-    // drop any old/dead socket so we never have two
     existing?.removeAllListeners();
     existing?.disconnect();
 
     const socket = io(baseUrl, {
       withCredentials: true,
-      // Auth only. Privacy is NEVER pushed from the client — the server reads
-      // it from the database (pushing stale defaults used to overwrite it).
       auth: (cb) => {
         cb({ token: get().authUser?.token?.accessToken });
       },
@@ -356,10 +343,13 @@ export const useAuthStore = create((set, get) => ({
 
     socket.on("connect", () => {
       console.log("socket connected:", socket.id);
+      serverDisconnectRetries = 0;
     });
+
     socket.on("connect_error", (err) =>
       console.error("socket error:", err.message),
     );
+
     socket.on("getOnlineUsers", (payload) => {
       if (Array.isArray(payload)) {
         set({ onlineUsers: payload.map(String), hiddenUsers: [] });
@@ -383,10 +373,34 @@ export const useAuthStore = create((set, get) => ({
       window.dispatchEvent(new CustomEvent("chatty:sessions-changed"));
     });
 
-    socket.on("disconnect", (reason) => {
+    socket.on("disconnect", async (reason) => {
       console.log("[socket] disconnected:", reason);
-      if (reason === "io server disconnect") {
-        get().logout();
+
+      if (reason !== "io server disconnect") return;
+
+      if (get().socket !== socket) return;
+
+      try {
+        await axiosInstance.get("/auth/check", { withCredentials: true });
+
+        if (get().socket !== socket) return;
+
+        if (serverDisconnectRetries >= MAX_SERVER_DISCONNECT_RETRIES) {
+          console.error(
+            "[socket] server baar baar disconnect kar raha hai. Backend socket auth middleware check karo.",
+          );
+          return;
+        }
+
+        serverDisconnectRetries += 1;
+        socket.connect();
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          get().disconnectSocket();
+          set({ authUser: null });
+        } else {
+          console.error("[socket] session check failed:", err?.message);
+        }
       }
     });
 
@@ -399,6 +413,7 @@ export const useAuthStore = create((set, get) => ({
       socket.removeAllListeners();
       socket.disconnect();
     }
+    serverDisconnectRetries = 0;
     set({ socket: null, onlineUsers: [], hiddenUsers: [] });
   },
 }));
