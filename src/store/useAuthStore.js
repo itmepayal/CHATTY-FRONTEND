@@ -6,7 +6,7 @@ import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatPrefsStore } from "./useChatPrefsStore.js";
 import { useAppearanceStore } from "./useAppearanceStore.js";
 
-const baseUrl = "https://chatty-backend-2l2t.onrender.com";
+const baseUrl = import.meta.env.VITE_API_URL;
 
 const extractUser = (res) => res?.data?.data?.user ?? res?.data?.data;
 

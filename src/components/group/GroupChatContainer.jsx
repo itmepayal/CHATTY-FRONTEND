@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -10,6 +11,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   AlertCircle,
+  ArrowLeft,
   Ban,
   Check,
   CheckCheck,
@@ -29,6 +31,7 @@ import {
   Mic,
   MoreVertical,
   Paperclip,
+  Plus,
   RotateCw,
   Send,
   Smile,
@@ -65,9 +68,6 @@ const REACT_H = 48;
 const MAX_IMAGE_MB = 5;
 const MAX_FILE_MB = 10;
 
-// File picker hint: documents, archives, audio, video (images are excluded).
-// Browsers can't say "everything except images", so selectFile() also
-// validates in JS — this list just makes the OS dialog friendlier.
 const FILE_ACCEPT = [
   ".pdf,.doc,.docx,.txt,.rtf,.odt",
   ".xls,.xlsx,.csv,.ods",
@@ -185,6 +185,95 @@ const getFileIcon = (mimeType = "", name = "") => {
   return FileIcon;
 };
 
+/* touch device (no hover) detection — phones / tablets */
+const useIsTouch = () => {
+  const [touch, setTouch] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(hover: none)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: none)");
+    const onChange = (e) => setTouch(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return touch;
+};
+
+/* ---- message flags / menu sizing (pure) ---- */
+const getFlags = (m, mine, canDM, canDA) => {
+  const isDeleted = Boolean(m.isDeleted);
+  return {
+    isDeleted,
+    hasText: !isDeleted && Boolean(m.text),
+    hasImage: !isDeleted && Boolean(m.image?.url),
+    hasFile: !isDeleted && Boolean(m.file?.name),
+    hasFileUrl: !isDeleted && Boolean(m.file?.url),
+    hasAudio: !isDeleted && Boolean(m.audio?.url),
+    canDeleteForMe: !isDeleted && canDM,
+    canDeleteForAll: mine && !isDeleted && canDA,
+  };
+};
+
+const copyCount = (f) =>
+  (f.hasText ? 1 : 0) +
+  (f.hasImage ? 2 : 0) +
+  (f.hasFileUrl ? 1 : 0) +
+  (f.hasAudio ? 1 : 0);
+
+const menuItemsCount = (f) =>
+  copyCount(f) + (f.canDeleteForMe ? 1 : 0) + (f.canDeleteForAll ? 1 : 0);
+
+const menuHeight = (f) => {
+  const copyItems = copyCount(f);
+  return (
+    menuItemsCount(f) * 40 +
+    8 +
+    (copyItems && menuItemsCount(f) > copyItems ? 9 : 0)
+  );
+};
+
+/* ---- status line under a bubble (pure) ---- */
+const renderStatus = (m, mine, seenBy, s) => {
+  if (m.pending) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Loader2 className="size-3 animate-spin" />
+        Sending…
+      </span>
+    );
+  }
+  if (m.failed) {
+    return (
+      <span className="inline-flex items-center gap-1 text-error">
+        <AlertCircle className="size-3" />
+        Not sent
+      </span>
+    );
+  }
+
+  const time =
+    m.createdAt && s.showTimestamps
+      ? formatTime(m.createdAt, s.timeFormat)
+      : "";
+  if (!mine || m.isDeleted) return time;
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      {time}
+      {seenBy > 0 ? (
+        <>
+          <CheckCheck className="size-3.5 text-info" aria-label="Seen" />
+          <span>Seen by {seenBy}</span>
+        </>
+      ) : (
+        <Check className="size-3.5" aria-label="Sent" />
+      )}
+    </span>
+  );
+};
+
 // File card inside the chat bubble
 const FileAttachment = ({ file, isMine, uploading = false }) => {
   const Icon = getFileIcon(file.mimeType, file.name);
@@ -213,7 +302,7 @@ const FileAttachment = ({ file, isMine, uploading = false }) => {
     </>
   );
 
-  const cls = `flex w-64 max-w-full items-center gap-3 rounded-xl p-2 text-left ${
+  const cls = `flex w-56 sm:w-64 max-w-full items-center gap-3 rounded-xl p-2 text-left ${
     isMine ? "bg-primary-content/10" : "bg-base-200"
   }`;
 
@@ -252,26 +341,310 @@ const placePopover = (rect, w, h, align, preferAbove = false) => {
 
 const actionBtnClass = (open) =>
   `btn btn-ghost btn-circle btn-xs text-base-content/50 hover:text-base-content transition-opacity focus-visible:opacity-100 ${
-    open
-      ? "opacity-100 bg-base-300/60"
-      : "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
+    open ? "opacity-100 bg-base-300/60" : "opacity-0 group-hover:opacity-100"
   }`;
 
-const MenuItem = ({ icon: Icon, label, onClick, danger = false }) => (
+const MenuItem = ({ icon: Icon, label, onClick, danger = false, large }) => (
   <button
     type="button"
     role="menuitem"
     onClick={onClick}
-    className={`w-full h-10 flex items-center gap-2.5 px-3 text-sm text-left outline-none transition-colors ${
+    className={`w-full flex items-center gap-3 px-4 text-left outline-none transition-colors ${
+      large ? "h-12 text-base" : "h-10 text-sm px-3 gap-2.5"
+    } ${
       danger
-        ? "text-error hover:bg-error/10 focus-visible:bg-error/10"
-        : "hover:bg-base-200 focus-visible:bg-base-200"
+        ? "text-error hover:bg-error/10 focus-visible:bg-error/10 active:bg-error/10"
+        : "hover:bg-base-200 focus-visible:bg-base-200 active:bg-base-200"
     }`}
   >
     <Icon className="size-4 shrink-0" />
     <span className="truncate">{label}</span>
   </button>
 );
+
+/* ------------------------------------------------------------------ */
+/*  One message row — memoized so typing in the composer does NOT     */
+/*  re-render every bubble (this was the main cause of lag on phones)  */
+/* ------------------------------------------------------------------ */
+const MessageRow = memo(function MessageRow({
+  m,
+  prev,
+  next,
+  group,
+  myId,
+  authUser,
+  cs,
+  s,
+  largeEmoji,
+  isTouch,
+  reactOpen,
+  menuOpen,
+  canReact,
+  canDM,
+  canDA,
+  h, // ref with the latest handlers
+}) {
+  const mine = sameId(m.senderId, myId);
+
+  const showDay =
+    m.createdAt && (!prev?.createdAt || !sameDay(prev.createdAt, m.createdAt));
+  const startsGroup = !prev || showDay || !sameId(prev.senderId, m.senderId);
+  const endsGroup =
+    !next ||
+    !sameId(next.senderId, m.senderId) ||
+    (next.createdAt && m.createdAt && !sameDay(next.createdAt, m.createdAt));
+
+  const pending = Boolean(m.pending || m.failed);
+  const isDeleted = Boolean(m.isDeleted);
+  const hasText = !isDeleted && Boolean(m.text);
+  const hasFile = !isDeleted && Boolean(m.file?.name);
+  const hasAudio = !isDeleted && Boolean(m.audio?.url);
+  const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
+  const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
+
+  const seenBy = (m.readBy || []).filter(
+    (id) => !sameId(id, m.senderId),
+  ).length;
+  const sender =
+    m.sender || group.members.find((x) => sameId(x.id, m.senderId));
+
+  const flags = getFlags(m, mine, canDM, canDA);
+  const showMenu = !pending && menuItemsCount(flags) > 0;
+  const showReact = !pending && !isDeleted && canReact;
+
+  // Animate only brand-new messages
+  const isFresh =
+    pending ||
+    (m.createdAt && Date.now() - new Date(m.createdAt).getTime() < 5000);
+
+  // Touch: tap on the bubble (not on a button/link/player) opens the bottom sheet
+  const onBubbleClick = (e) => {
+    if (!isTouch || !(showMenu || showReact)) return;
+    if (e.target.closest("button, a, input, audio, video, [role='slider']"))
+      return;
+    h.current.openSheet(m);
+  };
+
+  return (
+    <div>
+      {showDay && (
+        <div className="flex justify-center my-3 sm:my-4">
+          <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
+            {dayLabel(m.createdAt)}
+          </span>
+        </div>
+      )}
+
+      <motion.div
+        initial={isFresh ? { opacity: 0, y: 10 } : false}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: EASE }}
+        className={`group flex items-end gap-1.5 sm:gap-2 ${
+          mine ? "flex-row-reverse" : ""
+        } ${startsGroup ? cs.groupGap : cs.rowGap}`}
+      >
+        {/* avatar: on phones only for other people (saves width) */}
+        <div
+          className={`size-7 sm:size-8 shrink-0 ${mine ? "hidden sm:block" : ""}`}
+        >
+          {endsGroup && (
+            <img
+              src={avatarSrc(mine ? authUser?.avatar : sender?.avatar)}
+              alt=""
+              loading="lazy"
+              className="size-7 sm:size-8 rounded-full object-cover border border-base-300"
+            />
+          )}
+        </div>
+
+        <div
+          className={`flex flex-col min-w-0 max-w-[85%] sm:max-w-[65%] ${
+            mine ? "items-end" : "items-start"
+          }`}
+        >
+          {/* sender name (group only) */}
+          {!mine && startsGroup && (
+            <span className="text-xs font-medium text-base-content/60 mb-0.5 ml-1 max-w-full truncate">
+              {sender?.fullName || "Unknown"}
+            </span>
+          )}
+
+          {/* Bubble + action buttons (desktop only) */}
+          <div
+            className={`flex items-center gap-0.5 min-w-0 max-w-full ${
+              mine ? "flex-row-reverse" : ""
+            }`}
+          >
+            {isDeleted ? (
+              <div
+                className={`px-3.5 py-2 ${cs.radius} border border-base-300 bg-base-100 text-base-content/60 italic flex items-center gap-1.5 ${
+                  endsGroup ? (mine ? cs.tailMine : cs.tailTheirs) : ""
+                }`}
+              >
+                <Ban className="size-3.5 shrink-0" />
+                <span className="text-sm">
+                  {mine
+                    ? "You deleted this message"
+                    : "This message was deleted"}
+                </span>
+              </div>
+            ) : (
+              <div
+                onClick={onBubbleClick}
+                className={`min-w-0 max-w-full ${
+                  hasText || hasAudio ? "px-3 sm:px-3.5 py-2" : "p-1"
+                } ${cs.radius} shadow-sm ${
+                  isTouch ? "[-webkit-touch-callout:none] select-text" : ""
+                } ${
+                  mine
+                    ? `bg-primary text-primary-content ${
+                        endsGroup ? cs.tailMine : ""
+                      }`
+                    : `bg-base-100 border border-base-300 ${
+                        endsGroup ? cs.tailTheirs : ""
+                      }`
+                } ${m.failed ? "ring-1 ring-error" : ""}`}
+              >
+                {imageSrc && (
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => h.current.setPreviewSrc(imageSrc)}
+                    className="block focus-visible:outline-2 focus-visible:outline-offset-2 rounded-xl"
+                    aria-label="Open image"
+                  >
+                    <img
+                      src={imageSrc}
+                      alt="Attachment"
+                      decoding="async"
+                      loading="lazy"
+                      onLoad={() => h.current.onImageLoad()}
+                      className={`max-h-56 sm:max-h-64 w-auto max-w-full rounded-xl object-cover ${
+                        hasText ? "mb-2" : ""
+                      } ${m.pending ? "opacity-60" : ""}`}
+                    />
+                  </motion.button>
+                )}
+                {hasFile && (
+                  <div className={hasText ? "mb-2" : ""}>
+                    <FileAttachment
+                      file={m.file}
+                      isMine={mine}
+                      uploading={Boolean(m.pending)}
+                    />
+                  </div>
+                )}
+                {hasAudio && (
+                  <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
+                    <VoiceMessage
+                      audio={m.audio}
+                      isMine={mine}
+                      uploading={Boolean(m.pending)}
+                    />
+                  </div>
+                )}
+                {hasText && (
+                  <p
+                    className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
+                      largeEmoji && isEmojiOnly(m.text)
+                        ? "text-4xl leading-tight"
+                        : cs.text
+                    }`}
+                  >
+                    {m.text}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* hover actions: only on devices that can hover */}
+            {!isTouch && showReact && (
+              <button
+                type="button"
+                data-popover-ui
+                onClick={(e) => h.current.openPopover(e, "react", m, mine)}
+                className={actionBtnClass(reactOpen)}
+                aria-label="React to message"
+                aria-haspopup="true"
+                aria-expanded={reactOpen}
+                title="React"
+              >
+                <SmilePlus className="size-4" />
+              </button>
+            )}
+
+            {!isTouch && showMenu && (
+              <button
+                type="button"
+                data-popover-ui
+                onClick={(e) => h.current.openPopover(e, "menu", m, mine)}
+                className={actionBtnClass(menuOpen)}
+                aria-label="Message options"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                title="More"
+              >
+                <MoreVertical className="size-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Reaction chips */}
+          {grouped.length > 0 && (
+            <div
+              className={`relative z-[1] -mt-1.5 flex flex-wrap gap-1 px-2 ${
+                mine ? "justify-end" : ""
+              }`}
+            >
+              {grouped.map((r) => (
+                <button
+                  key={r.emoji}
+                  type="button"
+                  onClick={() => h.current.reactToMessage?.(m.id, r.emoji)}
+                  className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs bg-base-100 shadow-sm transition-colors active:scale-90 ${
+                    r.mine
+                      ? "border-primary bg-primary/10"
+                      : "border-base-300 hover:bg-base-200"
+                  }`}
+                >
+                  <span>{r.emoji}</span>
+                  {r.count > 1 && <span>{r.count}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(endsGroup || pending) && (
+            <div className="mt-1 px-1 text-[11px] text-base-content/50">
+              {renderStatus(m, mine, seenBy, s)}
+            </div>
+          )}
+
+          {m.failed && (
+            <div className="flex gap-3 mt-0.5 px-1 text-xs">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 py-1 text-primary hover:underline"
+                onClick={() => h.current.retryMessage(m.clientId)}
+              >
+                <RotateCw className="size-3" />
+                Retry
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 py-1 text-base-content/60 hover:text-error hover:underline"
+                onClick={() => h.current.discardMessage(m.clientId)}
+              >
+                <Trash2 className="size-3" />
+                Discard
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+});
 
 /* onToggleInfo -> opens / closes the right-side GroupInfoPanel (from HomePage) */
 const GroupChatContainer = ({ onToggleInfo }) => {
@@ -292,31 +665,29 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     deleteForEveryone,
   } = useGroupStore();
   const { authUser } = useAuthStore();
-  // hiding your own online status also hides others' status from you
   const onlineUsers = useVisibleOnlineUsers();
 
-  // user settings + bubble classes
   const s = useAppearanceStore((st) => st.appearance);
   const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
-  // Chat prefs are backend-authoritative
   const { enterToSend, largeEmoji, autoScroll } = useChatPrefsStore(
     (st) => st.prefs,
   );
-  const cs = chatStyle(s);
+  // memoized: a new object every render would defeat MessageRow's memo
+  const cs = useMemo(() => chatStyle(s), [s]);
 
-  // Respect Settings > Appearance > reduce motion (else follow the OS setting)
   const motionMode = s.reduceMotion ? "always" : "user";
+  const isTouch = useIsTouch();
 
   const [text, setText] = useState("");
-  const [file, setFile] = useState(null); // image or any other file
-  const [preview, setPreview] = useState(""); // images only
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showTools, setShowTools] = useState(false); // mobile: "+" attach row
   const [isDragging, setIsDragging] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(null);
-  const [popover, setPopover] = useState(null); // { type, id, top, left }
+  const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
   const [confirmId, setConfirmId] = useState(null);
 
-  // Voice notes: record -> auto-send on stop (cancel discards)
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ voice }),
     onError: (msg) => toast.error(msg),
@@ -324,16 +695,16 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const recorderBusy = recorder.state !== "idle";
 
   const listRef = useRef(null);
-  const fileRef = useRef(null); // documents etc. (paperclip) — NO images
-  const imageRef = useRef(null); // images only (image icon)
+  const fileRef = useRef(null);
+  const imageRef = useRef(null);
   const textRef = useRef(null);
   const typingTimer = useRef(null);
   const isTypingRef = useRef(false);
   const dragDepth = useRef(0);
   const stickToBottomRef = useRef(true);
   const lastGroupRef = useRef(null);
-  // With receipts OFF we never show up in readBy, so remember the last key sent per group
   const lastSeenSentRef = useRef({});
+  const handlersRef = useRef({}); // latest handlers for memoized rows
 
   const myId = String(authUser?.id);
   const group = selectedGroup;
@@ -341,6 +712,10 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const last = list[list.length - 1];
   const lastKey = last ? last.clientId || last.id : null;
   const lastIsMine = last ? sameId(last.senderId, myId) : false;
+
+  const canReact = Boolean(reactToMessage);
+  const canDM = Boolean(deleteForMe);
+  const canDA = Boolean(deleteForEveryone);
 
   const fileIsImage = isImageFile(file);
   const PreviewIcon = file ? getFileIcon(file.type, file.name) : null;
@@ -351,14 +726,12 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   }, []);
 
   /* ---- scroll: only on new message / group switch ---- */
-  // useLayoutEffect fires before browser paint — same rationale as ChatContainer.
   useLayoutEffect(() => {
     if (isGroupMessagesLoading || !listRef.current) return;
     const changed = lastGroupRef.current !== group?.id;
     lastGroupRef.current = group?.id;
     if (changed) {
       stickToBottomRef.current = true;
-      // rAF: let flex-layout finish measuring new container height before scrolling
       requestAnimationFrame(() => {
         if (listRef.current)
           listRef.current.scrollTo({
@@ -368,7 +741,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       });
       return;
     }
-    // Own message: always scroll. Others: scroll only when already at the bottom.
     if (lastIsMine || (autoScroll && stickToBottomRef.current))
       scrollToBottom("smooth");
   }, [
@@ -380,7 +752,18 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     autoScroll,
   ]);
 
-  /* ---- image preview (non-image files don't get a preview URL) ---- */
+  /* ---- keep list pinned to bottom when the mobile keyboard opens ---- */
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (stickToBottomRef.current) scrollToBottom("auto");
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, [scrollToBottom]);
+
+  /* ---- image preview ---- */
   useEffect(() => {
     if (!file || !isImageFile(file)) return setPreview("");
     const url = URL.createObjectURL(file);
@@ -401,10 +784,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
   /* ---- reset input when switching group ---- */
   useEffect(() => {
-    recorder.cancel(); // never carry a live recording into another group
+    recorder.cancel();
     setText("");
     setFile(null);
     setShowEmoji(false);
+    setShowTools(false);
     setPopover(null);
     setConfirmId(null);
     setIsDragging(false);
@@ -436,7 +820,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [text]);
 
-  /* ---- SEEN (the server decides whether a receipt is sent) ---- */
+  /* ---- SEEN ---- */
   const hasUnseen = useMemo(
     () =>
       list.some(
@@ -492,7 +876,10 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const onDown = (e) => {
       if (!e.target.closest("[data-popover-ui]")) setPopover(null);
     };
-    const onResize = () => setPopover(null);
+    // the bottom sheet must survive viewport changes (keyboard / rotation)
+    const onResize = () => {
+      if (popover.type !== "sheet") setPopover(null);
+    };
     document.addEventListener("pointerdown", onDown);
     window.addEventListener("resize", onResize);
     return () => {
@@ -516,7 +903,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     }
   };
 
-  // Settings > Privacy > typing OFF: stop immediately
   useEffect(() => {
     if (!typingEnabled) stopTyping();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -528,7 +914,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     .filter(([uid]) => uid !== myId)
     .map(([, name]) => name?.split(" ")[0]);
 
-  // Own typing indicator OFF = others' typing is hidden from you too
   const typingText =
     !typingEnabled || typingNames.length === 0
       ? ""
@@ -537,39 +922,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
         : typingNames.length === 2
           ? `${typingNames[0]} and ${typingNames[1]} are typing…`
           : "Several people are typing…";
-
-  /* ---- message flags / menu ---- */
-  const flagsOf = (m, mine) => {
-    const isDeleted = Boolean(m.isDeleted);
-    return {
-      isDeleted,
-      hasText: !isDeleted && Boolean(m.text),
-      hasImage: !isDeleted && Boolean(m.image?.url),
-      hasFile: !isDeleted && Boolean(m.file?.name),
-      hasFileUrl: !isDeleted && Boolean(m.file?.url),
-      hasAudio: !isDeleted && Boolean(m.audio?.url),
-      canDeleteForMe: !isDeleted && Boolean(deleteForMe),
-      canDeleteForAll: mine && !isDeleted && Boolean(deleteForEveryone),
-    };
-  };
-
-  const copyCount = (f) =>
-    (f.hasText ? 1 : 0) +
-    (f.hasImage ? 2 : 0) +
-    (f.hasFileUrl ? 1 : 0) +
-    (f.hasAudio ? 1 : 0);
-
-  const menuItemsCount = (f) =>
-    copyCount(f) + (f.canDeleteForMe ? 1 : 0) + (f.canDeleteForAll ? 1 : 0);
-
-  const menuHeight = (f) => {
-    const copyItems = copyCount(f);
-    return (
-      menuItemsCount(f) * 40 +
-      8 +
-      (copyItems && menuItemsCount(f) > copyItems ? 9 : 0)
-    );
-  };
 
   const openPopover = (e, type, m, mine) => {
     if (popover?.type === type && sameId(popover.id, m.id)) {
@@ -581,9 +933,15 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const pos =
       type === "react"
         ? placePopover(rect, REACT_W, REACT_H, align, true)
-        : placePopover(rect, MENU_W, menuHeight(flagsOf(m, mine)), align);
+        : placePopover(
+            rect,
+            MENU_W,
+            menuHeight(getFlags(m, mine, canDM, canDA)),
+            align,
+          );
     setPopover({ type, id: m.id, ...pos });
   };
+  const openSheet = (m) => setPopover({ type: "sheet", id: m.id });
   const closePopover = () => setPopover(null);
 
   const handleCopyText = async (m) => {
@@ -591,7 +949,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const ok = await copyMessageText(m.text);
     ok ? toast.success("Text copied") : toast.error("Couldn't copy text");
   };
-  // NOTE: copyMessageImage must be called right inside the click handler
   const handleCopyImage = async (m) => {
     closePopover();
     const result = await copyMessageImage(m.image?.url);
@@ -624,17 +981,26 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     }
   };
 
+  // always-fresh handlers for the memoized rows (no prop churn)
+  handlersRef.current = {
+    openPopover,
+    openSheet,
+    setPreviewSrc,
+    reactToMessage,
+    retryMessage,
+    discardMessage,
+    onImageLoad: () => stickToBottomRef.current && scrollToBottom("auto"),
+  };
+
   const handleListScroll = (e) => {
     const el = e.currentTarget;
     stickToBottomRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (popover) setPopover(null);
+    if (popover && popover.type !== "sheet") setPopover(null);
   };
 
   const handleChange = (e) => {
     setText(e.target.value);
-
-    // Settings > Privacy > "Typing indicator" (off = never tell others)
     if (!typingEnabled) return;
 
     if (!isTypingRef.current) {
@@ -654,13 +1020,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     if (imageRef.current) imageRef.current.value = "";
   };
 
-  /**
-   * Validate + select. Picker, paste and drop all end up here.
-   * kind:
-   *   "image" -> image button: ONLY images allowed
-   *   "file"  -> paperclip:    ONLY non-image files allowed
-   *   "any"   -> paste / drop: type decides, both allowed
-   */
   const selectFile = (f, kind = "any") => {
     if (!f) return;
     const img = isImageFile(f);
@@ -687,13 +1046,13 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       return;
     }
     setFile(f);
+    setShowTools(false);
   };
 
   const handleSend = (e) => {
     e?.preventDefault();
     if (!text.trim() && !file) return;
     stopTyping();
-    // Images use `imageFile`; other files go as `attachment`
     sendMessage({
       text,
       imageFile: fileIsImage ? file : null,
@@ -702,11 +1061,13 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setText("");
     clearFile();
     setShowEmoji(false);
+    setShowTools(false);
   };
 
-  // Settings > Chat > "Enter to send"
   const handleKeyDown = (e) => {
     if (e.key !== "Enter") return;
+    // phones: Enter = new line, send with the button
+    if (isTouch) return;
     const wantsSend = enterToSend ? !e.shiftKey : e.ctrlKey || e.metaKey;
     if (wantsSend) {
       e.preventDefault();
@@ -717,19 +1078,17 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const startRecording = () => {
     stopTyping();
     setShowEmoji(false);
+    setShowTools(false);
     recorder.start();
   };
 
-  // One picker handler per input, each enforcing its own kind
   const pickFromInput = (kind) => (e) => {
     selectFile(e.target.files?.[0], kind);
-    // allow choosing the same file again
     e.target.value = "";
   };
   const pickImage = pickFromInput("image");
   const pickDoc = pickFromInput("file");
 
-  // Paste: screenshot or copied file
   const handlePaste = (e) => {
     const item = [...(e.clipboardData?.items || [])].find(
       (i) => i.kind === "file",
@@ -741,7 +1100,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     }
   };
 
-  // Drag & drop (depth counter prevents flicker)
   const handleDragEnter = (e) => {
     e.preventDefault();
     dragDepth.current += 1;
@@ -758,48 +1116,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     selectFile(e.dataTransfer.files?.[0], "any");
   };
 
-  /* ---- status line under a bubble ---- */
-  const renderStatus = (m, mine, seenBy) => {
-    if (m.pending) {
-      return (
-        <span className="inline-flex items-center gap-1">
-          <Loader2 className="size-3 animate-spin" />
-          Sending…
-        </span>
-      );
-    }
-    if (m.failed) {
-      return (
-        <span className="inline-flex items-center gap-1 text-error">
-          <AlertCircle className="size-3" />
-          Not sent
-        </span>
-      );
-    }
-
-    // Settings > Appearance > timestamps + 12h/24h
-    const time =
-      m.createdAt && s.showTimestamps
-        ? formatTime(m.createdAt, s.timeFormat)
-        : "";
-    if (!mine || m.isDeleted) return time;
-
-    return (
-      <span className="inline-flex items-center gap-1">
-        {time}
-        {seenBy > 0 ? (
-          <>
-            <CheckCheck className="size-3.5 text-info" aria-label="Seen" />
-            <span>Seen by {seenBy}</span>
-          </>
-        ) : (
-          <Check className="size-3.5" aria-label="Sent" />
-        )}
-      </span>
-    );
-  };
-
-  /* ---- popover data ---- */
+  /* ---- popover / sheet data ---- */
   const popoverMessage = popover
     ? list.find((m) => sameId(m.id, popover.id))
     : null;
@@ -807,43 +1124,127 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     ? sameId(popoverMessage.senderId, myId)
     : false;
   const popoverFlags = popoverMessage
-    ? flagsOf(popoverMessage, popoverIsMine)
+    ? getFlags(popoverMessage, popoverIsMine, canDM, canDA)
     : null;
   const myReaction = popoverMessage
     ? (popoverMessage.reactions || []).find((r) => sameId(r.userId, myId))
         ?.emoji
     : null;
 
+  // shared menu rows (desktop popover + mobile bottom sheet)
+  const renderMenuItems = (f, msg, large) => (
+    <>
+      {f.hasText && (
+        <MenuItem
+          large={large}
+          icon={Copy}
+          label="Copy text"
+          onClick={() => handleCopyText(msg)}
+        />
+      )}
+      {f.hasImage && (
+        <>
+          <MenuItem
+            large={large}
+            icon={ImageIcon}
+            label="Copy image"
+            onClick={() => handleCopyImage(msg)}
+          />
+          <MenuItem
+            large={large}
+            icon={Link2}
+            label="Copy image link"
+            onClick={() => handleCopyLink(msg)}
+          />
+        </>
+      )}
+      {f.hasFileUrl && (
+        <MenuItem
+          large={large}
+          icon={Link2}
+          label="Copy file link"
+          onClick={() => handleCopyFileLink(msg)}
+        />
+      )}
+      {f.hasAudio && (
+        <MenuItem
+          large={large}
+          icon={Link2}
+          label="Copy voice message link"
+          onClick={() => handleCopyAudioLink(msg)}
+        />
+      )}
+      {copyCount(f) > 0 && (f.canDeleteForMe || f.canDeleteForAll) && (
+        <div className="my-1 border-t border-base-300" />
+      )}
+      {f.canDeleteForMe && (
+        <MenuItem
+          large={large}
+          icon={Trash2}
+          label="Delete for me"
+          onClick={() => {
+            closePopover();
+            deleteForMe(msg.id);
+          }}
+        />
+      )}
+      {f.canDeleteForAll && (
+        <MenuItem
+          large={large}
+          icon={Trash2}
+          label="Delete for everyone"
+          danger
+          onClick={() => {
+            closePopover();
+            setConfirmId(msg.id);
+          }}
+        />
+      )}
+    </>
+  );
+
   return (
     <MotionConfig reducedMotion={motionMode}>
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-base-100">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-base-300">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100">
+        {/* ---------------- Header ---------------- */}
+        <div className="flex items-center gap-1 sm:gap-3 px-2 sm:px-4 py-2 sm:py-3 border-b border-base-300 bg-base-100">
+          {/* back (phones / tablets: sidebar is hidden while a chat is open) */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm btn-circle lg:hidden shrink-0"
+            onClick={closeGroup}
+            aria-label="Back to chats"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+
           <button
             type="button"
             onClick={onToggleInfo}
-            className="flex items-center gap-3 min-w-0 flex-1 text-left"
+            className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 text-left"
           >
             {group.avatar ? (
               <img
                 src={avatarSrc(group.avatar)}
                 alt=""
-                className="size-10 rounded-full object-cover"
+                className="size-9 sm:size-10 shrink-0 rounded-full object-cover"
               />
             ) : (
-              <div className="size-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold">
+              <div className="size-9 sm:size-10 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold">
                 {group.name?.[0]?.toUpperCase()}
               </div>
             )}
             <div className="min-w-0">
-              <div className="font-semibold truncate">{group.name}</div>
+              <div className="font-semibold truncate leading-tight">
+                {group.name}
+              </div>
               <div className="text-xs truncate">
                 <AnimatePresence mode="wait" initial={false}>
                   {typingText ? (
                     <motion.span
                       key="typing"
                       {...fade}
-                      className="text-primary block"
+                      className="text-primary block truncate"
                     >
                       {typingText}
                     </motion.span>
@@ -851,7 +1252,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                     <motion.span
                       key="members"
                       {...fade}
-                      className="text-base-content/60 block"
+                      className="text-base-content/60 block truncate"
                     >
                       {group.members.length} members ·{" "}
                       <span className={onlineCount > 0 ? "text-success" : ""}>
@@ -866,15 +1267,16 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
           <button
             type="button"
-            className="btn btn-ghost btn-sm btn-circle xl:hidden"
+            className="btn btn-ghost btn-sm btn-circle xl:hidden shrink-0"
             onClick={onToggleInfo}
             aria-label="Group info"
           >
             <Info className="size-5" />
           </button>
+          {/* close: desktop only (phones use the back arrow) */}
           <button
             type="button"
-            className="btn btn-ghost btn-sm btn-circle"
+            className="btn btn-ghost btn-sm btn-circle hidden lg:inline-flex shrink-0"
             onClick={closeGroup}
             aria-label="Close chat"
           >
@@ -882,11 +1284,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           </button>
         </div>
 
-        {/* Messages */}
+        {/* ---------------- Messages ---------------- */}
         <div
           ref={listRef}
           onScroll={handleListScroll}
-          className="flex-1 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6 bg-base-200/40"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-4 sm:px-6 sm:py-5 bg-base-200/40"
         >
           {isGroupMessagesLoading && (
             <div className="flex justify-center py-8">
@@ -897,7 +1299,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           {!isGroupMessagesLoading && list.length === 0 && (
             <motion.div
               {...fade}
-              className="h-full flex flex-col items-center justify-center text-center gap-3"
+              className="h-full flex flex-col items-center justify-center text-center gap-3 px-6"
             >
               <div className="size-14 rounded-2xl bg-base-100 border border-base-300 flex items-center justify-center">
                 <MessageSquareText className="size-6 text-base-content/50" />
@@ -911,292 +1313,31 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </motion.div>
           )}
 
-          {list.map((m, i) => {
-            const prev = list[i - 1];
-            const next = list[i + 1];
-            const mine = sameId(m.senderId, myId);
-
-            const showDay =
-              m.createdAt &&
-              (!prev?.createdAt || !sameDay(prev.createdAt, m.createdAt));
-            const startsGroup =
-              !prev || showDay || !sameId(prev.senderId, m.senderId);
-            const endsGroup =
-              !next ||
-              !sameId(next.senderId, m.senderId) ||
-              (next.createdAt &&
-                m.createdAt &&
-                !sameDay(next.createdAt, m.createdAt));
-
-            const pending = Boolean(m.pending || m.failed);
-            const isDeleted = Boolean(m.isDeleted);
-            const hasText = !isDeleted && Boolean(m.text);
-            const hasFile = !isDeleted && Boolean(m.file?.name);
-            const hasAudio = !isDeleted && Boolean(m.audio?.url);
-            const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
-            const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
-
-            const seenBy = (m.readBy || []).filter(
-              (id) => !sameId(id, m.senderId),
-            ).length;
-            const sender =
-              m.sender || group.members.find((x) => sameId(x.id, m.senderId));
-
-            const flags = flagsOf(m, mine);
-            const showMenu = !pending && menuItemsCount(flags) > 0;
-            const showReact = !pending && !isDeleted && Boolean(reactToMessage);
-
-            const reactOpen =
-              popover?.type === "react" && sameId(popover.id, m.id);
-            const menuOpen =
-              popover?.type === "menu" && sameId(popover.id, m.id);
-
-            // Animate only brand-new messages, so opening an old group
-            // doesn't replay an animation for every bubble.
-            const isFresh =
-              pending ||
-              (m.createdAt &&
-                Date.now() - new Date(m.createdAt).getTime() < 5000);
-
-            return (
-              <div key={m.clientId || m.id}>
-                {showDay && (
-                  <div className="flex justify-center my-4">
-                    <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
-                      {dayLabel(m.createdAt)}
-                    </span>
-                  </div>
-                )}
-
-                <motion.div
-                  initial={isFresh ? { opacity: 0, y: 12, scale: 0.97 } : false}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.22, ease: EASE }}
-                  style={{
-                    transformOrigin: mine ? "bottom right" : "bottom left",
-                  }}
-                  className={`group flex items-end gap-2 ${
-                    mine ? "flex-row-reverse" : ""
-                  } ${startsGroup ? cs.groupGap : cs.rowGap}`}
-                >
-                  <div className="size-8 shrink-0">
-                    {endsGroup && (
-                      <img
-                        src={avatarSrc(
-                          mine ? authUser?.avatar : sender?.avatar,
-                        )}
-                        alt=""
-                        className="size-8 rounded-full object-cover border border-base-300"
-                      />
-                    )}
-                  </div>
-
-                  <div
-                    className={`flex flex-col min-w-0 max-w-[80%] sm:max-w-[65%] ${
-                      mine ? "items-end" : "items-start"
-                    }`}
-                  >
-                    {/* sender name (group only) */}
-                    {!mine && startsGroup && (
-                      <span className="text-xs font-medium text-base-content/60 mb-0.5 ml-1">
-                        {sender?.fullName || "Unknown"}
-                      </span>
-                    )}
-
-                    {/* Bubble + action buttons */}
-                    <div
-                      className={`flex items-center gap-0.5 min-w-0 ${
-                        mine ? "flex-row-reverse" : ""
-                      }`}
-                    >
-                      {isDeleted ? (
-                        <div
-                          className={`px-3.5 py-2 ${cs.radius} border border-base-300 bg-base-100 text-base-content/60 italic flex items-center gap-1.5 ${
-                            endsGroup
-                              ? mine
-                                ? cs.tailMine
-                                : cs.tailTheirs
-                              : ""
-                          }`}
-                        >
-                          <Ban className="size-3.5 shrink-0" />
-                          <span className="text-sm">
-                            {mine
-                              ? "You deleted this message"
-                              : "This message was deleted"}
-                          </span>
-                        </div>
-                      ) : (
-                        <div
-                          className={`min-w-0 ${
-                            hasText || hasAudio ? "px-3.5 py-2" : "p-1"
-                          } ${cs.radius} shadow-sm ${
-                            mine
-                              ? `bg-primary text-primary-content ${
-                                  endsGroup ? cs.tailMine : ""
-                                }`
-                              : `bg-base-100 border border-base-300 ${
-                                  endsGroup ? cs.tailTheirs : ""
-                                }`
-                          } ${m.failed ? "ring-1 ring-error" : ""}`}
-                        >
-                          {imageSrc && (
-                            <motion.button
-                              type="button"
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => setPreviewSrc(imageSrc)}
-                              className="block focus-visible:outline-2 focus-visible:outline-offset-2 rounded-xl"
-                              aria-label="Open image"
-                            >
-                              <img
-                                src={imageSrc}
-                                alt="Attachment"
-                                decoding="async"
-                                onLoad={() =>
-                                  stickToBottomRef.current &&
-                                  scrollToBottom("auto")
-                                }
-                                className={`max-h-64 w-auto max-w-full rounded-xl object-cover ${
-                                  hasText ? "mb-2" : ""
-                                } ${m.pending ? "opacity-60" : ""}`}
-                              />
-                            </motion.button>
-                          )}
-                          {hasFile && (
-                            <div className={hasText ? "mb-2" : ""}>
-                              <FileAttachment
-                                file={m.file}
-                                isMine={mine}
-                                uploading={Boolean(m.pending)}
-                              />
-                            </div>
-                          )}
-                          {hasAudio && (
-                            <div className={hasText ? "mb-2" : ""}>
-                              <VoiceMessage
-                                audio={m.audio}
-                                isMine={mine}
-                                uploading={Boolean(m.pending)}
-                              />
-                            </div>
-                          )}
-                          {hasText && (
-                            <p
-                              className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
-                                largeEmoji && isEmojiOnly(m.text)
-                                  ? "text-4xl leading-tight"
-                                  : cs.text
-                              }`}
-                            >
-                              {m.text}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {showReact && (
-                        <button
-                          type="button"
-                          data-popover-ui
-                          onClick={(e) => openPopover(e, "react", m, mine)}
-                          className={actionBtnClass(reactOpen)}
-                          aria-label="React to message"
-                          aria-haspopup="true"
-                          aria-expanded={reactOpen}
-                          title="React"
-                        >
-                          <SmilePlus className="size-4" />
-                        </button>
-                      )}
-
-                      {showMenu && (
-                        <button
-                          type="button"
-                          data-popover-ui
-                          onClick={(e) => openPopover(e, "menu", m, mine)}
-                          className={actionBtnClass(menuOpen)}
-                          aria-label="Message options"
-                          aria-haspopup="menu"
-                          aria-expanded={menuOpen}
-                          title="More"
-                        >
-                          <MoreVertical className="size-4" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Reaction chips */}
-                    {grouped.length > 0 && (
-                      <div
-                        className={`relative z-[1] -mt-1.5 flex flex-wrap gap-1 px-2 ${
-                          mine ? "justify-end" : ""
-                        }`}
-                      >
-                        <AnimatePresence initial={false}>
-                          {grouped.map((r) => (
-                            <motion.button
-                              key={r.emoji}
-                              layout="position"
-                              initial={{ opacity: 0, scale: 0.4 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.4 }}
-                              transition={{
-                                type: "spring",
-                                stiffness: 500,
-                                damping: 28,
-                              }}
-                              whileTap={{ scale: 0.88 }}
-                              type="button"
-                              onClick={() => reactToMessage?.(m.id, r.emoji)}
-                              className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs bg-base-100 shadow-sm transition-colors ${
-                                r.mine
-                                  ? "border-primary bg-primary/10"
-                                  : "border-base-300 hover:bg-base-200"
-                              }`}
-                            >
-                              <span>{r.emoji}</span>
-                              {r.count > 1 && <span>{r.count}</span>}
-                            </motion.button>
-                          ))}
-                        </AnimatePresence>
-                      </div>
-                    )}
-
-                    {(endsGroup || pending) && (
-                      <div className="mt-1 px-1 text-[11px] text-base-content/50">
-                        {renderStatus(m, mine, seenBy)}
-                      </div>
-                    )}
-
-                    {m.failed && (
-                      <div className="flex gap-3 mt-0.5 px-1 text-xs">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                          onClick={() => retryMessage(m.clientId)}
-                        >
-                          <RotateCw className="size-3" />
-                          Retry
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-base-content/60 hover:text-error hover:underline"
-                          onClick={() => discardMessage(m.clientId)}
-                        >
-                          <Trash2 className="size-3" />
-                          Discard
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              </div>
-            );
-          })}
+          {list.map((m, i) => (
+            <MessageRow
+              key={m.clientId || m.id}
+              m={m}
+              prev={list[i - 1]}
+              next={list[i + 1]}
+              group={group}
+              myId={myId}
+              authUser={authUser}
+              cs={cs}
+              s={s}
+              largeEmoji={largeEmoji}
+              isTouch={isTouch}
+              reactOpen={popover?.type === "react" && sameId(popover.id, m.id)}
+              menuOpen={popover?.type === "menu" && sameId(popover.id, m.id)}
+              canReact={canReact}
+              canDM={canDM}
+              canDA={canDA}
+              h={handlersRef}
+            />
+          ))}
         </div>
 
-        {/* Input */}
-        <div className="relative border-t border-base-300 p-3">
+        {/* ---------------- Input ---------------- */}
+        <div className="relative border-t border-base-300 bg-base-100 px-2 pt-2 sm:p-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-3">
           <AnimatePresence initial={false}>
             {file && (
               <motion.div
@@ -1238,7 +1379,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                   type="button"
                   onClick={clearFile}
                   whileTap={{ scale: 0.85 }}
-                  className="absolute -top-2 -right-2 size-5 rounded-full bg-base-300 flex items-center justify-center"
+                  className="absolute -top-2 -right-2 size-6 rounded-full bg-base-300 flex items-center justify-center"
                   aria-label="Remove attachment"
                 >
                   <X className="size-3" />
@@ -1262,12 +1403,12 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 }}
                 transition={{ duration: 0.18, ease: EASE }}
                 style={{ transformOrigin: "bottom left" }}
-                className="absolute bottom-full left-3 mb-2 z-40 max-w-[calc(100%-1.5rem)]"
+                className="absolute bottom-full left-2 sm:left-3 mb-2 z-40 max-w-[calc(100%-1rem)]"
               >
                 <EmojiPicker
                   theme="auto"
-                  width={Math.min(350, window.innerWidth - 40)}
-                  height={420}
+                  width={Math.min(350, window.innerWidth - 24)}
+                  height={Math.min(420, Math.round(window.innerHeight * 0.5))}
                   lazyLoadEmojis
                   searchPlaceHolder="Search"
                   previewConfig={{ showPreview: false }}
@@ -1280,12 +1421,12 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             )}
           </AnimatePresence>
 
-          {/* Recording bar (replaces the composer while recording) */}
+          {/* Recording bar */}
           {recorderBusy && (
             <div
               role="status"
               aria-live="polite"
-              className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-primary/5 px-3 py-2"
+              className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-primary/40 bg-primary/5 px-2 sm:px-3 py-2"
             >
               <motion.button
                 type="button"
@@ -1326,7 +1467,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </div>
           )}
 
-          {/* `relative` so the AiAssist menu/result can anchor to the form */}
           {!recorderBusy && (
             <form
               onSubmit={handleSend}
@@ -1334,7 +1474,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               onDragOver={(e) => e.preventDefault()}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`relative flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary ${
+              className={`relative flex flex-wrap sm:flex-nowrap items-end sm:items-center gap-1.5 sm:gap-2 rounded-2xl border px-2 sm:px-3 py-1.5 sm:py-2 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary ${
                 isDragging
                   ? "border-primary border-dashed bg-primary/10"
                   : "border-base-300"
@@ -1352,53 +1492,74 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 )}
               </AnimatePresence>
 
-              {/* Image button — images only */}
+              {/* Tools: image / file / emoji / AI.
+                  Phones: hidden behind the "+" button, shown as their own row.
+                  sm and up: inline like before. */}
+              <div
+                className={`${
+                  showTools ? "flex" : "hidden"
+                } sm:flex order-1 w-full sm:w-auto items-center gap-1 pb-1.5 sm:pb-0 border-b border-base-300/60 sm:border-0`}
+              >
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  className="btn btn-ghost btn-sm btn-circle"
+                  onClick={() => imageRef.current?.click()}
+                  aria-label="Send image"
+                  title="Send image"
+                >
+                  <ImageIcon className="size-5" />
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  className="btn btn-ghost btn-sm btn-circle"
+                  onClick={() => fileRef.current?.click()}
+                  aria-label="Send file"
+                  title="Send file"
+                >
+                  <Paperclip className="size-5" />
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  data-emoji-ui
+                  whileTap={{ scale: 0.88 }}
+                  className={`btn btn-ghost btn-sm btn-circle ${showEmoji ? "text-primary" : ""}`}
+                  onClick={() => setShowEmoji((v) => !v)}
+                  aria-label="Emoji"
+                  aria-expanded={showEmoji}
+                >
+                  <Smile className="size-5" />
+                </motion.button>
+
+                <AiAssist
+                  text={text}
+                  resetKey={group.id}
+                  onApply={(v) => {
+                    setText(v);
+                    textRef.current?.focus();
+                  }}
+                />
+              </div>
+
+              {/* "+" toggle (phones only) */}
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.88 }}
-                className="btn btn-ghost btn-sm btn-circle"
-                onClick={() => imageRef.current?.click()}
-                aria-label="Send image"
-                title="Send image"
+                className="order-2 sm:hidden btn btn-ghost btn-sm btn-circle shrink-0"
+                onClick={() => setShowTools((v) => !v)}
+                aria-label="More attachments"
+                aria-expanded={showTools}
               >
-                <ImageIcon className="size-5" />
+                <Plus
+                  className={`size-5 transition-transform duration-200 ${
+                    showTools ? "rotate-45" : ""
+                  }`}
+                />
               </motion.button>
 
-              {/* File button — files only (no images) */}
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.88 }}
-                className="btn btn-ghost btn-sm btn-circle"
-                onClick={() => fileRef.current?.click()}
-                aria-label="Send file"
-                title="Send file"
-              >
-                <Paperclip className="size-5" />
-              </motion.button>
-
-              <motion.button
-                type="button"
-                data-emoji-ui
-                whileTap={{ scale: 0.88 }}
-                className={`btn btn-ghost btn-sm btn-circle ${showEmoji ? "text-primary" : ""}`}
-                onClick={() => setShowEmoji((v) => !v)}
-                aria-label="Emoji"
-                aria-expanded={showEmoji}
-              >
-                <Smile className="size-5" />
-              </motion.button>
-
-              {/* AI assist (hides itself when turned off in Settings) */}
-              <AiAssist
-                text={text}
-                resetKey={group.id}
-                onApply={(v) => {
-                  setText(v);
-                  textRef.current?.focus();
-                }}
-              />
-
-              {/* Images only */}
               <input
                 ref={imageRef}
                 type="file"
@@ -1406,8 +1567,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 hidden
                 onChange={pickImage}
               />
-
-              {/* Files only (non-image) */}
               <input
                 ref={fileRef}
                 type="file"
@@ -1425,16 +1584,16 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 onPaste={handlePaste}
                 maxLength={2000}
                 placeholder="Write a message…"
-                className="flex-1 resize-none bg-transparent outline-none py-1.5 text-sm max-h-[120px]"
+                // 16px on phones stops iOS from zooming the page on focus
+                className="order-3 flex-1 min-w-0 resize-none bg-transparent outline-none py-1.5 text-base sm:text-sm max-h-[120px]"
               />
 
               {/* Send when there's content, otherwise record a voice note */}
               {text.trim() || file ? (
                 <motion.button
                   type="submit"
-                  whileHover={{ scale: 1.06 }}
                   whileTap={{ scale: 0.88 }}
-                  className="btn btn-primary btn-sm btn-circle"
+                  className="order-4 shrink-0 btn btn-primary btn-sm btn-circle"
                   aria-label="Send"
                 >
                   <Send className="size-4" />
@@ -1442,9 +1601,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               ) : (
                 <motion.button
                   type="button"
-                  whileHover={{ scale: 1.06 }}
                   whileTap={{ scale: 0.88 }}
-                  className="btn btn-primary btn-sm btn-circle"
+                  className="order-4 shrink-0 btn btn-primary btn-sm btn-circle"
                   onClick={startRecording}
                   aria-label="Record voice message"
                   title="Record voice message"
@@ -1456,7 +1614,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           )}
 
           {!recorderBusy && (
-            <p className="mt-1.5 px-1 text-[11px] text-base-content/50">
+            <p className="hidden sm:block mt-1.5 px-1 text-[11px] text-base-content/50">
               {enterToSend
                 ? "Enter to send · Shift+Enter for a new line"
                 : "Enter for a new line · Ctrl+Enter to send"}
@@ -1464,117 +1622,113 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           )}
         </div>
 
-        {/* Reaction picker + options menu */}
+        {/* ---------------- Desktop: reaction picker + options menu ---------------- */}
         {createPortal(
           <AnimatePresence>
-            {popover && popoverMessage && popoverFlags && (
-              <motion.div
-                key={`${popover.type}-${popover.id}`}
-                data-popover-ui
-                role={popover.type === "react" ? "toolbar" : "menu"}
-                aria-label={popover.type === "react" ? "Reactions" : undefined}
-                {...popIn}
-                style={{
-                  top: popover.top,
-                  left: popover.left,
-                  width: popover.type === "react" ? REACT_W : MENU_W,
-                  transformOrigin: "top center",
-                }}
-                className={
-                  popover.type === "react"
-                    ? "fixed z-50 flex items-center justify-between rounded-full bg-base-100 border border-base-300 shadow-xl px-1.5 py-1"
-                    : "fixed z-50 rounded-xl bg-base-100 border border-base-300 shadow-xl py-1 overflow-hidden"
-                }
-              >
-                {popover.type === "react" ? (
-                  QUICK_REACTIONS.map((emoji) => (
-                    <motion.button
-                      key={emoji}
-                      type="button"
-                      whileHover={{ scale: 1.25 }}
-                      whileTap={{ scale: 0.9 }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 500,
-                        damping: 22,
-                      }}
-                      onClick={() => {
-                        reactToMessage?.(popoverMessage.id, emoji);
-                        closePopover();
-                      }}
-                      className={`size-9 rounded-full text-xl flex items-center justify-center ${
-                        myReaction === emoji ? "bg-primary/15" : ""
-                      }`}
-                    >
-                      {emoji}
-                    </motion.button>
-                  ))
-                ) : (
-                  <>
-                    {popoverFlags.hasText && (
-                      <MenuItem
-                        icon={Copy}
-                        label="Copy text"
-                        onClick={() => handleCopyText(popoverMessage)}
-                      />
-                    )}
-                    {popoverFlags.hasImage && (
-                      <>
-                        <MenuItem
-                          icon={ImageIcon}
-                          label="Copy image"
-                          onClick={() => handleCopyImage(popoverMessage)}
-                        />
-                        <MenuItem
-                          icon={Link2}
-                          label="Copy image link"
-                          onClick={() => handleCopyLink(popoverMessage)}
-                        />
-                      </>
-                    )}
-                    {popoverFlags.hasFileUrl && (
-                      <MenuItem
-                        icon={Link2}
-                        label="Copy file link"
-                        onClick={() => handleCopyFileLink(popoverMessage)}
-                      />
-                    )}
-                    {popoverFlags.hasAudio && (
-                      <MenuItem
-                        icon={Link2}
-                        label="Copy voice message link"
-                        onClick={() => handleCopyAudioLink(popoverMessage)}
-                      />
-                    )}
-                    {copyCount(popoverFlags) > 0 &&
-                      (popoverFlags.canDeleteForMe ||
-                        popoverFlags.canDeleteForAll) && (
-                        <div className="my-1 border-t border-base-300" />
-                      )}
-                    {popoverFlags.canDeleteForMe && (
-                      <MenuItem
-                        icon={Trash2}
-                        label="Delete for me"
-                        onClick={() => {
-                          closePopover();
-                          deleteForMe(popoverMessage.id);
-                        }}
-                      />
-                    )}
-                    {popoverFlags.canDeleteForAll && (
-                      <MenuItem
-                        icon={Trash2}
-                        label="Delete for everyone"
-                        danger
-                        onClick={() => {
-                          closePopover();
-                          setConfirmId(popoverMessage.id);
-                        }}
-                      />
-                    )}
-                  </>
-                )}
-              </motion.div>
+            {popover &&
+              popover.type !== "sheet" &&
+              popoverMessage &&
+              popoverFlags && (
+                <motion.div
+                  key={`${popover.type}-${popover.id}`}
+                  data-popover-ui
+                  role={popover.type === "react" ? "toolbar" : "menu"}
+                  aria-label={
+                    popover.type === "react" ? "Reactions" : undefined
+                  }
+                  {...popIn}
+                  style={{
+                    top: popover.top,
+                    left: popover.left,
+                    width: popover.type === "react" ? REACT_W : MENU_W,
+                    transformOrigin: "top center",
+                  }}
+                  className={
+                    popover.type === "react"
+                      ? "fixed z-50 flex items-center justify-between rounded-full bg-base-100 border border-base-300 shadow-xl px-1.5 py-1"
+                      : "fixed z-50 rounded-xl bg-base-100 border border-base-300 shadow-xl py-1 overflow-hidden"
+                  }
+                >
+                  {popover.type === "react"
+                    ? QUICK_REACTIONS.map((emoji) => (
+                        <motion.button
+                          key={emoji}
+                          type="button"
+                          whileHover={{ scale: 1.25 }}
+                          whileTap={{ scale: 0.9 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 500,
+                            damping: 22,
+                          }}
+                          onClick={() => {
+                            reactToMessage?.(popoverMessage.id, emoji);
+                            closePopover();
+                          }}
+                          className={`size-9 rounded-full text-xl flex items-center justify-center ${
+                            myReaction === emoji ? "bg-primary/15" : ""
+                          }`}
+                        >
+                          {emoji}
+                        </motion.button>
+                      ))
+                    : renderMenuItems(popoverFlags, popoverMessage, false)}
+                </motion.div>
+              )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
+        {/* ---------------- Mobile: bottom sheet (tap a bubble) ---------------- */}
+        {createPortal(
+          <AnimatePresence>
+            {popover?.type === "sheet" && popoverMessage && popoverFlags && (
+              <>
+                <motion.div
+                  key="sheet-backdrop"
+                  {...fade}
+                  className="fixed inset-0 z-50 bg-black/40"
+                  onClick={closePopover}
+                />
+                <motion.div
+                  key="sheet"
+                  data-popover-ui
+                  role="menu"
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%", transition: { duration: 0.15 } }}
+                  transition={{ duration: 0.22, ease: EASE }}
+                  className="fixed inset-x-0 bottom-0 z-[51] rounded-t-2xl border-t border-base-300 bg-base-100 shadow-2xl pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+                >
+                  <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-base-300" />
+
+                  {canReact && !popoverFlags.isDeleted && (
+                    <div className="flex items-center justify-around px-3 py-3 border-b border-base-300">
+                      {QUICK_REACTIONS.map((emoji) => (
+                        <motion.button
+                          key={emoji}
+                          type="button"
+                          whileTap={{ scale: 0.85 }}
+                          onClick={() => {
+                            reactToMessage?.(popoverMessage.id, emoji);
+                            closePopover();
+                          }}
+                          className={`size-11 rounded-full text-2xl flex items-center justify-center ${
+                            myReaction === emoji ? "bg-primary/15" : ""
+                          }`}
+                          aria-label={`React ${emoji}`}
+                        >
+                          {emoji}
+                        </motion.button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="py-1">
+                    {renderMenuItems(popoverFlags, popoverMessage, true)}
+                  </div>
+                </motion.div>
+              </>
             )}
           </AnimatePresence>,
           document.body,
@@ -1645,14 +1799,14 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             <motion.div
               key="image-viewer"
               {...fade}
-              className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+              className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-2 sm:p-4"
               onClick={() => setPreviewSrc(null)}
               role="dialog"
               aria-modal="true"
             >
               <button
                 type="button"
-                className="absolute top-4 right-4 btn btn-circle btn-sm"
+                className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 btn btn-circle btn-sm"
                 onClick={() => setPreviewSrc(null)}
                 aria-label="Close image"
               >

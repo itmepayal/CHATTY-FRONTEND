@@ -71,21 +71,50 @@ const formatListTime = (value) => {
   });
 };
 
+/* ---------- message preview (text / photo / voice / file) ----------
+   NOTE: agar aapke backend me audio field ka naam alag hai
+   (jaise `audioUrl`, `voice`, `audio.url`), to neeche isAudio me add kar dein. */
+const isAudio = (m) =>
+  !!(
+    m.audio ||
+    m.voice ||
+    m.audioUrl ||
+    m.voiceUrl ||
+    m.type === "audio" ||
+    m.messageType === "audio" ||
+    m.mimeType?.startsWith?.("audio")
+  );
+
+const isImage = (m) =>
+  !!(m.image || m.type === "image" || m.messageType === "image");
+
+const isFile = (m) =>
+  !!(m.file || m.fileUrl || m.type === "file" || m.messageType === "file");
+
+const getBody = (m) => {
+  if (m.text) return m.text;
+  if (isAudio(m)) return "🎤 Voice message";
+  if (isImage(m)) return "📷 Photo";
+  if (isFile(m)) return "📎 File";
+  return "Message";
+};
+
 const getPreview = (message, myId) => {
   if (!message) return "No messages yet";
   if (message.isDeleted) return "This message was deleted";
 
-  const base = message.text || (message.image ? "📷 Photo" : "");
+  const base = getBody(message);
   return sameId(message.senderId, myId) ? `You: ${base}` : base;
 };
 
 const getGroupPreview = (message, myId) => {
   if (!message) return "No messages yet";
-  const base = message.text || (message.image ? "📷 Photo" : "");
+  if (message.isDeleted) return "This message was deleted";
+
   const who = sameId(message.senderId, myId)
     ? "You"
     : message.sender?.fullName?.split(" ")[0] || "Someone";
-  return `${who}: ${base}`;
+  return `${who}: ${getBody(message)}`;
 };
 
 const timeValue = (u) =>
@@ -124,7 +153,7 @@ const EmptyState = ({ icon: Icon, children }) => (
     initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.3 }}
-    className="hidden lg:flex flex-col items-center gap-2 text-center text-sm text-base-content/50 py-12 px-4"
+    className="flex flex-col items-center gap-2 text-center text-sm text-base-content/50 py-12 px-4"
   >
     <motion.div
       animate={{ y: [0, -4, 0] }}
@@ -151,7 +180,7 @@ const FooterAction = ({
     onClick={onClick}
     aria-label={label}
     aria-current={active ? "page" : undefined}
-    className={`group/act relative grid size-9 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-primary ${
+    className={`group/act relative grid size-10 sm:size-9 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-primary ${
       danger
         ? "text-base-content/60 hover:bg-error/10 hover:text-error"
         : active
@@ -171,12 +200,13 @@ const FooterAction = ({
       whileHover={spin ? { rotate: 90 } : { y: -1 }}
       transition={{ type: "spring", stiffness: 260, damping: 16 }}
     >
-      <Icon className="size-[17px]" />
+      <Icon className="size-[18px]" />
     </motion.span>
 
+    {/* tooltip: sirf desktop (hover) par */}
     <span
       role="tooltip"
-      className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-md bg-neutral px-2 py-1 text-[11px] font-medium text-neutral-content opacity-0 shadow-lg transition-all duration-150 group-hover/act:translate-y-0 group-hover/act:opacity-100 group-focus-visible/act:translate-y-0 group-focus-visible/act:opacity-100"
+      className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-md bg-neutral px-2 py-1 text-[11px] font-medium text-neutral-content opacity-0 shadow-lg transition-all duration-150 lg:block group-hover/act:translate-y-0 group-hover/act:opacity-100 group-focus-visible/act:translate-y-0 group-focus-visible/act:opacity-100"
     >
       {label}
     </span>
@@ -386,6 +416,11 @@ const Sidebar = () => {
   const groupUnread = groups.reduce((sum, g) => sum + (g.unreadCount || 0), 0);
   const totalUnread = chatUnread + groupUnread;
 
+  // Mobile: jab koi chat/group khula ho to sidebar chhup jata hai
+  // (desktop par hamesha dikhta hai). Chat header ka X button chat band
+  // karta hai aur list wapas aa jati hai.
+  const hasOpenChat = !!(selectedUser || selectedGroup);
+
   // opening a chat closes any open group
   const openChat = (user) => {
     closeGroup();
@@ -434,7 +469,7 @@ const Sidebar = () => {
           whileTap={{ scale: 0.985 }}
           onClick={() => openChat(user)}
           className={`relative w-full rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors duration-150 ${
-            isSelected ? "" : "hover:bg-base-200"
+            isSelected ? "" : "hover:bg-base-200 active:bg-base-200"
           }`}
         >
           {/* sliding selection highlight */}
@@ -449,7 +484,7 @@ const Sidebar = () => {
           )}
 
           {/* Avatar */}
-          <div className="relative z-10 mx-auto lg:mx-0 shrink-0">
+          <div className="relative z-10 shrink-0">
             <img
               src={avatarSrc(user.avatar)}
               alt={user.fullName}
@@ -463,23 +498,10 @@ const Sidebar = () => {
                 <span className="absolute inset-0 rounded-full bg-success ring-2 ring-base-100" />
               </span>
             )}
-
-            {/* Collapsed sidebar: badge on avatar */}
-            {hasUnread && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={POP}
-                className="lg:hidden absolute -top-1 -right-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-primary text-primary-content text-[11px] font-semibold leading-none ring-2 ring-base-100"
-                aria-label={`${unread} unread messages`}
-              >
-                {formatCount(unread)}
-              </motion.span>
-            )}
           </div>
 
           {/* Name + preview */}
-          <div className="relative z-10 hidden lg:block text-left min-w-0 flex-1">
+          <div className="relative z-10 text-left min-w-0 flex-1">
             <div
               className={`truncate text-[15px] ${
                 hasUnread ? "font-semibold" : "font-medium"
@@ -499,7 +521,7 @@ const Sidebar = () => {
           </div>
 
           {/* Timestamp + badge */}
-          <div className="relative z-10 hidden lg:flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
+          <div className="relative z-10 flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
             <span
               className={`text-[11px] ${
                 hasUnread ? "text-primary font-medium" : "text-base-content/40"
@@ -521,8 +543,11 @@ const Sidebar = () => {
             onClick={() => toggleFavorite(String(user.id), favorite)}
             aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={favorite}
-            className={`z-20 hidden lg:flex absolute bottom-3 right-5 p-0.5 rounded transition-opacity focus-visible:opacity-100 ${
-              favorite ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            className={`z-20 flex absolute bottom-3 right-5 p-0.5 rounded transition-opacity focus-visible:opacity-100 ${
+              favorite
+                ? "opacity-100"
+                : // touch screens par hover nahi hota, isliye mobile par hamesha visible
+                  "opacity-60 lg:opacity-0 lg:group-hover:opacity-100"
             }`}
           >
             <Star
@@ -558,7 +583,7 @@ const Sidebar = () => {
           whileTap={{ scale: 0.985 }}
           onClick={() => openGroup(group)}
           className={`relative w-full rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors duration-150 ${
-            isSelected ? "" : "hover:bg-base-200"
+            isSelected ? "" : "hover:bg-base-200 active:bg-base-200"
           }`}
         >
           {isSelected && (
@@ -571,7 +596,7 @@ const Sidebar = () => {
             </motion.span>
           )}
 
-          <div className="relative z-10 mx-auto lg:mx-0 shrink-0">
+          <div className="relative z-10 shrink-0">
             {group.avatar ? (
               <img
                 src={group.avatar}
@@ -589,19 +614,9 @@ const Sidebar = () => {
                 {group.name?.[0]?.toUpperCase()}
               </div>
             )}
-            {hasUnread && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={POP}
-                className="lg:hidden absolute -top-1 -right-1 inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-primary text-primary-content text-[11px] font-semibold leading-none ring-2 ring-base-100"
-              >
-                {formatCount(unread)}
-              </motion.span>
-            )}
           </div>
 
-          <div className="relative z-10 hidden lg:block text-left min-w-0 flex-1">
+          <div className="relative z-10 text-left min-w-0 flex-1">
             <div
               className={`truncate text-[15px] ${
                 hasUnread ? "font-semibold" : "font-medium"
@@ -620,7 +635,7 @@ const Sidebar = () => {
             </div>
           </div>
 
-          <div className="relative z-10 hidden lg:flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
+          <div className="relative z-10 flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
             <span
               className={`text-[11px] ${
                 hasUnread ? "text-primary font-medium" : "text-base-content/40"
@@ -640,40 +655,27 @@ const Sidebar = () => {
   /* ---------- render ---------- */
   return (
     <MotionConfig reducedMotion="user">
-      <aside className="h-full w-20 lg:w-80 shrink-0 border-r border-base-300 bg-base-100 flex flex-col transition-all duration-300">
+      <aside
+        className={`h-full w-full lg:w-80 shrink-0 border-r border-base-300 bg-base-100 flex-col transition-all duration-300 ${
+          hasOpenChat ? "hidden lg:flex" : "flex"
+        }`}
+      >
         {/* Header */}
-        <div className="relative w-full px-5 py-4">
+        <div className="relative w-full px-4 sm:px-5 py-4">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-primary/10 to-transparent" />
-          <div className="relative flex items-center justify-center lg:justify-between gap-2">
+          <div className="relative flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <div className="relative">
-                <motion.div
-                  whileHover={{ rotate: -8, scale: 1.06 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 14 }}
-                  className="size-9 rounded-xl bg-gradient-to-br from-primary to-secondary text-primary-content flex items-center justify-center shadow-md shadow-primary/20"
-                >
-                  <Users className="size-5" />
-                </motion.div>
-                <AnimatePresence>
-                  {totalUnread > 0 && (
-                    <motion.span
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      exit={{ scale: 0 }}
-                      transition={POP}
-                      className="lg:hidden absolute -top-1.5 -right-2 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-semibold leading-none ring-2 ring-base-100"
-                    >
-                      {formatCount(totalUnread)}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </div>
-              <span className="font-semibold text-lg hidden lg:block">
-                Messages
-              </span>
+              <motion.div
+                whileHover={{ rotate: -8, scale: 1.06 }}
+                transition={{ type: "spring", stiffness: 300, damping: 14 }}
+                className="size-9 rounded-xl bg-gradient-to-br from-primary to-secondary text-primary-content flex items-center justify-center shadow-md shadow-primary/20"
+              >
+                <Users className="size-5" />
+              </motion.div>
+              <span className="font-semibold text-lg">Messages</span>
             </div>
 
-            <div className="hidden lg:flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <AnimatePresence>
                 {totalUnread > 0 && (
                   <motion.span
@@ -702,8 +704,8 @@ const Sidebar = () => {
           </div>
         </div>
 
-        {/* Chats / Groups switch (collapsed: icons only) */}
-        <div className="px-3 lg:px-4 pb-3">
+        {/* Chats / Groups switch */}
+        <div className="px-3 sm:px-4 pb-3">
           <div
             className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-base-200"
             role="tablist"
@@ -730,7 +732,7 @@ const Sidebar = () => {
                 aria-selected={mode === key}
                 onClick={() => setMode(key)}
                 aria-label={label}
-                className={`relative flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                className={`relative flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-colors ${
                   mode === key
                     ? "text-base-content"
                     : "text-base-content/60 hover:text-base-content"
@@ -744,7 +746,7 @@ const Sidebar = () => {
                   />
                 )}
                 <Icon className="relative z-10 size-4" />
-                <span className="relative z-10 hidden lg:inline">{label}</span>
+                <span className="relative z-10">{label}</span>
                 {unread > 0 && (
                   <span className="relative z-10 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-primary-content text-[10px] font-semibold leading-none">
                     {formatCount(unread)}
@@ -756,12 +758,12 @@ const Sidebar = () => {
         </div>
 
         {/* Search + filters */}
-        <div className="hidden lg:block px-4 pb-3 space-y-2.5">
+        <div className="px-3 sm:px-4 pb-3 space-y-2.5">
           <label className="input input-bordered input-sm h-10 rounded-xl flex items-center gap-2 bg-base-200/60 focus-within:bg-base-100 focus-within:shadow-sm focus-within:shadow-primary/10 transition-shadow">
             <Search className="size-4 text-base-content/50" />
             <input
               type="text"
-              className="grow"
+              className="grow text-base sm:text-sm"
               placeholder={
                 mode === "groups" ? "Search groups" : "Search contacts"
               }
@@ -815,7 +817,7 @@ const Sidebar = () => {
                         whileTap={{ scale: 0.95 }}
                         aria-selected={active}
                         onClick={() => setTab(key)}
-                        className={`relative flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                        className={`relative flex items-center justify-center gap-1 rounded-lg py-2 text-xs font-medium transition-colors ${
                           active
                             ? "text-base-content"
                             : "text-base-content/60 hover:text-base-content"
@@ -852,11 +854,11 @@ const Sidebar = () => {
 
                 {/* Presence toggle: Any / Online / Offline */}
                 <div
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 overflow-x-auto no-scrollbar"
                   role="group"
                   aria-label="Filter by status"
                 >
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/40 mr-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/40 mr-1 shrink-0">
                     Status
                   </span>
                   {PRESENCE.map(({ key, label }) => {
@@ -870,7 +872,7 @@ const Sidebar = () => {
                         whileTap={{ scale: 0.94 }}
                         aria-pressed={active}
                         onClick={() => setPresence(key)}
-                        className={`relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors ${
+                        className={`relative inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors ${
                           active
                             ? "text-base-content font-semibold"
                             : "text-base-content/50 hover:text-base-content hover:bg-base-200/60"
@@ -907,7 +909,7 @@ const Sidebar = () => {
         <div className="border-t border-base-300" />
 
         {/* Conversation list */}
-        <div className="overflow-y-auto w-full py-2 flex-1">
+        <div className="overflow-y-auto overscroll-contain w-full py-2 flex-1 min-h-0">
           <motion.div
             key={mode}
             initial={{ opacity: 0, y: 6 }}
@@ -919,19 +921,6 @@ const Sidebar = () => {
                 <AnimatePresence initial={false}>
                   {filteredGroups.map((g, i) => renderGroup(g, i))}
                 </AnimatePresence>
-
-                <div className="lg:hidden flex justify-center py-2">
-                  <motion.button
-                    type="button"
-                    whileHover={{ rotate: 90, scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => setShowCreate(true)}
-                    className="btn btn-ghost btn-sm btn-circle"
-                    aria-label="Create group"
-                  >
-                    <Plus className="size-5" />
-                  </motion.button>
-                </div>
 
                 {filteredGroups.length === 0 && (
                   <EmptyState icon={UsersRound}>
@@ -993,13 +982,13 @@ const Sidebar = () => {
           <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
           <LayoutGroup id="sidebar-footer">
-            <div className="flex flex-col lg:flex-row items-center gap-2 lg:rounded-2xl lg:border lg:border-base-300 lg:bg-base-200/50 lg:p-1.5">
+            <div className="flex flex-row items-center gap-2 rounded-2xl border border-base-300 bg-base-200/50 p-1.5">
               {/* my avatar + name -> profile */}
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.97 }}
                 onClick={() => navigate("/profile")}
-                className="flex items-center gap-3 min-w-0 lg:flex-1 rounded-xl p-1 lg:pr-2 transition-colors hover:bg-base-100"
+                className="flex items-center gap-3 min-w-0 flex-1 rounded-xl p-1 pr-2 transition-colors hover:bg-base-100"
                 aria-label="Open my profile"
               >
                 <div className="relative shrink-0">
@@ -1022,7 +1011,7 @@ const Sidebar = () => {
                     )}
                   </AnimatePresence>
                 </div>
-                <div className="hidden lg:block min-w-0 text-left">
+                <div className="min-w-0 text-left">
                   <p className="truncate text-sm font-semibold leading-tight">
                     {authUser?.fullName}
                   </p>
@@ -1033,7 +1022,7 @@ const Sidebar = () => {
               </motion.button>
 
               {/* actions */}
-              <div className="flex flex-col lg:flex-row items-center gap-1">
+              <div className="flex flex-row items-center gap-0.5 shrink-0">
                 <FooterAction
                   icon={UserRound}
                   label="My profile"
