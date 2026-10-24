@@ -23,6 +23,7 @@ import {
   ImageIcon,
   Link2,
   Loader2,
+  Mic,
   MoreVertical,
   Paperclip,
   RotateCw,
@@ -42,10 +43,15 @@ import { usePrivacyStore } from "../../store/usePrivacyStore.js";
 import { useChatPrefsStore } from "../../store/useChatPrefsStore.js";
 import { useIsBlocked, BlockedBanner } from "../../hooks/useIsBlocked";
 import { chatStyle, formatTime } from "../../hooks/useApplySettings";
+import useVoiceRecorder, {
+  MAX_VOICE_SECONDS,
+} from "../../hooks/useVoiceRecorder";
 
 import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
 import AiAssist from "../common/AiAssist.jsx";
+// NOTE: agar VoiceMessage.jsx kisi aur folder me hai to ye path adjust karo
+import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 
 import {
   copyImageLink,
@@ -244,13 +250,23 @@ const messageFlags = (message, isMine) => {
     hasImage: !isDeleted && Boolean(message.image?.url),
     hasFile: !isDeleted && Boolean(message.file?.name),
     hasFileUrl: !isDeleted && Boolean(message.file?.url),
+    hasAudio: !isDeleted && Boolean(message.audio?.url),
     canDeleteForAll: isMine && !isDeleted,
   };
 };
 
-const menuHeight = ({ hasText, hasImage, hasFileUrl, canDeleteForAll }) => {
+const menuHeight = ({
+  hasText,
+  hasImage,
+  hasFileUrl,
+  hasAudio,
+  canDeleteForAll,
+}) => {
   const copyItems =
-    (hasText ? 1 : 0) + (hasImage ? 2 : 0) + (hasFileUrl ? 1 : 0);
+    (hasText ? 1 : 0) +
+    (hasImage ? 2 : 0) +
+    (hasFileUrl ? 1 : 0) +
+    (hasAudio ? 1 : 0);
   const deleteItems = 1 + (canDeleteForAll ? 1 : 0);
   return (copyItems + deleteItems) * 40 + 8 + (copyItems ? 9 : 0);
 };
@@ -308,7 +324,7 @@ const MessageTicks = ({ status, showSeen = true }) => {
 };
 
 /* ------------------------------------------------------------------ */
-/*  ChatInput  (replaces ./Common/MessageInput, now with AI assist)    */
+/*  ChatInput  (now with AI assist + voice messages)                   */
 /* ------------------------------------------------------------------ */
 const ChatInput = () => {
   const { sendMessage, selectedUser, emitTyping } = useChatStore();
@@ -331,6 +347,20 @@ const ChatInput = () => {
 
   // ChatInput is remounted via `key={selectedUser.id}`, so this id is fixed per instance
   const targetId = selectedUser?.id;
+
+  // Voice recorder: when recording stops, the voice note is sent right away
+  const recorder = useVoiceRecorder({
+    onComplete: (voice) => sendMessage({ text: "", voice }),
+    onError: (msg) => toast.error(msg),
+  });
+  const recorderBusy = recorder.state !== "idle";
+
+  // Cancel an in-progress recording on chat switch / unmount
+  const cancelRef = useRef(null);
+  cancelRef.current = recorder.cancel;
+  useEffect(() => {
+    return () => cancelRef.current?.();
+  }, []);
 
   const fileIsImage = isImageFile(file);
   const PreviewIcon = file ? getFileIcon(file.type, file.name) : null;
@@ -456,6 +486,12 @@ const ChatInput = () => {
     setText("");
     clearFile();
     setShowEmoji(false);
+  };
+
+  const startRecording = () => {
+    stopTyping();
+    setShowEmoji(false);
+    recorder.start();
   };
 
   // Settings > Chat > "Enter to send"
@@ -587,123 +623,188 @@ const ChatInput = () => {
         )}
       </AnimatePresence>
 
+      {/* Recording bar */}
+      {recorderBusy && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 sm:gap-3 rounded-2xl border border-primary/40 bg-primary/5 px-2 sm:px-3 py-2"
+        >
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.88 }}
+            className="btn btn-ghost btn-sm btn-circle text-error"
+            onClick={recorder.cancel}
+            aria-label="Cancel recording"
+            title="Cancel"
+          >
+            <Trash2 className="size-5" />
+          </motion.button>
+
+          <span className="relative flex size-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-error opacity-60" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-error" />
+          </span>
+
+          <span className="font-mono text-sm tabular-nums">
+            {formatDuration(recorder.seconds)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-base-content/50">
+            {recorder.state === "requesting"
+              ? "Waiting for microphone…"
+              : `Recording · max ${formatDuration(MAX_VOICE_SECONDS)}`}
+          </span>
+
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.88 }}
+            className="btn btn-primary btn-sm btn-circle"
+            onClick={recorder.stop}
+            disabled={recorder.state !== "recording"}
+            aria-label="Send voice message"
+            title="Send"
+          >
+            <Send className="size-4" />
+          </motion.button>
+        </div>
+      )}
+
       {/* `relative` so the AI menu / result card anchor to the form */}
-      <form
-        onSubmit={handleSend}
-        onDragEnter={handleDragEnter}
-        onDragOver={(e) => e.preventDefault()}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`relative flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary ${
-          isDragging
-            ? "border-primary border-dashed bg-primary/10"
-            : "border-base-300"
-        }`}
-      >
-        <AnimatePresence>
-          {isDragging && (
-            <motion.div
-              key="drop-overlay"
-              {...fade}
-              className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-base-100/85 text-sm font-medium text-primary"
+      {!recorderBusy && (
+        <form
+          onSubmit={handleSend}
+          onDragEnter={handleDragEnter}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`relative flex items-center gap-2 rounded-2xl border px-3 py-2 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary ${
+            isDragging
+              ? "border-primary border-dashed bg-primary/10"
+              : "border-base-300"
+          }`}
+        >
+          <AnimatePresence>
+            {isDragging && (
+              <motion.div
+                key="drop-overlay"
+                {...fade}
+                className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-base-100/85 text-sm font-medium text-primary"
+              >
+                Drop file to attach
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Image button — images only */}
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.88 }}
+            className="btn btn-ghost btn-sm btn-circle"
+            onClick={() => imageRef.current?.click()}
+            aria-label="Send image"
+            title="Send image"
+          >
+            <ImageIcon className="size-5" />
+          </motion.button>
+
+          {/* File button — files only (no images) */}
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.88 }}
+            className="btn btn-ghost btn-sm btn-circle"
+            onClick={() => fileRef.current?.click()}
+            aria-label="Send file"
+            title="Send file"
+          >
+            <Paperclip className="size-5" />
+          </motion.button>
+
+          <motion.button
+            type="button"
+            data-emoji-ui
+            whileTap={{ scale: 0.88 }}
+            className={`btn btn-ghost btn-sm btn-circle ${showEmoji ? "text-primary" : ""}`}
+            onClick={() => setShowEmoji((v) => !v)}
+            aria-label="Emoji"
+            aria-expanded={showEmoji}
+          >
+            <Smile className="size-5" />
+          </motion.button>
+
+          {/* AI assist (hides itself when turned off in Settings) */}
+          <AiAssist
+            text={text}
+            resetKey={selectedUser?.id}
+            onApply={(v) => {
+              setText(v);
+              textRef.current?.focus();
+            }}
+          />
+
+          {/* Images only */}
+          <input
+            ref={imageRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={pickImage}
+          />
+
+          {/* Files only (non-image) */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept={FILE_ACCEPT}
+            hidden
+            onChange={pickDoc}
+          />
+
+          <textarea
+            ref={textRef}
+            rows={1}
+            value={text}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            maxLength={2000}
+            placeholder="Write a message…"
+            className="flex-1 resize-none bg-transparent outline-none py-1.5 text-sm max-h-[120px]"
+          />
+
+          {/* Send when there's content, otherwise record a voice note */}
+          {text.trim() || file ? (
+            <motion.button
+              type="submit"
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-primary btn-sm btn-circle"
+              aria-label="Send"
             >
-              Drop file to attach
-            </motion.div>
+              <Send className="size-4" />
+            </motion.button>
+          ) : (
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-primary btn-sm btn-circle"
+              onClick={startRecording}
+              aria-label="Record voice message"
+              title="Record voice message"
+            >
+              <Mic className="size-4" />
+            </motion.button>
           )}
-        </AnimatePresence>
+        </form>
+      )}
 
-        {/* Image button — images only */}
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.88 }}
-          className="btn btn-ghost btn-sm btn-circle"
-          onClick={() => imageRef.current?.click()}
-          aria-label="Send image"
-          title="Send image"
-        >
-          <ImageIcon className="size-5" />
-        </motion.button>
-
-        {/* File button — files only (no images) */}
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.88 }}
-          className="btn btn-ghost btn-sm btn-circle"
-          onClick={() => fileRef.current?.click()}
-          aria-label="Send file"
-          title="Send file"
-        >
-          <Paperclip className="size-5" />
-        </motion.button>
-
-        <motion.button
-          type="button"
-          data-emoji-ui
-          whileTap={{ scale: 0.88 }}
-          className={`btn btn-ghost btn-sm btn-circle ${showEmoji ? "text-primary" : ""}`}
-          onClick={() => setShowEmoji((v) => !v)}
-          aria-label="Emoji"
-          aria-expanded={showEmoji}
-        >
-          <Smile className="size-5" />
-        </motion.button>
-
-        {/* AI assist (hides itself when turned off in Settings) */}
-        <AiAssist
-          text={text}
-          resetKey={selectedUser?.id}
-          onApply={(v) => {
-            setText(v);
-            textRef.current?.focus();
-          }}
-        />
-
-        {/* Images only */}
-        <input
-          ref={imageRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={pickImage}
-        />
-
-        {/* Files only (non-image) */}
-        <input
-          ref={fileRef}
-          type="file"
-          accept={FILE_ACCEPT}
-          hidden
-          onChange={pickDoc}
-        />
-
-        <textarea
-          ref={textRef}
-          rows={1}
-          value={text}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          maxLength={2000}
-          placeholder="Write a message…"
-          className="flex-1 resize-none bg-transparent outline-none py-1.5 text-sm max-h-[120px]"
-        />
-
-        <motion.button
-          type="submit"
-          whileHover={{ scale: 1.06 }}
-          whileTap={{ scale: 0.88 }}
-          className="btn btn-primary btn-sm btn-circle"
-          disabled={!text.trim() && !file}
-          aria-label="Send"
-        >
-          <Send className="size-4" />
-        </motion.button>
-      </form>
-      <p className="mt-1.5 px-1 text-[11px] text-base-content/50">
-        {enterToSend
-          ? "Enter to send · Shift+Enter for a new line"
-          : "Enter for a new line · Ctrl+Enter to send"}
-      </p>
+      {!recorderBusy && (
+        <p className="mt-1.5 px-1 text-[11px] text-base-content/50">
+          {enterToSend
+            ? "Enter to send · Shift+Enter for a new line"
+            : "Enter for a new line · Ctrl+Enter to send"}
+        </p>
+      )}
     </div>
   );
 };
@@ -912,6 +1013,16 @@ const ChatContainer = () => {
     }
   };
 
+  const handleCopyAudioLink = async (message) => {
+    closePopover();
+    try {
+      await navigator.clipboard.writeText(message.audio?.url || "");
+      toast.success("Voice message link copied");
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  };
+
   const handleDeleteForMe = (message) => {
     closePopover();
     deleteForMe(message.id);
@@ -1055,7 +1166,7 @@ const ChatContainer = () => {
 
             const pending =
               message.status === "sending" || message.status === "failed";
-            const { isDeleted, hasText, hasFile } = messageFlags(
+            const { isDeleted, hasText, hasFile, hasAudio } = messageFlags(
               message,
               isMine,
             );
@@ -1118,7 +1229,7 @@ const ChatContainer = () => {
                   >
                     {/* Bubble + action buttons */}
                     <div
-                      className={`flex items-center gap-0.5 min-w-0 ${
+                      className={`flex items-center gap-0.5 min-w-0 max-w-full ${
                         isMine ? "flex-row-reverse" : ""
                       }`}
                     >
@@ -1141,8 +1252,8 @@ const ChatContainer = () => {
                         </div>
                       ) : (
                         <div
-                          className={`min-w-0 ${
-                            hasText ? "px-3.5 py-2" : "p-1"
+                          className={`min-w-0 max-w-full ${
+                            hasText || hasAudio ? "px-3.5 py-2" : "p-1"
                           } ${cs.radius} shadow-sm ${
                             isMine
                               ? `bg-primary text-primary-content ${
@@ -1186,6 +1297,17 @@ const ChatContainer = () => {
                                 isMine={isMine}
                                 uploading={message.status === "sending"}
                                 progress={message.uploadProgress}
+                              />
+                            </div>
+                          )}
+                          {hasAudio && (
+                            <div
+                              className={`max-w-full ${hasText ? "mb-2" : ""}`}
+                            >
+                              <VoiceMessage
+                                audio={message.audio}
+                                isMine={isMine}
+                                uploading={message.status === "sending"}
                               />
                             </div>
                           )}
@@ -1431,9 +1553,17 @@ const ChatContainer = () => {
                         onClick={() => handleCopyFileLink(popoverMessage)}
                       />
                     )}
+                    {popoverFlags.hasAudio && (
+                      <MenuItem
+                        icon={Link2}
+                        label="Copy voice message link"
+                        onClick={() => handleCopyAudioLink(popoverMessage)}
+                      />
+                    )}
                     {(popoverFlags.hasText ||
                       popoverFlags.hasImage ||
-                      popoverFlags.hasFileUrl) && (
+                      popoverFlags.hasFileUrl ||
+                      popoverFlags.hasAudio) && (
                       <div className="my-1 border-t border-base-300" />
                     )}
                     <MenuItem

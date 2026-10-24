@@ -3,8 +3,6 @@ import { toast } from "react-hot-toast";
 import { axiosInstance } from "../lib/axios.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 
-// Backend multer ka field name. Agar tumhare route me upload.single("file")
-// hai to yahan "file" kar do. (Abhi tak frontend "image" bhej raha tha.)
 const ATTACHMENT_FIELD = "image";
 
 const sameId = (a, b) => String(a) === String(b);
@@ -26,6 +24,20 @@ const timeOf = (d) => (d ? new Date(d).getTime() : 0);
 
 const sortUsers = (users) =>
   [...users].sort((a, b) => timeOf(b.lastMessageAt) - timeOf(a.lastMessageAt));
+
+const revokeBlob = (url) => {
+  if (typeof url === "string" && url.startsWith("blob:"))
+    URL.revokeObjectURL(url);
+};
+
+const extFor = (mime = "") =>
+  mime.includes("ogg")
+    ? "ogg"
+    : mime.includes("mp4")
+      ? "m4a"
+      : mime.includes("mpeg")
+        ? "mp3"
+        : "webm";
 
 const mergeServerWithLocal = (server, local) => {
   const keep = local.filter(
@@ -50,13 +62,12 @@ const markDeleted = (m) => ({
   text: "",
   image: null,
   file: null,
+  audio: null,
   localPreview: null,
   reactions: [],
   isDeleted: true,
 });
 
-// Per-sender timeout handles — auto-clear typing indicator if no update in 4 s
-// (covers disconnect / network drop without a stop-typing event)
 const typingTimers = new Map();
 
 const clearTypingTimer = (fromId) => {
@@ -102,6 +113,10 @@ export const useChatStore = create((set, get) => {
     formData.append("text", msg.text || "");
     formData.append("clientId", clientId);
     if (msg._file) formData.append(ATTACHMENT_FIELD, msg._file);
+    if (msg._isVoice) {
+      formData.append("isVoice", "true");
+      formData.append("duration", String(msg._duration || 0));
+    }
 
     try {
       const res = await axiosInstance.post(
@@ -110,7 +125,7 @@ export const useChatStore = create((set, get) => {
         {
           headers: { "Content-Type": "multipart/form-data" },
           withCredentials: true,
-          timeout: 120000, // badi files ke liye zyada time
+          timeout: 120000,
           onUploadProgress: (e) => {
             if (e.total)
               patchMessage(clientId, {
@@ -134,7 +149,8 @@ export const useChatStore = create((set, get) => {
               : m,
           ),
       }));
-      if (msg.localPreview) URL.revokeObjectURL(msg.localPreview);
+      revokeBlob(msg.localPreview);
+      revokeBlob(msg.audio?.url);
     } catch (error) {
       patchMessage(clientId, {
         status: "failed",
@@ -151,7 +167,7 @@ export const useChatStore = create((set, get) => {
     selectedUser: null,
     isUsersLoading: false,
     isMessagesLoading: false,
-    typingFrom: {}, // { [userId]: true }  -> DM typing indicator
+    typingFrom: {},
 
     getUsers: async ({ silent = false } = {}) => {
       if (!silent) set({ isUsersLoading: true });
@@ -192,8 +208,6 @@ export const useChatStore = create((set, get) => {
       }
     },
 
-    // NOTE: client hamesha seen call karta hai. Server decide karta hai
-    // ki read receipt bhejni hai ya nahi (user ki privacy setting ke hisaab se).
     markSeen: async (userId) => {
       set((s) => ({
         users: s.users.map((u) =>
@@ -224,7 +238,6 @@ export const useChatStore = create((set, get) => {
         return { users: sortUsers(users) };
       }),
 
-    // DM typing: toId optional (unmount cleanup me purane chat ka id pass hota hai)
     emitTyping: (isTyping, toId) => {
       const socket = getSocket();
       const to = toId ?? get().selectedUser?.id;
@@ -240,7 +253,6 @@ export const useChatStore = create((set, get) => {
         const { selectedUser, messages } = get();
         const myId = useAuthStore.getState().authUser?.id;
 
-        // sender ka message aa gaya = wo typing band kar chuka
         set((s) => {
           if (!s.typingFrom[String(message.senderId)]) return {};
           const next = { ...s.typingFrom };
@@ -284,7 +296,6 @@ export const useChatStore = create((set, get) => {
       const onConversationUpdated = (u) => get().applyConversationUpdate(u);
 
       const onReconnect = () => {
-        // Clear any stale typing indicators from before the reconnect
         typingTimers.forEach((_, k) => clearTypingTimer(k));
         set({ typingFrom: {} });
 
@@ -346,7 +357,6 @@ export const useChatStore = create((set, get) => {
         const key = String(from);
 
         if (isTyping) {
-          // (Re)start the auto-clear timer every time a "still typing" event arrives
           clearTypingTimer(key);
           typingTimers.set(
             key,
@@ -361,7 +371,7 @@ export const useChatStore = create((set, get) => {
             }, 4000),
           );
           set((s) => {
-            if (s.typingFrom[key]) return {}; // already set — no re-render
+            if (s.typingFrom[key]) return {};
             return { typingFrom: { ...s.typingFrom, [key]: true } };
           });
         } else {
@@ -408,7 +418,6 @@ export const useChatStore = create((set, get) => {
       const socket = getSocket();
       const s = get();
 
-      // Clear all pending auto-clear timers for typing indicators
       typingTimers.forEach((_, k) => clearTypingTimer(k));
 
       if (socket) {
@@ -432,25 +441,30 @@ export const useChatStore = create((set, get) => {
       syncActiveChat();
     },
 
-    // attachment: koi bhi File (image ya document). imageFile purana alias hai.
-    sendMessage: ({ text, attachment, imageFile }) => {
+    sendMessage: ({ text, attachment, imageFile, voice }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       const clientId = newClientId();
 
-      const picked = attachment || imageFile || null;
-      const isImg = Boolean(picked?.type?.startsWith("image/"));
+      const voiceMime = voice?.mimeType?.split(";")[0] || "audio/webm";
+      const voiceFile = voice
+        ? new File([voice.blob], `voice-${Date.now()}.${extFor(voiceMime)}`, {
+            type: voiceMime,
+          })
+        : null;
+
+      const picked = voiceFile || attachment || imageFile || null;
+      const isImg = !voiceFile && Boolean(picked?.type?.startsWith("image/"));
 
       const optimistic = {
         id: `temp-${clientId}`,
         clientId,
         senderId: authUser.id,
         receiverId: selectedUser.id,
-        text,
+        text: text ?? "",
         image: null,
-        // Non-image: bubble me naam/size turant dikhane ke liye (url baad me aata hai)
         file:
-          picked && !isImg
+          picked && !isImg && !voiceFile
             ? {
                 url: null,
                 name: picked.name,
@@ -458,10 +472,19 @@ export const useChatStore = create((set, get) => {
                 mimeType: picked.type,
               }
             : null,
+        audio: voiceFile
+          ? {
+              url: URL.createObjectURL(voiceFile),
+              duration: voice.duration || 0,
+              mimeType: voiceMime,
+            }
+          : null,
         reactions: [],
         isDeleted: false,
         localPreview: isImg ? URL.createObjectURL(picked) : null,
         _file: picked,
+        _isVoice: Boolean(voiceFile),
+        _duration: voice?.duration || 0,
         status: "sending",
         createdAt: null,
       };
@@ -474,7 +497,8 @@ export const useChatStore = create((set, get) => {
     discardMessage: (clientId) =>
       set((s) => {
         const m = s.messages.find((x) => x.clientId === clientId);
-        if (m?.localPreview) URL.revokeObjectURL(m.localPreview);
+        revokeBlob(m?.localPreview);
+        revokeBlob(m?.audio?.url);
         return { messages: s.messages.filter((x) => x.clientId !== clientId) };
       }),
 
