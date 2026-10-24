@@ -46,6 +46,9 @@ const extFor = (mime = "") =>
         ? "mp3"
         : "webm";
 
+const videoExtFor = (mime = "") =>
+  mime.includes("mp4") ? "mp4" : mime.includes("quicktime") ? "mov" : "webm";
+
 let handlers = null;
 const seenInFlight = new Set();
 
@@ -212,9 +215,11 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Accepts: text, imageFile (image), attachment (any other file),
-  // voice ({ blob, duration, mimeType }) from useVoiceRecorder
-  sendMessage: async ({ text, imageFile, attachment, voice }) => {
+  // Accepts: text, imageFile (image), attachment (any other file; a video file
+  // picked with the paperclip is auto-detected and sent as a video message),
+  // voice ({ blob, duration, mimeType }) from useVoiceRecorder,
+  // video ({ blob, duration, mimeType }) from VideoRecorderModal
+  sendMessage: async ({ text, imageFile, attachment, voice, video }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
     const trimmed = text?.trim() || "";
@@ -228,11 +233,23 @@ export const useGroupStore = create((set, get) => ({
         })
       : null;
 
-    const file = voiceFile || imageFile || attachment || null;
+    const videoMime = video?.mimeType?.split(";")[0] || "video/webm";
+    const videoFile = video?.blob
+      ? new File(
+          [video.blob],
+          `video-${Date.now()}.${videoExtFor(videoMime)}`,
+          { type: videoMime },
+        )
+      : attachment?.type?.startsWith("video/")
+        ? attachment
+        : null;
+
+    const file = voiceFile || videoFile || imageFile || attachment || null;
     if (!selectedGroup || !me || (!trimmed && !file)) return;
 
     const clientId = newClientId();
-    const localUrl = voiceFile || imageFile ? URL.createObjectURL(file) : null;
+    const localUrl =
+      voiceFile || videoFile || imageFile ? URL.createObjectURL(file) : null;
 
     const optimistic = {
       id: `temp-${clientId}`,
@@ -242,23 +259,32 @@ export const useGroupStore = create((set, get) => ({
       sender: { id: String(me.id), fullName: me.fullName, avatar: me.avatar },
       text: trimmed,
       image: imageFile ? { url: localUrl } : null,
-      file: attachment
-        ? {
-            name: attachment.name,
-            size: attachment.size,
-            mimeType: attachment.type,
-            url: null,
-          }
-        : null,
+      file:
+        attachment && !videoFile
+          ? {
+              name: attachment.name,
+              size: attachment.size,
+              mimeType: attachment.type,
+              url: null,
+            }
+          : null,
       audio: voiceFile
         ? { url: localUrl, duration: voice.duration, mimeType: voiceMime }
+        : null,
+      video: videoFile
+        ? {
+            url: localUrl,
+            duration: video?.duration || 0,
+            mimeType: videoFile.type,
+          }
         : null,
       readBy: [String(me.id)],
       createdAt: new Date().toISOString(),
       pending: true,
       _file: file,
       _isVoice: Boolean(voiceFile),
-      _duration: voice?.duration || 0,
+      _isVideo: Boolean(videoFile),
+      _duration: voice?.duration || video?.duration || 0,
     };
 
     set((s) => ({ groupMessages: [...s.groupMessages, optimistic] }));
@@ -280,6 +306,10 @@ export const useGroupStore = create((set, get) => ({
       if (msg._file) fd.append("image", msg._file);
       if (msg._isVoice) {
         fd.append("isVoice", "true");
+        fd.append("duration", String(msg._duration));
+      }
+      if (msg._isVideo) {
+        fd.append("isVideo", "true");
         fd.append("duration", String(msg._duration));
       }
       fd.append("clientId", clientId);
@@ -311,6 +341,7 @@ export const useGroupStore = create((set, get) => ({
       const m = s.groupMessages.find((x) => x.clientId === clientId);
       revokeBlob(m?.image?.url);
       revokeBlob(m?.audio?.url);
+      revokeBlob(m?.video?.url);
       return {
         groupMessages: s.groupMessages.filter((x) => x.clientId !== clientId),
       };
@@ -335,6 +366,7 @@ export const useGroupStore = create((set, get) => ({
     const old = s.groupMessages[idx];
     revokeBlob(old.image?.url);
     revokeBlob(old.audio?.url);
+    revokeBlob(old.video?.url);
 
     const next = [...s.groupMessages];
     next[idx] = { ...msg, readBy: union(old.readBy, msg.readBy) };

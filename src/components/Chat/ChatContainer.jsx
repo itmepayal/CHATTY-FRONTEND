@@ -33,6 +33,7 @@ import {
   X,
   MessageSquareText,
   SmilePlus,
+  Video,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
@@ -46,13 +47,15 @@ import { chatStyle, formatTime } from "../../hooks/useApplySettings";
 import useVoiceRecorder, {
   MAX_VOICE_SECONDS,
 } from "../../hooks/useVoiceRecorder";
+import useVideoRecorder, {
+  MAX_VIDEO_SECONDS,
+} from "../../hooks/useVideoRecorder";
 
 import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
 import AiAssist from "../common/AiAssist.jsx";
-// NOTE: agar VoiceMessage.jsx kisi aur folder me hai to ye path adjust karo
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
-
+import VideoMessage from "./VideoMessage.jsx";
 import {
   copyImageLink,
   copyMessageImage,
@@ -251,6 +254,7 @@ const messageFlags = (message, isMine) => {
     hasFile: !isDeleted && Boolean(message.file?.name),
     hasFileUrl: !isDeleted && Boolean(message.file?.url),
     hasAudio: !isDeleted && Boolean(message.audio?.url),
+    hasVideo: !isDeleted && Boolean(message.video?.url), // NEW
     canDeleteForAll: isMine && !isDeleted,
   };
 };
@@ -260,13 +264,15 @@ const menuHeight = ({
   hasImage,
   hasFileUrl,
   hasAudio,
+  hasVideo, // NEW
   canDeleteForAll,
 }) => {
   const copyItems =
     (hasText ? 1 : 0) +
     (hasImage ? 2 : 0) +
     (hasFileUrl ? 1 : 0) +
-    (hasAudio ? 1 : 0);
+    (hasAudio ? 1 : 0) +
+    (hasVideo ? 1 : 0); // NEW
   const deleteItems = 1 + (canDeleteForAll ? 1 : 0);
   return (copyItems + deleteItems) * 40 + 8 + (copyItems ? 9 : 0);
 };
@@ -324,7 +330,7 @@ const MessageTicks = ({ status, showSeen = true }) => {
 };
 
 /* ------------------------------------------------------------------ */
-/*  ChatInput  (now with AI assist + voice messages)                   */
+/*  ChatInput  (AI assist + voice messages + video messages)           */
 /* ------------------------------------------------------------------ */
 const ChatInput = () => {
   const { sendMessage, selectedUser, emitTyping } = useChatStore();
@@ -344,6 +350,7 @@ const ChatInput = () => {
   const typingTimer = useRef(null);
   const isTypingRef = useRef(false);
   const dragDepth = useRef(0);
+  const previewRef = useRef(null); // NEW: live camera preview <video>
 
   // ChatInput is remounted via `key={selectedUser.id}`, so this id is fixed per instance
   const targetId = selectedUser?.id;
@@ -355,12 +362,30 @@ const ChatInput = () => {
   });
   const recorderBusy = recorder.state !== "idle";
 
+  // NEW — Video recorder: when recording stops, the video is sent right away
+  const videoRec = useVideoRecorder({
+    onComplete: (video) => sendMessage({ text: "", video }),
+    onError: (msg) => toast.error(msg),
+  });
+  const videoBusy = videoRec.state !== "idle";
+  const busy = recorderBusy || videoBusy;
+
   // Cancel an in-progress recording on chat switch / unmount
   const cancelRef = useRef(null);
   cancelRef.current = recorder.cancel;
+  const cancelVideoRef = useRef(null);
+  cancelVideoRef.current = videoRec.cancel;
   useEffect(() => {
-    return () => cancelRef.current?.();
+    return () => {
+      cancelRef.current?.();
+      cancelVideoRef.current?.();
+    };
   }, []);
+
+  // NEW — attach camera stream to the live preview element
+  useEffect(() => {
+    if (previewRef.current) previewRef.current.srcObject = videoRec.stream;
+  }, [videoRec.stream, videoBusy]);
 
   const fileIsImage = isImageFile(file);
   const PreviewIcon = file ? getFileIcon(file.type, file.name) : null;
@@ -494,6 +519,13 @@ const ChatInput = () => {
     recorder.start();
   };
 
+  // NEW
+  const startVideo = () => {
+    stopTyping();
+    setShowEmoji(false);
+    videoRec.start();
+  };
+
   // Settings > Chat > "Enter to send"
   const handleKeyDown = (e) => {
     if (e.key !== "Enter") return;
@@ -623,7 +655,7 @@ const ChatInput = () => {
         )}
       </AnimatePresence>
 
-      {/* Recording bar */}
+      {/* Voice recording bar */}
       {recorderBusy && (
         <div
           role="status"
@@ -669,8 +701,58 @@ const ChatInput = () => {
         </div>
       )}
 
+      {/* NEW — Video recording panel (live camera preview) */}
+      {videoBusy && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl border border-primary/40 bg-primary/5 p-2"
+        >
+          <div className="relative overflow-hidden rounded-xl bg-black">
+            <video
+              ref={previewRef}
+              muted
+              autoPlay
+              playsInline
+              className="mx-auto max-h-64 w-full -scale-x-100 object-contain"
+            />
+            <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 font-mono text-xs text-white">
+              <span className="size-2 animate-pulse rounded-full bg-error" />
+              {videoRec.state === "requesting"
+                ? "Waiting for camera…"
+                : `${formatDuration(videoRec.seconds)} / ${formatDuration(MAX_VIDEO_SECONDS)}`}
+            </span>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between">
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-ghost btn-sm btn-circle text-error"
+              onClick={videoRec.cancel}
+              aria-label="Cancel video"
+              title="Cancel"
+            >
+              <Trash2 className="size-5" />
+            </motion.button>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-primary btn-sm btn-circle"
+              onClick={videoRec.stop}
+              disabled={videoRec.state !== "recording"}
+              aria-label="Send video message"
+              title="Send"
+            >
+              <Send className="size-4" />
+            </motion.button>
+          </div>
+        </div>
+      )}
+
       {/* `relative` so the AI menu / result card anchor to the form */}
-      {!recorderBusy && (
+      {!busy && (
         <form
           onSubmit={handleSend}
           onDragEnter={handleDragEnter}
@@ -717,6 +799,18 @@ const ChatInput = () => {
             title="Send file"
           >
             <Paperclip className="size-5" />
+          </motion.button>
+
+          {/* NEW — Video record button */}
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.88 }}
+            className="btn btn-ghost btn-sm btn-circle"
+            onClick={startVideo}
+            aria-label="Record video"
+            title="Record video"
+          >
+            <Video className="size-5" />
           </motion.button>
 
           <motion.button
@@ -798,7 +892,7 @@ const ChatInput = () => {
         </form>
       )}
 
-      {!recorderBusy && (
+      {!busy && (
         <p className="mt-1.5 px-1 text-[11px] text-base-content/50">
           {enterToSend
             ? "Enter to send · Shift+Enter for a new line"
@@ -1023,6 +1117,17 @@ const ChatContainer = () => {
     }
   };
 
+  // NEW
+  const handleCopyVideoLink = async (message) => {
+    closePopover();
+    try {
+      await navigator.clipboard.writeText(message.video?.url || "");
+      toast.success("Video link copied");
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  };
+
   const handleDeleteForMe = (message) => {
     closePopover();
     deleteForMe(message.id);
@@ -1166,10 +1271,8 @@ const ChatContainer = () => {
 
             const pending =
               message.status === "sending" || message.status === "failed";
-            const { isDeleted, hasText, hasFile, hasAudio } = messageFlags(
-              message,
-              isMine,
-            );
+            const { isDeleted, hasText, hasFile, hasAudio, hasVideo } =
+              messageFlags(message, isMine);
             const imageSrc = isDeleted
               ? null
               : message.image?.url || message.localPreview;
@@ -1308,6 +1411,18 @@ const ChatContainer = () => {
                                 audio={message.audio}
                                 isMine={isMine}
                                 uploading={message.status === "sending"}
+                              />
+                            </div>
+                          )}
+                          {/* NEW — video message */}
+                          {hasVideo && (
+                            <div
+                              className={`max-w-full ${hasText ? "mb-2" : ""}`}
+                            >
+                              <VideoMessage
+                                video={message.video}
+                                uploading={message.status === "sending"}
+                                progress={message.uploadProgress}
                               />
                             </div>
                           )}
@@ -1560,10 +1675,19 @@ const ChatContainer = () => {
                         onClick={() => handleCopyAudioLink(popoverMessage)}
                       />
                     )}
+                    {/* NEW */}
+                    {popoverFlags.hasVideo && (
+                      <MenuItem
+                        icon={Link2}
+                        label="Copy video link"
+                        onClick={() => handleCopyVideoLink(popoverMessage)}
+                      />
+                    )}
                     {(popoverFlags.hasText ||
                       popoverFlags.hasImage ||
                       popoverFlags.hasFileUrl ||
-                      popoverFlags.hasAudio) && (
+                      popoverFlags.hasAudio ||
+                      popoverFlags.hasVideo) && (
                       <div className="my-1 border-t border-base-300" />
                     )}
                     <MenuItem

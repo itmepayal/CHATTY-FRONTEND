@@ -39,6 +39,8 @@ const extFor = (mime = "") =>
         ? "mp3"
         : "webm";
 
+const videoExt = (mime = "") => (mime.includes("mp4") ? "mp4" : "webm");
+
 const mergeServerWithLocal = (server, local) => {
   const keep = local.filter(
     (m) =>
@@ -63,6 +65,7 @@ const markDeleted = (m) => ({
   image: null,
   file: null,
   audio: null,
+  video: null, // NEW
   localPreview: null,
   reactions: [],
   isDeleted: true,
@@ -113,8 +116,11 @@ export const useChatStore = create((set, get) => {
     formData.append("text", msg.text || "");
     formData.append("clientId", clientId);
     if (msg._file) formData.append(ATTACHMENT_FIELD, msg._file);
-    if (msg._isVoice) {
-      formData.append("isVoice", "true");
+
+    // CHANGED: voice + video flags
+    if (msg._isVoice) formData.append("isVoice", "true");
+    if (msg._isVideo) formData.append("isVideo", "true");
+    if (msg._isVoice || msg._isVideo) {
       formData.append("duration", String(msg._duration || 0));
     }
 
@@ -151,6 +157,7 @@ export const useChatStore = create((set, get) => {
       }));
       revokeBlob(msg.localPreview);
       revokeBlob(msg.audio?.url);
+      revokeBlob(msg.video?.url); // NEW
     } catch (error) {
       patchMessage(clientId, {
         status: "failed",
@@ -441,7 +448,8 @@ export const useChatStore = create((set, get) => {
       syncActiveChat();
     },
 
-    sendMessage: ({ text, attachment, imageFile, voice }) => {
+    // CHANGED: accepts `video` ({ blob, mimeType, duration }) in addition to `voice`
+    sendMessage: ({ text, attachment, imageFile, voice, video }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       const clientId = newClientId();
@@ -453,8 +461,17 @@ export const useChatStore = create((set, get) => {
           })
         : null;
 
-      const picked = voiceFile || attachment || imageFile || null;
-      const isImg = !voiceFile && Boolean(picked?.type?.startsWith("image/"));
+      const videoMime = video?.mimeType?.split(";")[0] || "video/webm";
+      const videoFile = video
+        ? new File([video.blob], `video-${Date.now()}.${videoExt(videoMime)}`, {
+            type: videoMime,
+          })
+        : null;
+
+      const picked = voiceFile || videoFile || attachment || imageFile || null;
+      const isImg =
+        !voiceFile && !videoFile && Boolean(picked?.type?.startsWith("image/"));
+      const isPlainFile = Boolean(picked) && !isImg && !voiceFile && !videoFile;
 
       const optimistic = {
         id: `temp-${clientId}`,
@@ -463,15 +480,14 @@ export const useChatStore = create((set, get) => {
         receiverId: selectedUser.id,
         text: text ?? "",
         image: null,
-        file:
-          picked && !isImg && !voiceFile
-            ? {
-                url: null,
-                name: picked.name,
-                size: picked.size,
-                mimeType: picked.type,
-              }
-            : null,
+        file: isPlainFile
+          ? {
+              url: null,
+              name: picked.name,
+              size: picked.size,
+              mimeType: picked.type,
+            }
+          : null,
         audio: voiceFile
           ? {
               url: URL.createObjectURL(voiceFile),
@@ -479,12 +495,20 @@ export const useChatStore = create((set, get) => {
               mimeType: voiceMime,
             }
           : null,
+        video: videoFile
+          ? {
+              url: URL.createObjectURL(videoFile),
+              duration: video.duration || 0,
+              mimeType: videoMime,
+            }
+          : null,
         reactions: [],
         isDeleted: false,
         localPreview: isImg ? URL.createObjectURL(picked) : null,
         _file: picked,
         _isVoice: Boolean(voiceFile),
-        _duration: voice?.duration || 0,
+        _isVideo: Boolean(videoFile),
+        _duration: voice?.duration || video?.duration || 0,
         status: "sending",
         createdAt: null,
       };
@@ -499,6 +523,7 @@ export const useChatStore = create((set, get) => {
         const m = s.messages.find((x) => x.clientId === clientId);
         revokeBlob(m?.localPreview);
         revokeBlob(m?.audio?.url);
+        revokeBlob(m?.video?.url); // NEW
         return { messages: s.messages.filter((x) => x.clientId !== clientId) };
       }),
 

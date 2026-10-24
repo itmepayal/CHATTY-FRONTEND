@@ -37,6 +37,7 @@ import {
   Smile,
   SmilePlus,
   Trash2,
+  Video,
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -58,6 +59,7 @@ import {
 } from "../../lib/messageActions.js";
 import AiAssist from "../common/AiAssist.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
+import VideoRecorderModal from "./VideoRecorderModal.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -67,6 +69,8 @@ const REACT_H = 48;
 
 const MAX_IMAGE_MB = 5;
 const MAX_FILE_MB = 10;
+const MAX_VIDEO_MB = 25; // keep <= your backend multer limit
+const MAX_VIDEO_SECONDS = 60; // must match backend MAX_VIDEO_SECONDS
 
 const FILE_ACCEPT = [
   ".pdf,.doc,.docx,.txt,.rtf,.odt",
@@ -158,6 +162,7 @@ const formatFileSize = (bytes = 0) => {
 };
 
 const isImageFile = (f) => Boolean(f?.type?.startsWith("image/"));
+const isVideoFile = (f) => Boolean(f?.type?.startsWith("video/"));
 
 const getFileIcon = (mimeType = "", name = "") => {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -211,6 +216,7 @@ const getFlags = (m, mine, canDM, canDA) => {
     hasFile: !isDeleted && Boolean(m.file?.name),
     hasFileUrl: !isDeleted && Boolean(m.file?.url),
     hasAudio: !isDeleted && Boolean(m.audio?.url),
+    hasVideo: !isDeleted && Boolean(m.video?.url),
     canDeleteForMe: !isDeleted && canDM,
     canDeleteForAll: mine && !isDeleted && canDA,
   };
@@ -220,7 +226,8 @@ const copyCount = (f) =>
   (f.hasText ? 1 : 0) +
   (f.hasImage ? 2 : 0) +
   (f.hasFileUrl ? 1 : 0) +
-  (f.hasAudio ? 1 : 0);
+  (f.hasAudio ? 1 : 0) +
+  (f.hasVideo ? 1 : 0);
 
 const menuItemsCount = (f) =>
   copyCount(f) + (f.canDeleteForMe ? 1 : 0) + (f.canDeleteForAll ? 1 : 0);
@@ -323,6 +330,26 @@ const FileAttachment = ({ file, isMine, uploading = false }) => {
   );
 };
 
+// Video player inside the chat bubble
+const VideoAttachment = ({ video, uploading = false }) => (
+  <div className="relative w-56 sm:w-72 max-w-full overflow-hidden rounded-xl bg-black">
+    <video
+      src={video.url}
+      controls={!uploading}
+      preload="metadata"
+      playsInline
+      className={`max-h-64 w-full object-contain ${
+        uploading ? "opacity-60" : ""
+      }`}
+    />
+    {uploading && (
+      <div className="absolute inset-0 grid place-items-center">
+        <Loader2 className="size-6 animate-spin text-white" />
+      </div>
+    )}
+  </div>
+);
+
 const placePopover = (rect, w, h, align, preferAbove = false) => {
   const gap = 6;
   const pad = 8;
@@ -399,6 +426,7 @@ const MessageRow = memo(function MessageRow({
   const hasText = !isDeleted && Boolean(m.text);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
+  const hasVideo = !isDeleted && Boolean(m.video?.url);
   const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
   const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
 
@@ -543,6 +571,14 @@ const MessageRow = memo(function MessageRow({
                     />
                   </div>
                 )}
+                {hasVideo && (
+                  <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
+                    <VideoAttachment
+                      video={m.video}
+                      uploading={Boolean(m.pending)}
+                    />
+                  </div>
+                )}
                 {hasText && (
                   <p
                     className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
@@ -683,6 +719,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const [preview, setPreview] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
   const [showTools, setShowTools] = useState(false); // mobile: "+" attach row
+  const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(null);
   const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
@@ -789,6 +826,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setFile(null);
     setShowEmoji(false);
     setShowTools(false);
+    setShowVideoRecorder(false);
     setPopover(null);
     setConfirmId(null);
     setIsDragging(false);
@@ -980,6 +1018,15 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       toast.error("Couldn't copy link");
     }
   };
+  const handleCopyVideoLink = async (m) => {
+    closePopover();
+    try {
+      await navigator.clipboard.writeText(m.video?.url || "");
+      toast.success("Video link copied");
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  };
 
   // always-fresh handlers for the memoized rows (no prop churn)
   handlersRef.current = {
@@ -1023,6 +1070,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const selectFile = (f, kind = "any") => {
     if (!f) return;
     const img = isImageFile(f);
+    const vid = isVideoFile(f);
 
     if (kind === "image" && !img) {
       toast.error("Only images are allowed here. Use the paperclip for files.");
@@ -1033,7 +1081,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       return;
     }
 
-    const limitMb = img ? MAX_IMAGE_MB : MAX_FILE_MB;
+    const limitMb = img ? MAX_IMAGE_MB : vid ? MAX_VIDEO_MB : MAX_FILE_MB;
 
     if (f.size === 0) {
       toast.error("This file is empty");
@@ -1041,7 +1089,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     }
     if (f.size > limitMb * 1024 * 1024) {
       toast.error(
-        `${img ? "Image" : "File"} must be smaller than ${limitMb} MB`,
+        `${img ? "Image" : vid ? "Video" : "File"} must be smaller than ${limitMb} MB`,
       );
       return;
     }
@@ -1053,6 +1101,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     e?.preventDefault();
     if (!text.trim() && !file) return;
     stopTyping();
+    // a video picked via the paperclip is detected inside the store
+    // (attachment.type starts with "video/") and sent as a video message
     sendMessage({
       text,
       imageFile: fileIsImage ? file : null,
@@ -1080,6 +1130,13 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setShowEmoji(false);
     setShowTools(false);
     recorder.start();
+  };
+
+  const openVideoRecorder = () => {
+    stopTyping();
+    setShowEmoji(false);
+    setShowTools(false);
+    setShowVideoRecorder(true);
   };
 
   const pickFromInput = (kind) => (e) => {
@@ -1172,6 +1229,14 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           icon={Link2}
           label="Copy voice message link"
           onClick={() => handleCopyAudioLink(msg)}
+        />
+      )}
+      {f.hasVideo && (
+        <MenuItem
+          large={large}
+          icon={Link2}
+          label="Copy video link"
+          onClick={() => handleCopyVideoLink(msg)}
         />
       )}
       {copyCount(f) > 0 && (f.canDeleteForMe || f.canDeleteForAll) && (
@@ -1492,7 +1557,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 )}
               </AnimatePresence>
 
-              {/* Tools: image / file / emoji / AI.
+              {/* Tools: image / file / video / emoji / AI.
                   Phones: hidden behind the "+" button, shown as their own row.
                   sm and up: inline like before. */}
               <div
@@ -1520,6 +1585,17 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                   title="Send file"
                 >
                   <Paperclip className="size-5" />
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  className="btn btn-ghost btn-sm btn-circle"
+                  onClick={openVideoRecorder}
+                  aria-label="Record video message"
+                  title="Record video message"
+                >
+                  <Video className="size-5" />
                 </motion.button>
 
                 <motion.button
@@ -1621,6 +1697,19 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </p>
           )}
         </div>
+
+        {/* ---------------- Video recorder ---------------- */}
+        {showVideoRecorder && (
+          <VideoRecorderModal
+            maxSeconds={MAX_VIDEO_SECONDS}
+            onClose={() => setShowVideoRecorder(false)}
+            onSend={(video) => {
+              // video = { blob, duration, mimeType }
+              sendMessage({ video });
+              setShowVideoRecorder(false);
+            }}
+          />
+        )}
 
         {/* ---------------- Desktop: reaction picker + options menu ---------------- */}
         {createPortal(
