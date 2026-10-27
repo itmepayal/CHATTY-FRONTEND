@@ -31,6 +31,8 @@ import {
   Mic,
   MoreVertical,
   Paperclip,
+  Phone,
+  PhoneMissed,
   Plus,
   RotateCw,
   Send,
@@ -60,6 +62,11 @@ import {
 import AiAssist from "../common/AiAssist.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoRecorderModal from "./VideoRecorderModal.jsx";
+// ---- group calls ----
+import { useCall } from "../../context/CallContext";
+import { useGroupCallStore } from "../../store/useGroupCallStore";
+import { useGroupCallHistoryStore } from "../../store/useGroupCallHistoryStore";
+import GroupCallBanner from "./GroupCallBanner.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -390,6 +397,104 @@ const MenuItem = ({ icon: Icon, label, onClick, danger = false, large }) => (
 );
 
 /* ------------------------------------------------------------------ */
+/*  Call log row (shows inside the chat timeline)                      */
+/* ------------------------------------------------------------------ */
+const describeCall = (c) => {
+  const kind = c.type === "video" ? "Video" : "Voice";
+  const starterName = c.startedByMe
+    ? "You"
+    : c.startedBy?.fullName?.split(" ")[0] || "Someone";
+  const TypeIcon = c.type === "video" ? Video : Phone;
+
+  if (c.status === "completed") {
+    const parts = [starterName + " started"];
+    parts.push(formatDuration(c.duration || 0));
+    if (c.participantCount > 1) parts.push(`${c.participantCount} joined`);
+    return {
+      Icon: TypeIcon,
+      tone: "",
+      title: `${kind} call`,
+      sub: parts.join(" · "),
+    };
+  }
+
+  if (c.status === "missed") {
+    if (c.startedByMe)
+      return {
+        Icon: TypeIcon,
+        tone: "",
+        title: `${kind} call`,
+        sub: "No one joined",
+      };
+    return {
+      Icon: PhoneMissed,
+      tone: "text-error",
+      title: `Missed ${kind.toLowerCase()} call`,
+      sub: c.startedBy?.fullName ? `from ${c.startedBy.fullName}` : "",
+    };
+  }
+
+  // cancelled
+  return {
+    Icon: TypeIcon,
+    tone: "",
+    title: `${kind} call`,
+    sub: "Cancelled",
+  };
+};
+
+const GroupCallLog = ({ item, prev, onCallBack, disabled, s }) => {
+  const c = item.call;
+  const { Icon, tone, title, sub } = describeCall(c);
+  const showDay = !prev?.createdAt || !sameDay(prev.createdAt, item.createdAt);
+  const time =
+    item.createdAt && s.showTimestamps
+      ? formatTime(item.createdAt, s.timeFormat)
+      : "";
+
+  return (
+    <div>
+      {showDay && (
+        <div className="flex justify-center my-3 sm:my-4">
+          <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
+            {dayLabel(item.createdAt)}
+          </span>
+        </div>
+      )}
+      <div className="flex justify-center my-2">
+        <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm max-w-[92%]">
+          <span
+            className={`grid size-8 shrink-0 place-items-center rounded-full bg-base-200 ${tone}`}
+          >
+            <Icon className="size-4" />
+          </span>
+          <div className="min-w-0 text-sm leading-tight">
+            <div className={`truncate font-medium ${tone}`}>{title}</div>
+            <div className="truncate text-xs text-base-content/60">
+              {[sub, time].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs btn-circle shrink-0 text-primary"
+            onClick={onCallBack}
+            disabled={disabled}
+            aria-label="Call again"
+            title="Call again"
+          >
+            {c.type === "video" ? (
+              <Video className="size-4" />
+            ) : (
+              <Phone className="size-4" />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /*  One message row — memoized so typing in the composer does NOT     */
 /*  re-render every bubble (this was the main cause of lag on phones)  */
 /* ------------------------------------------------------------------ */
@@ -703,6 +808,25 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const { authUser } = useAuthStore();
   const onlineUsers = useVisibleOnlineUsers();
 
+  /* ---- group calls ---- */
+  const { status: oneToOneStatus } = useCall(); // your 1:1 CallContext
+  const startGroupCall = useGroupCallStore((st) => st.startCall);
+  const groupCallStatus = useGroupCallStore((st) => st.status);
+  const hasActiveGroupCall = useGroupCallStore((st) =>
+    Boolean(st.activeByGroup[String(selectedGroup?.id)]),
+  );
+  // can't start while: in a 1:1 call, in a group call, or this group already has a call
+  const callBlocked =
+    oneToOneStatus !== "idle" ||
+    groupCallStatus !== "idle" ||
+    hasActiveGroupCall;
+
+  /* ---- group call history (shown inside the chat timeline) ---- */
+  const groupCalls = useGroupCallHistoryStore(
+    (st) => st.byGroup[String(selectedGroup?.id)],
+  );
+  const fetchGroupCalls = useGroupCallHistoryStore((st) => st.fetchGroup);
+
   const s = useAppearanceStore((st) => st.appearance);
   const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
   const { enterToSend, largeEmoji, autoScroll } = useChatPrefsStore(
@@ -931,6 +1055,33 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const ids = new Set(toIds(onlineUsers));
     return (group?.members || []).filter((m) => ids.has(String(m.id))).length;
   }, [group?.members, onlineUsers]);
+
+  /* ---- load call history when a group opens ---- */
+  useEffect(() => {
+    if (group?.id) fetchGroupCalls(group.id);
+  }, [group?.id, fetchGroupCalls]);
+
+  /* ---- messages + call logs merged by time ---- */
+  const timeline = useMemo(() => {
+    if (!groupCalls?.length) return list;
+    const callItems = groupCalls.map((c) => ({
+      kind: "call",
+      id: `call-${c.id}`,
+      senderId: "__call__", // so message grouping (avatar / name) is not confused
+      createdAt: c.endedAt || c.startedAt,
+      call: c,
+    }));
+    // pending messages (no createdAt yet) always stay at the bottom
+    const t = (x) =>
+      x.createdAt ? new Date(x.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return [...list, ...callItems].sort((a, b) => t(a) - t(b));
+  }, [list, groupCalls]);
+
+  /* ---- a new call log arrived -> scroll down if user is at the bottom ---- */
+  const callCount = groupCalls?.length || 0;
+  useEffect(() => {
+    if (callCount && stickToBottomRef.current) scrollToBottom("smooth");
+  }, [callCount, scrollToBottom]);
 
   /* ---- input handlers ---- */
   const stopTyping = () => {
@@ -1330,6 +1481,34 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </div>
           </button>
 
+          {/* ---- group voice call ---- */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
+            onClick={() => startGroupCall(group.id, "audio", group.name)}
+            disabled={callBlocked}
+            aria-label="Start group voice call"
+            title={
+              hasActiveGroupCall ? "A call is already running" : "Voice call"
+            }
+          >
+            <Phone className="size-[18px]" />
+          </button>
+
+          {/* ---- group video call ---- */}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
+            onClick={() => startGroupCall(group.id, "video", group.name)}
+            disabled={callBlocked}
+            aria-label="Start group video call"
+            title={
+              hasActiveGroupCall ? "A call is already running" : "Video call"
+            }
+          >
+            <Video className="size-[18px]" />
+          </button>
+
           <button
             type="button"
             className="btn btn-ghost btn-sm btn-circle xl:hidden shrink-0"
@@ -1349,6 +1528,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           </button>
         </div>
 
+        {/* ---- "Call in progress · Join" banner ---- */}
+        <GroupCallBanner group={group} />
+
         {/* ---------------- Messages ---------------- */}
         <div
           ref={listRef}
@@ -1361,7 +1543,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </div>
           )}
 
-          {!isGroupMessagesLoading && list.length === 0 && (
+          {!isGroupMessagesLoading && timeline.length === 0 && (
             <motion.div
               {...fade}
               className="h-full flex flex-col items-center justify-center text-center gap-3 px-6"
@@ -1378,27 +1560,44 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </motion.div>
           )}
 
-          {list.map((m, i) => (
-            <MessageRow
-              key={m.clientId || m.id}
-              m={m}
-              prev={list[i - 1]}
-              next={list[i + 1]}
-              group={group}
-              myId={myId}
-              authUser={authUser}
-              cs={cs}
-              s={s}
-              largeEmoji={largeEmoji}
-              isTouch={isTouch}
-              reactOpen={popover?.type === "react" && sameId(popover.id, m.id)}
-              menuOpen={popover?.type === "menu" && sameId(popover.id, m.id)}
-              canReact={canReact}
-              canDM={canDM}
-              canDA={canDA}
-              h={handlersRef}
-            />
-          ))}
+          {timeline.map((item, i) =>
+            item.kind === "call" ? (
+              <GroupCallLog
+                key={item.id}
+                item={item}
+                prev={timeline[i - 1]}
+                s={s}
+                disabled={callBlocked}
+                onCallBack={() =>
+                  startGroupCall(group.id, item.call.type, group.name)
+                }
+              />
+            ) : (
+              <MessageRow
+                key={item.clientId || item.id}
+                m={item}
+                prev={timeline[i - 1]}
+                next={timeline[i + 1]}
+                group={group}
+                myId={myId}
+                authUser={authUser}
+                cs={cs}
+                s={s}
+                largeEmoji={largeEmoji}
+                isTouch={isTouch}
+                reactOpen={
+                  popover?.type === "react" && sameId(popover.id, item.id)
+                }
+                menuOpen={
+                  popover?.type === "menu" && sameId(popover.id, item.id)
+                }
+                canReact={canReact}
+                canDM={canDM}
+                canDA={canDA}
+                h={handlersRef}
+              />
+            ),
+          )}
         </div>
 
         {/* ---------------- Input ---------------- */}

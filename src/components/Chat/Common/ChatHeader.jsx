@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { EyeOff, X } from "lucide-react";
+import { EyeOff, Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../../../store/useChatStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
 import { useVisibleOnlineUsers } from "../../../hooks/useVisibleOnlineUsers";
+import { useCall } from "../../../context/CallContext";
 
 const SPRING = { type: "spring", stiffness: 420, damping: 28 };
 
@@ -87,6 +88,9 @@ const ChatHeader = () => {
   const myStatusVisible = usePrivacyStore((st) => st.privacy.showOnlineStatus);
   const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
 
+  // calling
+  const { startCall, status: callStatus } = useCall();
+
   const [viewAvatar, setViewAvatar] = useState(false);
 
   // close the photo viewer when the chat changes
@@ -127,6 +131,10 @@ const ChatHeader = () => {
     : "This person hides their online status";
 
   const showRing = isOnline || isTyping;
+
+  // calling helpers
+  const callPeer = { id: selectedUser.id, fullName: selectedUser.fullName };
+  const canCall = callStatus === "idle" && !selectedUser.isBlocked;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -262,19 +270,49 @@ const ChatHeader = () => {
             </div>
           </div>
 
-          {/* ---------- close ---------- */}
-          <motion.button
-            type="button"
-            whileHover={{ rotate: 90, scale: 1.12 }}
-            whileTap={{ scale: 0.88 }}
-            transition={{ type: "spring", stiffness: 400, damping: 18 }}
-            className="btn btn-ghost btn-circle btn-sm hover:bg-error/10 hover:text-error"
-            onClick={() => setSelectedUser(null)}
-            aria-label="Close conversation"
-            title="Close conversation"
-          >
-            <X className="size-4" />
-          </motion.button>
+          {/* ---------- call + close ---------- */}
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.88 }}
+              transition={{ type: "spring", stiffness: 400, damping: 18 }}
+              className="btn btn-ghost btn-circle btn-sm hover:bg-primary/10 hover:text-primary"
+              onClick={() => startCall(callPeer, "audio")}
+              disabled={!canCall}
+              aria-label="Start audio call"
+              title="Audio call"
+            >
+              <Phone className="size-4" />
+            </motion.button>
+
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.88 }}
+              transition={{ type: "spring", stiffness: 400, damping: 18 }}
+              className="btn btn-ghost btn-circle btn-sm hover:bg-primary/10 hover:text-primary"
+              onClick={() => startCall(callPeer, "video")}
+              disabled={!canCall}
+              aria-label="Start video call"
+              title="Video call"
+            >
+              <Video className="size-4" />
+            </motion.button>
+
+            <motion.button
+              type="button"
+              whileHover={{ rotate: 90, scale: 1.12 }}
+              whileTap={{ scale: 0.88 }}
+              transition={{ type: "spring", stiffness: 400, damping: 18 }}
+              className="btn btn-ghost btn-circle btn-sm hover:bg-error/10 hover:text-error"
+              onClick={() => setSelectedUser(null)}
+              aria-label="Close conversation"
+              title="Close conversation"
+            >
+              <X className="size-4" />
+            </motion.button>
+          </div>
         </div>
       </motion.header>
 

@@ -65,11 +65,30 @@ const markDeleted = (m) => ({
   image: null,
   file: null,
   audio: null,
-  video: null, // NEW
+  video: null,
+  linkPreview: null,
   localPreview: null,
   reactions: [],
+  isPinned: false,
+  pinnedBy: null,
+  pinnedAt: null,
   isDeleted: true,
 });
+
+// Small snapshot of a message used for the "reply to" quote
+const replySnapshot = (m) =>
+  m
+    ? {
+        id: m.id,
+        senderId: m.senderId,
+        text: m.text || "",
+        image: m.image?.url ? { url: m.image.url } : null,
+        file: m.file?.name ? { name: m.file.name } : null,
+        audio: m.audio?.url ? { url: m.audio.url } : null,
+        video: m.video?.url ? { url: m.video.url } : null,
+        isDeleted: Boolean(m.isDeleted),
+      }
+    : null;
 
 const typingTimers = new Map();
 
@@ -81,11 +100,20 @@ const clearTypingTimer = (fromId) => {
   }
 };
 
+const errMsg = (error, fallback) => error?.response?.data?.message || fallback;
+
 export const useChatStore = create((set, get) => {
   const patchMessage = (clientId, patch) =>
     set((s) => ({
       messages: s.messages.map((m) =>
         m.clientId === clientId ? { ...m, ...patch } : m,
+      ),
+    }));
+
+  const patchById = (messageId, patch) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        sameId(m.id, messageId) ? { ...m, ...patch } : m,
       ),
     }));
 
@@ -117,7 +145,11 @@ export const useChatStore = create((set, get) => {
     formData.append("clientId", clientId);
     if (msg._file) formData.append(ATTACHMENT_FIELD, msg._file);
 
-    // CHANGED: voice + video flags
+    // reply (only a real server id, never a temp one)
+    if (msg._replyId && !String(msg._replyId).startsWith("temp-")) {
+      formData.append("replyTo", String(msg._replyId));
+    }
+
     if (msg._isVoice) formData.append("isVoice", "true");
     if (msg._isVideo) formData.append("isVideo", "true");
     if (msg._isVoice || msg._isVideo) {
@@ -149,6 +181,8 @@ export const useChatStore = create((set, get) => {
             m.clientId === clientId
               ? {
                   ...saved,
+                  // keep local snapshot if server did not send replyTo populated
+                  replyTo: saved.replyTo || m.replyTo || null,
                   clientId,
                   status: saved.status || "sent",
                 }
@@ -157,14 +191,14 @@ export const useChatStore = create((set, get) => {
       }));
       revokeBlob(msg.localPreview);
       revokeBlob(msg.audio?.url);
-      revokeBlob(msg.video?.url); // NEW
+      revokeBlob(msg.video?.url);
     } catch (error) {
       patchMessage(clientId, {
         status: "failed",
         _inFlight: false,
         error: true,
       });
-      toast.error(error?.response?.data?.message || "Failed to send message");
+      toast.error(errMsg(error, "Failed to send message"));
     }
   };
 
@@ -176,6 +210,11 @@ export const useChatStore = create((set, get) => {
     isMessagesLoading: false,
     typingFrom: {},
 
+    replyingTo: null, // message being replied to
+    editingMessage: null, // message being edited
+    scheduled: [], // pending scheduled messages for the open chat
+    disappearAfter: 0, // seconds, 0 = off (for the open chat)
+
     getUsers: async ({ silent = false } = {}) => {
       if (!silent) set({ isUsersLoading: true });
       try {
@@ -183,9 +222,7 @@ export const useChatStore = create((set, get) => {
         set({ users: res.data.data });
       } catch (error) {
         if (!silent) {
-          toast.error(
-            error?.response?.data?.message || "Failed to fetch users",
-          );
+          toast.error(errMsg(error, "Failed to fetch users"));
         }
       } finally {
         if (!silent) set({ isUsersLoading: false });
@@ -207,9 +244,7 @@ export const useChatStore = create((set, get) => {
 
         if (isTabVisible()) get().markSeen(id);
       } catch (error) {
-        toast.error(
-          error?.response?.data?.message || "Failed to fetch messages",
-        );
+        toast.error(errMsg(error, "Failed to fetch messages"));
       } finally {
         if (!silent) set({ isMessagesLoading: false });
       }
@@ -284,6 +319,7 @@ export const useChatStore = create((set, get) => {
           return;
         }
 
+        // my own message (forwarded / scheduled / sent from another device)
         if (
           selectedUser &&
           myId &&
@@ -296,6 +332,9 @@ export const useChatStore = create((set, get) => {
               (message.clientId && m.clientId === message.clientId),
           );
           if (!exists) set({ messages: [...messages, message] });
+
+          // a scheduled message just got delivered -> refresh pending list
+          if (get().scheduled.length) get().getScheduled(selectedUser.id);
           return;
         }
       };
@@ -309,7 +348,10 @@ export const useChatStore = create((set, get) => {
         get().getUsers({ silent: true });
         syncActiveChat();
         const { selectedUser, getMessage } = get();
-        if (selectedUser) getMessage(selectedUser.id, { silent: true });
+        if (selectedUser) {
+          getMessage(selectedUser.id, { silent: true });
+          get().getDisappearing(selectedUser.id);
+        }
       };
 
       const onVisibilityChange = () => {
@@ -319,11 +361,7 @@ export const useChatStore = create((set, get) => {
       };
 
       const onReaction = ({ messageId, reactions }) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            sameId(m.id, messageId) ? { ...m, reactions } : m,
-          ),
-        }));
+        patchById(messageId, { reactions });
       };
 
       const onMessageDeleted = ({ messageId }) => {
@@ -331,6 +369,10 @@ export const useChatStore = create((set, get) => {
           messages: s.messages.map((m) =>
             sameId(m.id, messageId) ? markDeleted(m) : m,
           ),
+          editingMessage: sameId(s.editingMessage?.id, messageId)
+            ? null
+            : s.editingMessage,
+          replyingTo: sameId(s.replyingTo?.id, messageId) ? null : s.replyingTo,
         }));
       };
 
@@ -358,6 +400,32 @@ export const useChatStore = create((set, get) => {
               : m,
           ),
         }));
+      };
+
+      const onEdited = ({ messageId, text, isEdited, editedAt }) => {
+        patchById(messageId, { text, isEdited, editedAt, linkPreview: null });
+      };
+
+      const onPinned = ({ messageId, isPinned, pinnedBy }) => {
+        patchById(messageId, {
+          isPinned,
+          pinnedBy: isPinned ? pinnedBy : null,
+          pinnedAt: isPinned ? new Date().toISOString() : null,
+        });
+      };
+
+      // link preview arrives later in the background.
+      // !! Make sure this event name + payload matches what
+      // attachLinkPreview() emits on the server.
+      const onLinkPreview = ({ messageId, linkPreview }) => {
+        patchById(messageId, { linkPreview });
+      };
+
+      // server sends the OTHER user's id to each side
+      const onDisappearingUpdated = ({ userId, seconds }) => {
+        if (sameId(get().selectedUser?.id, userId)) {
+          set({ disappearAfter: Number(seconds) || 0 });
+        }
       };
 
       const onTyping = ({ from, isTyping }) => {
@@ -402,6 +470,10 @@ export const useChatStore = create((set, get) => {
       socket.on("messageDeletedForMe", onMessageDeletedForMe);
       socket.on("messagesDelivered", onMessagesDelivered);
       socket.on("messagesSeen", onMessagesSeen);
+      socket.on("messageEdited", onEdited);
+      socket.on("messagePinned", onPinned);
+      socket.on("messageLinkPreview", onLinkPreview);
+      socket.on("disappearingUpdated", onDisappearingUpdated);
       socket.on("typing", onTyping);
       document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -415,6 +487,10 @@ export const useChatStore = create((set, get) => {
         _onMessageDeletedForMe: onMessageDeletedForMe,
         _onMessagesDelivered: onMessagesDelivered,
         _onMessagesSeen: onMessagesSeen,
+        _onEdited: onEdited,
+        _onPinned: onPinned,
+        _onLinkPreview: onLinkPreview,
+        _onDisappearing: onDisappearingUpdated,
         _onTyping: onTyping,
       });
 
@@ -436,6 +512,10 @@ export const useChatStore = create((set, get) => {
         socket.off("messageDeletedForMe", s._onMessageDeletedForMe);
         socket.off("messagesDelivered", s._onMessagesDelivered);
         socket.off("messagesSeen", s._onMessagesSeen);
+        socket.off("messageEdited", s._onEdited);
+        socket.off("messagePinned", s._onPinned);
+        socket.off("messageLinkPreview", s._onLinkPreview);
+        socket.off("disappearingUpdated", s._onDisappearing);
         socket.off("typing", s._onTyping);
       }
       if (s._onVisibilityChange) {
@@ -444,15 +524,32 @@ export const useChatStore = create((set, get) => {
     },
 
     setSelectedUser: (selectedUser) => {
-      set({ selectedUser });
+      // reset per-chat composer state
+      set({
+        selectedUser,
+        replyingTo: null,
+        editingMessage: null,
+        scheduled: [],
+        disappearAfter: 0,
+      });
       syncActiveChat();
     },
 
-    // CHANGED: accepts `video` ({ blob, mimeType, duration }) in addition to `voice`
-    sendMessage: ({ text, attachment, imageFile, voice, video }) => {
+    /* ---------------- reply / edit composer state ---------------- */
+    setReplyingTo: (message) =>
+      set({ replyingTo: message || null, editingMessage: null }),
+
+    setEditingMessage: (message) =>
+      set({ editingMessage: message || null, replyingTo: null }),
+
+    /* ---------------- SEND ---------------- */
+    // accepts text, attachment/imageFile, voice, video and (optional) replyTo message
+    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       const clientId = newClientId();
+
+      const replyMsg = replyTo ?? get().replyingTo;
 
       const voiceMime = voice?.mimeType?.split(";")[0] || "audio/webm";
       const voiceFile = voice
@@ -502,17 +599,22 @@ export const useChatStore = create((set, get) => {
               mimeType: videoMime,
             }
           : null,
+        replyTo: replySnapshot(replyMsg),
         reactions: [],
         isDeleted: false,
         localPreview: isImg ? URL.createObjectURL(picked) : null,
         _file: picked,
+        _replyId: replyMsg?.id || null,
         _isVoice: Boolean(voiceFile),
         _isVideo: Boolean(videoFile),
         _duration: voice?.duration || video?.duration || 0,
         status: "sending",
         createdAt: null,
       };
-      set((s) => ({ messages: [...s.messages, optimistic] }));
+      set((s) => ({
+        messages: [...s.messages, optimistic],
+        replyingTo: null,
+      }));
       return transmit(clientId);
     },
 
@@ -523,10 +625,178 @@ export const useChatStore = create((set, get) => {
         const m = s.messages.find((x) => x.clientId === clientId);
         revokeBlob(m?.localPreview);
         revokeBlob(m?.audio?.url);
-        revokeBlob(m?.video?.url); // NEW
+        revokeBlob(m?.video?.url);
         return { messages: s.messages.filter((x) => x.clientId !== clientId) };
       }),
 
+    /* ---------------- EDIT ---------------- */
+    editMessage: async (messageId, text) => {
+      try {
+        const res = await axiosInstance.patch(`/messages/edit/${messageId}`, {
+          text,
+        });
+        const p = res.data.data;
+        // server sends { messageId, text, isEdited, editedAt } (or just { messageId } if no change)
+        if (p?.text !== undefined) {
+          patchById(messageId, {
+            text: p.text,
+            isEdited: p.isEdited,
+            editedAt: p.editedAt,
+            linkPreview: null,
+          });
+        }
+        return true;
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to edit message"));
+        return false;
+      }
+    },
+
+    /* ---------------- PIN ---------------- */
+    togglePin: async (messageId) => {
+      try {
+        const res = await axiosInstance.patch(`/messages/pin/${messageId}`);
+        const p = res.data.data;
+        patchById(messageId, {
+          isPinned: p.isPinned,
+          pinnedBy: p.isPinned ? p.pinnedBy : null,
+          pinnedAt: p.isPinned ? new Date().toISOString() : null,
+        });
+        toast.success(p.isPinned ? "Message pinned" : "Message unpinned");
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to update pin"));
+      }
+    },
+
+    /* ---------------- FORWARD ---------------- */
+    forwardMessages: async (messageId, userIds) => {
+      try {
+        const res = await axiosInstance.post(`/messages/forward/${messageId}`, {
+          userIds,
+        });
+        toast.success(res.data.message || "Forwarded");
+        get().getUsers({ silent: true });
+        return true;
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to forward"));
+        return false;
+      }
+    },
+
+    /* ---------------- SEARCH ---------------- */
+    searchMessages: async (userId, q) => {
+      try {
+        const res = await axiosInstance.get(`/messages/search/${userId}`, {
+          params: { q },
+        });
+        return res.data.data || [];
+      } catch (error) {
+        toast.error(errMsg(error, "Search failed"));
+        return [];
+      }
+    },
+
+    /* ---------------- SCHEDULE ---------------- */
+    scheduleMessage: async (receiverId, text, scheduledFor) => {
+      try {
+        await axiosInstance.post(`/messages/schedule/${receiverId}`, {
+          text,
+          scheduledFor,
+        });
+        toast.success("Message scheduled");
+        get().getScheduled(receiverId);
+        return true;
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to schedule message"));
+        return false;
+      }
+    },
+
+    getScheduled: async (userId) => {
+      try {
+        const res = await axiosInstance.get("/messages/scheduled", {
+          params: userId ? { to: userId } : {},
+        });
+        set({ scheduled: res.data.data || [] });
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to load scheduled messages"));
+      }
+    },
+
+    cancelScheduled: async (scheduleId) => {
+      const previous = get().scheduled;
+      set((s) => ({
+        scheduled: s.scheduled.filter(
+          (x) => !sameId(x._id || x.id, scheduleId),
+        ),
+      }));
+      try {
+        await axiosInstance.delete(`/messages/scheduled/${scheduleId}`);
+        toast.success("Scheduled message cancelled");
+      } catch (error) {
+        set({ scheduled: previous });
+        toast.error(errMsg(error, "Failed to cancel"));
+      }
+    },
+
+    /* ---------------- DISAPPEARING ---------------- */
+    getDisappearing: async (userId) => {
+      try {
+        const res = await axiosInstance.get(`/messages/disappearing/${userId}`);
+        if (sameId(get().selectedUser?.id, userId)) {
+          set({ disappearAfter: res.data.data?.seconds || 0 });
+        }
+      } catch {
+        /* silent */
+      }
+    },
+
+    setDisappearing: async (userId, seconds) => {
+      const previous = get().disappearAfter;
+      set({ disappearAfter: seconds }); // optimistic
+      try {
+        const res = await axiosInstance.put(
+          `/messages/disappearing/${userId}`,
+          {
+            seconds,
+          },
+        );
+        toast.success(res.data.message || "Updated");
+        return true;
+      } catch (error) {
+        set({ disappearAfter: previous });
+        toast.error(errMsg(error, "Failed to update timer"));
+        return false;
+      }
+    },
+
+    // remove expired messages from the live UI (server also filters them)
+    purgeExpired: () =>
+      set((s) => {
+        const now = Date.now();
+        const keep = s.messages.filter(
+          (m) => !m.expiresAt || new Date(m.expiresAt).getTime() > now,
+        );
+        return keep.length === s.messages.length ? {} : { messages: keep };
+      }),
+
+    /* ---------------- REPORT ---------------- */
+    reportUser: async (userId, { reason, details, messageId }) => {
+      try {
+        const res = await axiosInstance.post(`/messages/report/${userId}`, {
+          reason,
+          details,
+          messageId,
+        });
+        toast.success(res.data.message || "Report submitted");
+        return true;
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to submit report"));
+        return false;
+      }
+    },
+
+    /* ---------------- REACT / DELETE ---------------- */
     reactToMessage: async (messageId, emoji) => {
       const myId = useAuthStore.getState().authUser?.id;
       const target = get().messages.find((m) => sameId(m.id, messageId));
@@ -534,12 +804,7 @@ export const useChatStore = create((set, get) => {
 
       const prevReactions = target.reactions || [];
 
-      const setReactions = (reactions) =>
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            sameId(m.id, messageId) ? { ...m, reactions } : m,
-          ),
-        }));
+      const setReactions = (reactions) => patchById(messageId, { reactions });
 
       setReactions(applyReaction(prevReactions, myId, emoji));
 
@@ -550,7 +815,7 @@ export const useChatStore = create((set, get) => {
         setReactions(res.data.data.reactions);
       } catch (error) {
         setReactions(prevReactions);
-        toast.error(error?.response?.data?.message || "Failed to react");
+        toast.error(errMsg(error, "Failed to react"));
       }
     },
 
@@ -568,7 +833,7 @@ export const useChatStore = create((set, get) => {
         toast.success("Message deleted for you");
       } catch (error) {
         set({ messages: previous });
-        toast.error(error?.response?.data?.message || "Failed to delete");
+        toast.error(errMsg(error, "Failed to delete"));
       }
     },
 
@@ -590,7 +855,7 @@ export const useChatStore = create((set, get) => {
         toast.success("Message deleted for everyone");
       } catch (error) {
         set({ messages: previous });
-        toast.error(error?.response?.data?.message || "Failed to delete");
+        toast.error(errMsg(error, "Failed to delete"));
       }
     },
   };

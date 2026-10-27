@@ -8,6 +8,16 @@ import { useAppearanceStore } from "./useAppearanceStore.js";
 
 const baseUrl = import.meta.env.VITE_API_URL;
 
+console.log(baseUrl);
+
+const socketUrl = (() => {
+  try {
+    return new URL(baseUrl, window.location.origin).origin;
+  } catch {
+    return baseUrl;
+  }
+})();
+
 const extractUser = (res) => res?.data?.data?.user ?? res?.data?.data;
 
 const seedPrefs = (user) => {
@@ -334,7 +344,7 @@ export const useAuthStore = create((set, get) => ({
     existing?.removeAllListeners();
     existing?.disconnect();
 
-    const socket = io(baseUrl, {
+    const socket = io(socketUrl, {
       withCredentials: true,
       auth: (cb) => {
         cb({ token: get().authUser?.token?.accessToken });
