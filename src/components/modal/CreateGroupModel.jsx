@@ -3,25 +3,71 @@ import { createPortal } from "react-dom";
 import { Camera, Check, Loader2, Search, Users, X } from "lucide-react";
 import { useChatStore } from "../../store/useChatStore";
 import { useGroupStore } from "../../store/useGroupStore";
-// ⚠️ apna axios instance ka sahi path/naam yahan rakho (jo useChatStore me use karte ho)
-import { axiosInstance } from "../../lib/axios";
+import { useContactStore } from "../../store/useContactStore";
 
-const avatarSrc = (a) => (typeof a === "string" ? a : a?.url) || "./avatar.png";
+const avatarSrc = (a) => (typeof a === "string" ? a : a?.url) || "/avatar.png";
+
+/* ---------- member row (component ke bahar, taaki har render par remount na ho) ---------- */
+const UserRow = ({ user, sub, picked, onToggle }) => (
+  <button
+    type="button"
+    onClick={() => onToggle(user)}
+    aria-pressed={picked}
+    className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors ${
+      picked ? "bg-primary/10" : "hover:bg-base-200"
+    }`}
+  >
+    <img
+      src={avatarSrc(user.avatar)}
+      alt=""
+      className="size-10 shrink-0 rounded-full object-cover"
+    />
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-sm font-medium">
+        {user.fullName}
+      </span>
+      {sub && (
+        <span className="block truncate text-xs text-base-content/50">
+          {sub}
+        </span>
+      )}
+    </span>
+    <span
+      className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+        picked
+          ? "border-primary bg-primary text-primary-content"
+          : "border-base-content/30"
+      }`}
+    >
+      {picked && <Check className="size-3" />}
+    </span>
+  </button>
+);
 
 const CreateGroupModal = ({ open, onClose }) => {
-  const users = useChatStore((s) => s.users); // ab sirf related users aate hain
+  // Sirf wahi log jinhe aapne contacts me add kiya hai
+  const contacts = useContactStore((s) => s.contacts);
+  const contactsLoaded = useContactStore((s) => s.loaded);
+  const fetchContacts = useContactStore((s) => s.fetchContacts);
+
+  // blocked users ko hide karne ke liye (chat store me isBlocked flag hota hai)
+  const users = useChatStore((s) => s.users);
   const setSelectedUser = useChatStore((s) => s.setSelectedUser);
   const { createGroup, selectGroup } = useGroupStore();
 
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState([]); // poore user objects: { id, fullName, avatar, ... }
-  const [results, setResults] = useState([]); // server search se mile "other people"
-  const [searching, setSearching] = useState(false);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState("");
   const [saving, setSaving] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const fileRef = useRef(null);
+
+  // modal khulte hi contacts ready rakho (agar sidebar ne abhi load nahi kiye)
+  useEffect(() => {
+    if (open && !contactsLoaded) fetchContacts();
+  }, [open, contactsLoaded, fetchContacts]);
 
   // reset when closed
   useEffect(() => {
@@ -29,7 +75,6 @@ const CreateGroupModal = ({ open, onClose }) => {
       setName("");
       setQuery("");
       setPicked([]);
-      setResults([]);
       setFile(null);
       setSaving(false);
     }
@@ -49,53 +94,28 @@ const CreateGroupModal = ({ open, onClose }) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, saving, onClose]);
 
-  const q = query.trim().toLowerCase();
-
-  const candidates = useMemo(
-    () =>
-      users.filter(
-        (u) =>
-          !u.isBlocked &&
-          (!q ||
-            u.fullName?.toLowerCase().includes(q) ||
-            u.email?.toLowerCase().includes(q)),
-      ),
-    [users, q],
+  const blockedIds = useMemo(
+    () => new Set(users.filter((u) => u.isBlocked).map((u) => String(u.id))),
+    [users],
   );
 
-  useEffect(() => {
-    if (!open || q.length < 3) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
+  const q = query.trim().toLowerCase();
 
-    let cancelled = false;
-    setSearching(true);
-
-    const t = setTimeout(async () => {
-      try {
-        const res = await axiosInstance.get("/users/search", { params: { q } });
-        if (cancelled) return;
-        const found = res.data?.data || [];
-        // jo pehle se contacts me hain unhe dobara mat dikhao
-        setResults(
-          found.filter(
-            (u) => !users.some((c) => String(c.id) === String(u.id)),
-          ),
-        );
-      } catch {
-        if (!cancelled) setResults([]);
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
-    }, 400);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [q, open, users]);
+  // contacts only: search by name / username / email
+  const candidates = useMemo(
+    () =>
+      contacts
+        .filter(
+          (u) =>
+            !blockedIds.has(String(u.id)) &&
+            (!q ||
+              u.fullName?.toLowerCase().includes(q) ||
+              u.username?.toLowerCase().includes(q) ||
+              u.email?.toLowerCase().includes(q)),
+        )
+        .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || "")),
+    [contacts, blockedIds, q],
+  );
 
   if (!open) return null;
 
@@ -126,47 +146,25 @@ const CreateGroupModal = ({ open, onClose }) => {
     }
   };
 
-  const UserRow = ({ u, sub }) => {
-    const on = isPicked(u.id);
-    return (
-      <button
-        type="button"
-        onClick={() => toggle(u)}
-        className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-base-200 text-left"
-      >
-        <img
-          src={avatarSrc(u.avatar)}
-          alt=""
-          className="size-9 rounded-full object-cover"
-        />
-        <span className="flex-1 min-w-0">
-          <span className="block truncate text-sm">{u.fullName}</span>
-          {sub && (
-            <span className="block truncate text-xs text-base-content/50">
-              {sub}
-            </span>
-          )}
-        </span>
-        <span
-          className={`size-5 rounded-full border flex items-center justify-center ${
-            on
-              ? "bg-primary border-primary text-primary-content"
-              : "border-base-content/30"
-          }`}
-        >
-          {on && <Check className="size-3" />}
-        </span>
-      </button>
-    );
-  };
-
-  const nothingToShow = candidates.length === 0 && results.length === 0;
+  const emptyText = !contactsLoaded
+    ? "Loading contacts…"
+    : contacts.length === 0
+      ? "You haven't added any contacts yet. Add contacts first, then create a group."
+      : q
+        ? "No contacts match your search"
+        : "No contacts available";
 
   return createPortal(
     <div className="modal modal-open" role="dialog" aria-modal="true">
       <div className="modal-box max-w-md p-0">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-base-300">
-          <h3 className="font-semibold text-lg">New group</h3>
+        {/* header */}
+        <div className="flex items-center justify-between border-b border-base-300 px-5 py-4">
+          <div>
+            <h3 className="text-lg font-semibold">New group</h3>
+            <p className="text-xs text-base-content/50">
+              Choose from your contacts
+            </p>
+          </div>
           <button
             className="btn btn-ghost btn-sm btn-circle"
             onClick={onClose}
@@ -177,12 +175,13 @@ const CreateGroupModal = ({ open, onClose }) => {
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
+        <div className="space-y-4 px-5 py-4">
+          {/* photo + name */}
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="relative size-16 shrink-0 rounded-full bg-base-200 flex items-center justify-center overflow-hidden hover:bg-base-300 transition-colors"
+              className="relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-base-200 transition-colors hover:bg-base-300"
               aria-label="Choose group photo"
             >
               {preview ? (
@@ -208,8 +207,9 @@ const CreateGroupModal = ({ open, onClose }) => {
             />
           </div>
 
+          {/* members */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium">Add members</span>
               <span className="text-xs text-base-content/50">
                 {picked.length} selected
@@ -218,7 +218,7 @@ const CreateGroupModal = ({ open, onClose }) => {
 
             {/* selected chips */}
             {picked.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
+              <div className="mb-2 flex flex-wrap gap-2">
                 {picked.map((u) => (
                   <span key={u.id} className="badge badge-lg gap-1">
                     {u.fullName}
@@ -234,60 +234,71 @@ const CreateGroupModal = ({ open, onClose }) => {
               </div>
             )}
 
-            <label className="input input-bordered input-sm h-10 flex items-center gap-2 mb-2">
-              <Search className="size-4 text-base-content/50" />
+            <label
+              className={`input input-bordered mb-2 flex h-11 w-full items-center gap-2 rounded-xl transition-all duration-200 ${
+                searchFocused
+                  ? "border-primary/50 shadow-md shadow-primary/10"
+                  : ""
+              }`}
+            >
+              <Search
+                className={`size-4 shrink-0 transition-colors ${
+                  searchFocused ? "text-primary" : "text-base-content/50"
+                }`}
+              />
               <input
                 type="text"
-                className="grow"
-                placeholder="Search contacts or type full email / @username"
+                className="min-w-0 grow bg-transparent text-base outline-none sm:text-sm"
+                placeholder="Search your contacts"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
               />
-              {searching && <Loader2 className="size-4 animate-spin" />}
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="grid size-6 place-items-center rounded-full text-base-content/40 hover:bg-base-300/60 hover:text-base-content"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
             </label>
 
-            <div className="max-h-60 overflow-y-auto -mx-1">
-              {candidates.length > 0 && (
+            <div className="-mx-1 max-h-60 overflow-y-auto px-1">
+              {candidates.length > 0 ? (
                 <>
                   <p className="px-2 py-1 text-xs text-base-content/50">
-                    Your contacts
+                    Your contacts ({candidates.length})
                   </p>
                   {candidates.map((u) => (
-                    <UserRow key={u.id} u={u} sub={u.email} />
-                  ))}
-                </>
-              )}
-
-              {results.length > 0 && (
-                <>
-                  <p className="px-2 py-1 text-xs text-base-content/50">
-                    Other people
-                  </p>
-                  {results.map((u) => (
                     <UserRow
                       key={u.id}
-                      u={u}
-                      sub={u.username ? `@${u.username}` : ""}
+                      user={u}
+                      sub={u.username ? `@${u.username}` : u.email}
+                      picked={isPicked(u.id)}
+                      onToggle={toggle}
                     />
                   ))}
                 </>
-              )}
-
-              {nothingToShow && !searching && (
-                <div className="flex flex-col items-center gap-2 py-8 px-4 text-center text-sm text-base-content/50">
-                  <Users className="size-6 text-base-content/20" />
-                  {q.length >= 3
-                    ? "No one found. Check the full email or username."
-                    : users.length
-                      ? "No contacts found"
-                      : "No contacts yet. Type a full email or @username to find someone."}
+              ) : (
+                <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-sm text-base-content/50">
+                  {!contactsLoaded ? (
+                    <Loader2 className="size-6 animate-spin text-base-content/30" />
+                  ) : (
+                    <Users className="size-6 text-base-content/20" />
+                  )}
+                  {emptyText}
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-base-300">
+        {/* footer */}
+        <div className="flex justify-end gap-2 border-t border-base-300 px-5 py-4">
           <button
             className="btn btn-ghost btn-sm"
             onClick={onClose}

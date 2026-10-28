@@ -5,6 +5,7 @@ import {
   X,
   MessageCircle,
   Plus,
+  UserPlus,
   UsersRound,
   Settings,
   LogOut,
@@ -28,10 +29,12 @@ import {
 import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 import { useAuthStore } from "../store/useAuthStore";
+import { useContactStore } from "../store/useContactStore";
 import { useCallHistoryStore } from "../store/useCallHistoryStore";
 import { useGroupCallHistoryStore } from "../store/useGroupCallHistoryStore";
 import SidebarSkeleton from "../components/Skeleton/SidebarSkeleton";
 import CreateGroupModal from "./modal/CreateGroupModel";
+import AddContactModal from "./contact/AddContactModel";
 
 const sameId = (a, b) => String(a) === String(b);
 
@@ -42,6 +45,16 @@ const avatarSrc = (avatar) =>
 
 const toIds = (arr) =>
   (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
+
+// true  => Chats tab me sirf contacts (jinhe aapne add kiya) + jinse
+//          pehle se baat-cheet hai wo dikhenge
+// false => pehle jaisa, getUsers ke saare users dikhenge
+const SHOW_ONLY_CONTACTS = true;
+
+// true  => contact remove karne ke baad bhi purani chat history wale log
+//          Chats me dikhte rahenge
+// false => remove karte hi sidebar se hat jayenge
+const KEEP_CONVERSATIONS = false;
 
 const TABS = [
   { key: "all", label: "All" },
@@ -176,6 +189,10 @@ const getGroupPreview = (message, myId) => {
 
 const timeValue = (u) =>
   u.lastMessageAt ? new Date(u.lastMessageAt).getTime() : 0;
+
+// kya is user se pehle koi baat-cheet hui hai?
+const hasConversation = (u) =>
+  !!(u.lastMessage || u.lastMessageAt || (u.unreadCount || 0) > 0);
 
 /* ---------- call helpers ----------
    NOTE: backend ke call record ke field names alag ho to sirf
@@ -492,6 +509,7 @@ const Sidebar = () => {
   const [mode, setMode] = useState("chats"); // chats | groups | calls
   const [dir, setDir] = useState(1); // slide direction for tab switch
   const [showCreate, setShowCreate] = useState(false);
+  const [showAddContact, setShowAddContact] = useState(false);
   const [tab, setTab] = useState("all");
   const [presence, setPresence] = useState("any");
   const [callFilter, setCallFilter] = useState("all");
@@ -527,6 +545,15 @@ const Sidebar = () => {
   const { onlineUsers, hiddenUsers, socket, authUser, toggleFavorite, logout } =
     useAuthStore();
 
+  // Contacts (GET /contacts, add / remove via AddContactModal)
+  const {
+    contacts,
+    contactIds,
+    loaded: contactsLoaded,
+    fetchContacts,
+    reset: resetContacts,
+  } = useContactStore();
+
   // Call history (1:1 + group)
   const {
     calls: userCalls,
@@ -549,7 +576,8 @@ const Sidebar = () => {
   useEffect(() => {
     getUsers();
     fetchGroups();
-  }, [getUsers, fetchGroups]);
+    fetchContacts();
+  }, [getUsers, fetchGroups, fetchContacts]);
 
   // Calls tab khulte hi history refresh
   useEffect(() => {
@@ -574,7 +602,7 @@ const Sidebar = () => {
     unsubscribeFromGroups,
   ]);
 
-  if (isUsersLoading) return <SidebarSkeleton />;
+  if (isUsersLoading || !contactsLoaded) return <SidebarSkeleton />;
 
   const onlineIds = toIds(onlineUsers);
   const hiddenIds = toIds(hiddenUsers);
@@ -582,6 +610,31 @@ const Sidebar = () => {
   const isHidden = (user) => hiddenIds.includes(String(user.id));
   const isFavorite = (user) => favorites.includes(String(user.id));
   const meOnline = authUser ? onlineIds.includes(String(authUser.id)) : false;
+
+  /* ---------- chat list = contacts + people you already talked to ----------
+     - users (useChatStore) me lastMessage / unreadCount hota hai
+     - contacts (useContactStore) me wo log bhi aate hain jinse abhi tak
+       koi message nahi hua (add karte hi list me dikh jayenge) */
+  const contactIdSet = new Set((contactIds || []).map(String));
+
+  const chatUsers = (() => {
+    const map = new Map();
+    users.forEach((u) => {
+      const id = String(u.id);
+      if (
+        !SHOW_ONLY_CONTACTS ||
+        contactIdSet.has(id) ||
+        (KEEP_CONVERSATIONS && hasConversation(u))
+      ) {
+        map.set(id, u);
+      }
+    });
+    (contacts || []).forEach((c) => {
+      const id = String(c.id);
+      if (!map.has(id)) map.set(id, c);
+    });
+    return Array.from(map.values());
+  })();
 
   const tabMatch = {
     all: () => true,
@@ -598,17 +651,22 @@ const Sidebar = () => {
 
   // Counts react to the other filter, so numbers always match what you'll see
   const countFor = (t, p) =>
-    users.filter((u) => tabMatch[t](u) && presenceMatch[p](u)).length;
+    chatUsers.filter((u) => tabMatch[t](u) && presenceMatch[p](u)).length;
 
   const q = query.trim().toLowerCase();
-  const filteredUsers = users
+  const filteredUsers = chatUsers
     .filter((user) => {
       if (!tabMatch[tab](user)) return false;
       if (!presenceMatch[presence](user)) return false;
       if (q && !user.fullName?.toLowerCase().includes(q)) return false;
       return true;
     })
-    .sort((a, b) => timeValue(b) - timeValue(a));
+    .sort((a, b) => {
+      const diff = timeValue(b) - timeValue(a);
+      if (diff !== 0) return diff;
+      // jinse abhi koi message nahi hua unko naam se sort karo
+      return (a.fullName || "").localeCompare(b.fullName || "");
+    });
 
   const filteredGroups = groups
     .filter((g) => !q || g.name?.toLowerCase().includes(q))
@@ -656,10 +714,13 @@ const Sidebar = () => {
   const isCallsBusy = isCallsLoading || isGroupCallsLoading;
   const callsInitialLoading = isCallsBusy && allCalls.length === 0;
 
-  const chatUnread = users.reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+  const chatUnread = chatUsers.reduce(
+    (sum, u) => sum + (u.unreadCount || 0),
+    0,
+  );
   const groupUnread = groups.reduce((sum, g) => sum + (g.unreadCount || 0), 0);
   const totalUnread = chatUnread + groupUnread;
-  const onlineCount = users.filter(isOnline).length;
+  const onlineCount = chatUsers.filter(isOnline).length;
 
   // Mobile: jab koi chat/group khula ho to sidebar chhup jata hai
   // (desktop par hamesha dikhta hai). Chat header ka back/X button chat band
@@ -691,7 +752,9 @@ const Sidebar = () => {
       if (g) openGroup(g);
       return;
     }
-    const u = users.find((x) => sameId(x.id, call.otherId));
+    const u =
+      chatUsers.find((x) => sameId(x.id, call.otherId)) ||
+      users.find((x) => sameId(x.id, call.otherId));
     if (u) openChat(u);
   };
 
@@ -701,6 +764,7 @@ const Sidebar = () => {
       await logout();
       clearCalls();
       clearGroupCalls();
+      resetContacts();
     } finally {
       setIsLoggingOut(false);
       setConfirmLogout(false);
@@ -1162,6 +1226,22 @@ const Sidebar = () => {
                   </motion.span>
                 )}
               </AnimatePresence>
+
+              {/* Add contact */}
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.12 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: "spring", stiffness: 400, damping: 18 }}
+                onClick={() => setShowAddContact(true)}
+                className="btn btn-circle size-10 min-h-10 border-0 bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
+                aria-label="Add contact"
+                title="Add contact"
+              >
+                <UserPlus className="size-5" />
+              </motion.button>
+
+              {/* New group */}
               <motion.button
                 type="button"
                 whileHover={{ rotate: 90, scale: 1.12 }}
@@ -1576,6 +1656,16 @@ const Sidebar = () => {
                           Clear filters
                         </button>
                       )}
+                      {!hasActiveFilters && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddContact(true)}
+                          className="btn btn-sm btn-primary mt-1 gap-1"
+                        >
+                          <UserPlus className="size-4" />
+                          {q ? "Find people to add" : "Add contacts"}
+                        </button>
+                      )}
                     </EmptyState>
                   )}
                 </>
@@ -1669,6 +1759,11 @@ const Sidebar = () => {
         <CreateGroupModal
           open={showCreate}
           onClose={() => setShowCreate(false)}
+        />
+
+        <AddContactModal
+          open={showAddContact}
+          onClose={() => setShowAddContact(false)}
         />
 
         <LogoutConfirm
