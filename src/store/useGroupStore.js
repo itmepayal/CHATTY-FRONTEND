@@ -11,13 +11,19 @@ const newClientId = () =>
   crypto.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const timeOf = (d) => (d ? new Date(d).getTime() : 0);
-const sortGroups = (list) =>
-  [...list].sort((a, b) => timeOf(b.lastMessageAt) - timeOf(a.lastMessageAt));
+// FIX 5: authUser me id ya _id, dono me se jo bhi ho
+const myId = () => idOf(useAuthStore.getState().authUser);
 
-// "archived" is per-user and only comes from GET /groups and the archive
-// endpoints/socket event. Server broadcasts (group:updated / group:created)
-// always carry archived:false, so we must NOT let them overwrite our local value.
+const timeOf = (d) => (d ? new Date(d).getTime() : 0);
+
+// FIX 1: naye group (jisme lastMessageAt nahi) ko createdAt se sort karo
+const sortGroups = (list) =>
+  [...list].sort(
+    (a, b) =>
+      timeOf(b.lastMessageAt || b.createdAt) -
+      timeOf(a.lastMessageAt || a.createdAt),
+  );
+
 const upsert = (list, item) => {
   const { archived: _ignored, ...rest } = item;
   return list.some((x) => sameId(x.id, item.id))
@@ -33,6 +39,24 @@ const normalizeMsg = (m) => ({
   groupId: idOf(m.groupId),
   senderId: idOf(m.senderId ?? m.sender),
   readBy: (m.readBy || []).map(idOf),
+  location: m.location
+    ? {
+        ...m.location,
+        shareId: m.location.shareId ? idOf(m.location.shareId) : null,
+      }
+    : null,
+});
+
+// LocationShare document / socket payload -> flat share object
+const normalizeShare = (s) => ({
+  shareId: idOf(s.shareId ?? s._id ?? s.id),
+  groupId: idOf(s.groupId),
+  sharerId: idOf(s.sharerId),
+  lat: s.lat ?? s.lastLocation?.lat,
+  lng: s.lng ?? s.lastLocation?.lng,
+  accuracy: s.accuracy ?? s.lastLocation?.accuracy,
+  updatedAt: s.updatedAt ?? s.lastLocation?.updatedAt,
+  expiresAt: s.expiresAt,
 });
 
 const visible = () => document.visibilityState === "visible";
@@ -40,6 +64,13 @@ const visible = () => document.visibilityState === "visible";
 const revokeBlob = (url) => {
   if (typeof url === "string" && url.startsWith("blob:"))
     URL.revokeObjectURL(url);
+};
+
+const revokeMsgBlobs = (m) => {
+  if (!m) return;
+  revokeBlob(m.image?.url);
+  revokeBlob(m.audio?.url);
+  revokeBlob(m.video?.url);
 };
 
 const extFor = (mime = "") =>
@@ -54,14 +85,22 @@ const extFor = (mime = "") =>
 const videoExtFor = (mime = "") =>
   mime.includes("mp4") ? "mp4" : mime.includes("quicktime") ? "mov" : "webm";
 
+/* ---------------- LIVE LOCATION CONSTANTS ---------------- */
+const LIVE_PUSH_MS = 5000; // server ko kitni der me ek baar position bhejni hai
+
 let handlers = null;
 const seenInFlight = new Set();
+const seenDirty = new Set(); // FIX: in-flight ke dauran naya message aaya to dobara markSeen
+// shareId -> { watchId, last }
+const watchers = new Map();
 
 export const useGroupStore = create((set, get) => ({
   groups: [],
   selectedGroup: null,
   groupMessages: [],
   typing: {},
+  // { [groupId]: { [shareId]: share } }  (apne + dusron ke active live shares)
+  liveShares: {},
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
 
@@ -230,15 +269,22 @@ export const useGroupStore = create((set, get) => ({
           : s.selectedGroup,
     })),
 
-  dropGroup: (groupId) =>
+  dropGroup: (groupId) => {
+    // is group ke saare live shares/watchers saaf karo
+    Object.keys(get().liveShares[groupId] || {}).forEach((shareId) =>
+      get().stopWatch(shareId),
+    );
     set((s) => {
       const open = s.selectedGroup && sameId(s.selectedGroup.id, groupId);
+      const { [groupId]: _gone, ...restShares } = s.liveShares;
       return {
         groups: s.groups.filter((g) => !sameId(g.id, groupId)),
         selectedGroup: open ? null : s.selectedGroup,
         groupMessages: open ? [] : s.groupMessages,
+        liveShares: restShares,
       };
-    }),
+    });
+  },
 
   /* ---------- messages ---------- */
   selectGroup: async (group) => {
@@ -247,7 +293,12 @@ export const useGroupStore = create((set, get) => ({
       groupMessages: [],
       isGroupMessagesLoading: true,
     });
-    await get().fetchMessages(group.id);
+    await Promise.all([
+      get().fetchMessages(group.id),
+      get().fetchActiveShares(group.id),
+    ]);
+    // FIX: agar beech me user ne dusra group khol liya, to uska loader mat band karo
+    if (!sameId(get().selectedGroup?.id, group.id)) return;
     set({ isGroupMessagesLoading: false });
     if (visible()) get().markSeen(group.id);
   },
@@ -263,11 +314,20 @@ export const useGroupStore = create((set, get) => ({
       if (sameId(get().selectedGroup?.id, groupId)) {
         // keep local pending/failed messages the server doesn't know yet
         const server = (unwrap(res) || []).map(normalizeMsg);
-        const keep = get().groupMessages.filter(
-          (m) =>
-            (m.pending || m.failed) &&
-            !server.some((x) => x.clientId && x.clientId === m.clientId),
+        const current = get().groupMessages;
+        const isKnownByServer = (m) =>
+          m.clientId && server.some((x) => x.clientId === m.clientId);
+
+        const keep = current.filter(
+          (m) => (m.pending || m.failed) && !isKnownByServer(m),
         );
+
+        // FIX: jo local messages server ke message se replace ho rahe hain,
+        // unke blob URLs revoke karo (memory leak)
+        current
+          .filter((m) => (m.pending || m.failed) && isKnownByServer(m))
+          .forEach(revokeMsgBlobs);
+
         set({ groupMessages: [...server, ...keep] });
       }
     } catch (e) {
@@ -282,6 +342,7 @@ export const useGroupStore = create((set, get) => ({
   sendMessage: async ({ text, imageFile, attachment, voice, video }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
+    const meId = myId();
     const trimmed = text?.trim() || "";
 
     // Strip codec params ("audio/webm;codecs=opus" -> "audio/webm") so the
@@ -305,7 +366,7 @@ export const useGroupStore = create((set, get) => ({
         : null;
 
     const file = voiceFile || videoFile || imageFile || attachment || null;
-    if (!selectedGroup || !me || (!trimmed && !file)) return;
+    if (!selectedGroup || !me || !meId || (!trimmed && !file)) return;
 
     const clientId = newClientId();
     const localUrl =
@@ -315,8 +376,8 @@ export const useGroupStore = create((set, get) => ({
       id: `temp-${clientId}`,
       clientId,
       groupId: String(selectedGroup.id),
-      senderId: String(me.id),
-      sender: { id: String(me.id), fullName: me.fullName, avatar: me.avatar },
+      senderId: meId,
+      sender: { id: meId, fullName: me.fullName, avatar: me.avatar },
       text: trimmed,
       image: imageFile ? { url: localUrl } : null,
       file:
@@ -338,7 +399,8 @@ export const useGroupStore = create((set, get) => ({
             mimeType: videoFile.type,
           }
         : null,
-      readBy: [String(me.id)],
+      location: null,
+      readBy: [meId],
       createdAt: new Date().toISOString(),
       pending: true,
       _file: file,
@@ -399,9 +461,7 @@ export const useGroupStore = create((set, get) => ({
   discardMessage: (clientId) =>
     set((s) => {
       const m = s.groupMessages.find((x) => x.clientId === clientId);
-      revokeBlob(m?.image?.url);
-      revokeBlob(m?.audio?.url);
-      revokeBlob(m?.video?.url);
+      revokeMsgBlobs(m);
       return {
         groupMessages: s.groupMessages.filter((x) => x.clientId !== clientId),
       };
@@ -424,9 +484,7 @@ export const useGroupStore = create((set, get) => ({
     }
 
     const old = s.groupMessages[idx];
-    revokeBlob(old.image?.url);
-    revokeBlob(old.audio?.url);
-    revokeBlob(old.video?.url);
+    revokeMsgBlobs(old);
 
     const next = [...s.groupMessages];
     next[idx] = { ...msg, readBy: union(old.readBy, msg.readBy) };
@@ -441,7 +499,11 @@ export const useGroupStore = create((set, get) => ({
     }));
 
     const key = String(groupId);
-    if (seenInFlight.has(key)) return;
+    if (seenInFlight.has(key)) {
+      // FIX: request chal rahi hai, par naya message aaya -> baad me dobara bhejo
+      seenDirty.add(key);
+      return;
+    }
     seenInFlight.add(key);
     try {
       await axiosInstance.post(`/groups/${groupId}/seen`);
@@ -449,6 +511,7 @@ export const useGroupStore = create((set, get) => ({
       get().fetchGroups({ silent: true });
     } finally {
       seenInFlight.delete(key);
+      if (seenDirty.delete(key)) get().markSeen(groupId);
     }
   },
 
@@ -460,6 +523,209 @@ export const useGroupStore = create((set, get) => ({
       groupId: String(selectedGroup.id),
       isTyping,
     });
+  },
+
+  /* =====================================================
+   *                  LIVE LOCATION
+   * ===================================================== */
+
+  // Selector: is group me mera active live share (ya undefined)
+  getMyShare: (groupId) => {
+    const me = myId();
+    return Object.values(get().liveShares[groupId] || {}).find((sh) =>
+      sameId(sh.sharerId, me),
+    );
+  },
+
+  // Ek baar ka current location pin bhejo
+  // coords = { lat, lng, accuracy }
+  sendCurrentLocation: async (groupId, coords) => {
+    try {
+      const res = await axiosInstance.post(`/groups/${groupId}/location`, {
+        mode: "current",
+        lat: coords.lat,
+        lng: coords.lng,
+        accuracy: coords.accuracy,
+        clientId: newClientId(),
+      });
+      const saved = unwrap(res);
+      if (saved) get().receiveMessage(saved);
+      return true;
+    } catch (e) {
+      toast.error(errMsg(e));
+      return false;
+    }
+  },
+
+  // Live location shuru karo. durationMin: 15 | 60 | 480
+  startLiveLocation: async (groupId, coords, durationMin) => {
+    try {
+      const res = await axiosInstance.post(`/groups/${groupId}/location`, {
+        mode: "live",
+        lat: coords.lat,
+        lng: coords.lng,
+        accuracy: coords.accuracy,
+        durationMin,
+        clientId: newClientId(),
+      });
+      const { message, share } = unwrap(res) || {};
+      if (message) get().receiveMessage(message);
+      if (share) {
+        const sh = normalizeShare({ ...share, groupId });
+        get().setShare(sh);
+        get().startWatch(groupId, sh.shareId);
+      }
+      return true;
+    } catch (e) {
+      toast.error(errMsg(e));
+      return false;
+    }
+  },
+
+  // Live location band karo
+  stopLiveLocation: async (groupId, shareId) => {
+    try {
+      await axiosInstance.post(`/groups/${groupId}/location/${shareId}/stop`);
+      get().endShareLocal(groupId, shareId);
+      return true;
+    } catch (e) {
+      toast.error(errMsg(e));
+      return false;
+    }
+  },
+
+  // Server se is group ke active shares lao; mere shares ka watcher dobara chalao
+  fetchActiveShares: async (groupId) => {
+    try {
+      const res = await axiosInstance.get(`/groups/${groupId}/location/active`);
+      const { mine = [], inGroup = [] } = unwrap(res) || {};
+      const map = {};
+      [...mine, ...inGroup].forEach((raw) => {
+        const sh = normalizeShare({ ...raw, groupId });
+        map[sh.shareId] = sh;
+      });
+      set((s) => ({ liveShares: { ...s.liveShares, [groupId]: map } }));
+      // page refresh ke baad bhi apna live sharing chalta rahe
+      mine.forEach((raw) => get().startWatch(groupId, idOf(raw._id ?? raw.id)));
+    } catch {
+      /* silent */
+    }
+  },
+
+  // FIX 3: refresh/login ke baad SAARE groups ke mere active shares resume karo
+  // (sirf open group nahi). App start / socket connect pe call hota hai.
+  resumeMyLiveShares: async () => {
+    const list = get().groups.filter((g) => !g.archived);
+    await Promise.all(list.map((g) => get().fetchActiveShares(g.id)));
+  },
+
+  setShare: (share) =>
+    set((s) => ({
+      liveShares: {
+        ...s.liveShares,
+        [share.groupId]: {
+          ...(s.liveShares[share.groupId] || {}),
+          [share.shareId]: {
+            ...(s.liveShares[share.groupId]?.[share.shareId] || {}),
+            ...share,
+          },
+        },
+      },
+    })),
+
+  // share khatam: watcher band, store se hatao, message ko "ended" mark karo
+  endShareLocal: (groupId, shareId) => {
+    get().stopWatch(shareId);
+    set((s) => {
+      const { [shareId]: _gone, ...rest } = s.liveShares[groupId] || {};
+      return {
+        liveShares: { ...s.liveShares, [groupId]: rest },
+        groupMessages: s.groupMessages.map((m) =>
+          m.location && sameId(m.location.shareId, shareId)
+            ? { ...m, location: { ...m.location, isLive: false } }
+            : m,
+        ),
+      };
+    });
+  },
+
+  // Browser GPS watch -> har LIVE_PUSH_MS me server ko position bhejo
+  startWatch: (groupId, shareId) => {
+    if (watchers.has(shareId)) return;
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported on this device.");
+      return;
+    }
+
+    const entry = { watchId: null, last: 0 };
+    entry.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - entry.last < LIVE_PUSH_MS) return;
+        entry.last = now;
+        get().pushLivePosition(groupId, shareId, {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        });
+      },
+      (err) => {
+        console.error("watchPosition error:", err?.message || err);
+        if (err?.code === 1) {
+          toast.error("Location permission denied. Live sharing stopped.");
+          get().stopLiveLocation(groupId, shareId);
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+    );
+    watchers.set(shareId, entry);
+  },
+
+  stopWatch: (shareId) => {
+    const entry = watchers.get(shareId);
+    if (entry && navigator.geolocation) {
+      navigator.geolocation.clearWatch(entry.watchId);
+    }
+    watchers.delete(shareId);
+  },
+
+  // FIX 4: logout pe call karo -> saare GPS watchers band + local state saaf
+  // (server pe share chalta rahega; sirf is device ka GPS push band hota hai)
+  stopAllWatchers: () => {
+    [...watchers.keys()].forEach((id) => get().stopWatch(id));
+    set({ liveShares: {} });
+  },
+
+  // Logout ke time ek hi call me sab reset
+  resetOnLogout: () => {
+    get().stopAllWatchers();
+    get().unsubscribeFromGroups();
+    seenInFlight.clear();
+    seenDirty.clear();
+    set({
+      groups: [],
+      selectedGroup: null,
+      groupMessages: [],
+      typing: {},
+      liveShares: {},
+      isGroupsLoading: false,
+      isGroupMessagesLoading: false,
+    });
+  },
+
+  pushLivePosition: async (groupId, shareId, coords) => {
+    try {
+      await axiosInstance.patch(
+        `/groups/${groupId}/location/${shareId}`,
+        coords,
+      );
+    } catch (e) {
+      const status = e?.response?.status;
+      // 404 = share nahi mila / band, 410 = expire ho gaya
+      if (status === 404 || status === 410) {
+        get().endShareLocal(groupId, shareId);
+      }
+    }
   },
 
   /* ---------- realtime ---------- */
@@ -482,6 +748,20 @@ export const useGroupStore = create((set, get) => ({
         const msg = normalizeMsg(raw);
         get().receiveMessage(msg);
 
+        if (msg.location?.isLive && msg.location.shareId) {
+          get().setShare(
+            normalizeShare({
+              shareId: msg.location.shareId,
+              groupId: msg.groupId,
+              sharerId: msg.senderId,
+              lat: msg.location.lat,
+              lng: msg.location.lng,
+              accuracy: msg.location.accuracy,
+              updatedAt: msg.createdAt,
+            }),
+          );
+        }
+
         // sender stopped typing once their message arrives
         set((s) => {
           const cur = { ...(s.typing[msg.groupId] || {}) };
@@ -489,9 +769,8 @@ export const useGroupStore = create((set, get) => ({
           return { typing: { ...s.typing, [msg.groupId]: cur } };
         });
 
-        const myId = String(useAuthStore.getState().authUser?.id);
         const open = sameId(get().selectedGroup?.id, msg.groupId);
-        if (open && visible() && !sameId(msg.senderId, myId)) {
+        if (open && visible() && !sameId(msg.senderId, myId())) {
           get().markSeen(msg.groupId);
         }
       },
@@ -536,20 +815,48 @@ export const useGroupStore = create((set, get) => ({
           return { typing: { ...s.typing, [groupId]: cur } };
         }),
 
-      // Reconnect: server re-joins rooms; re-sync anything missed while offline
-      connect: () => {
-        get().fetchGroups({ silent: true });
+      /* ---- live location ---- */
+      "group:location:update": (p) => {
+        const sh = normalizeShare(p);
+        get().setShare(sh);
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            m.location && sameId(m.location.shareId, sh.shareId)
+              ? {
+                  ...m,
+                  location: {
+                    ...m.location,
+                    lat: sh.lat,
+                    lng: sh.lng,
+                    accuracy: sh.accuracy,
+                  },
+                }
+              : m,
+          ),
+        }));
+      },
+
+      "group:location:ended": ({ groupId, shareId }) =>
+        get().endShareLocal(String(groupId), String(shareId)),
+
+      connect: async () => {
+        await get().fetchGroups({ silent: true });
         const open = get().selectedGroup;
         if (open) {
           get()
             .fetchMessages(open.id)
             .then(() => visible() && get().markSeen(open.id));
         }
+        get().resumeMyLiveShares();
       },
     };
 
     Object.entries(h).forEach(([ev, fn]) => socket.on(ev, fn));
     handlers = h;
+
+    get()
+      .fetchGroups({ silent: true })
+      .then(() => get().resumeMyLiveShares());
   },
 
   unsubscribeFromGroups: () => {

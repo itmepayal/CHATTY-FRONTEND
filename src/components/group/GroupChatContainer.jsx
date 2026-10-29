@@ -17,8 +17,10 @@ import {
   Ban,
   Check,
   CheckCheck,
+  Clock,
   Copy,
   Download,
+  ExternalLink,
   File as FileIcon,
   FileArchive,
   FileAudio,
@@ -29,9 +31,11 @@ import {
   Info,
   Link2,
   Loader2,
+  MapPin,
   MessageSquareText,
   Mic,
   MoreVertical,
+  Navigation,
   Paperclip,
   Phone,
   PhoneMissed,
@@ -80,6 +84,13 @@ const MAX_IMAGE_MB = 5;
 const MAX_FILE_MB = 10;
 const MAX_VIDEO_MB = 25; // keep <= your backend multer limit
 const MAX_VIDEO_SECONDS = 60; // must match backend MAX_VIDEO_SECONDS
+
+// ---- LOCATION: live share durations (minutes) ----
+const LIVE_DURATIONS = [
+  { min: 15, label: "15 min" },
+  { min: 60, label: "1 hour" },
+  { min: 480, label: "8 hours" },
+];
 
 const FILE_ACCEPT = [
   ".pdf,.doc,.docx,.txt,.rtf,.odt",
@@ -199,6 +210,84 @@ const getFileIcon = (mimeType = "", name = "") => {
   return FileIcon;
 };
 
+/* ---------------- LOCATION helpers ---------------- */
+const mapsUrl = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+const osmEmbedUrl = (lat, lng) => {
+  const d = 0.004;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${lng - d}%2C${
+    lat - d
+  }%2C${lng + d}%2C${lat + d}&layer=mapnik&marker=${lat}%2C${lng}`;
+};
+
+// approx. distance in meters (enough to decide "did the pin move?")
+const metersBetween = (a, b) => {
+  const dLat = (b.lat - a.lat) * 111320;
+  const dLng = (b.lng - a.lng) * 111320 * Math.cos((a.lat * Math.PI) / 180);
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+};
+
+const timeAgo = (value, now) => {
+  if (!value) return "";
+  const secs = Math.max(
+    0,
+    Math.round((now - new Date(value).getTime()) / 1000),
+  );
+  if (secs < 10) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  return `${Math.round(mins / 60)} h ago`;
+};
+
+const clockTime = (value) =>
+  value
+    ? new Date(value).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+// Promise wrapper around the browser GPS (one-time position)
+const getPosition = () =>
+  new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Geolocation is not supported on this device."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({
+          lat: p.coords.latitude,
+          lng: p.coords.longitude,
+          accuracy: p.coords.accuracy,
+        }),
+      (err) =>
+        reject(
+          new Error(
+            err?.code === 1
+              ? "Location permission denied. Allow location access in your browser settings."
+              : err?.code === 3
+                ? "Location request timed out. Try again."
+                : "Couldn't get your location.",
+          ),
+        ),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    );
+  });
+
+// re-render every `intervalMs` (0 = never)
+const useNow = (intervalMs) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!intervalMs) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(t);
+  }, [intervalMs]);
+  return now;
+};
+
 /* touch device (no hover) detection — phones / tablets */
 const useIsTouch = () => {
   const [touch, setTouch] = useState(
@@ -226,6 +315,10 @@ const getFlags = (m, mine, canDM, canDA) => {
     hasFileUrl: !isDeleted && Boolean(m.file?.url),
     hasAudio: !isDeleted && Boolean(m.audio?.url),
     hasVideo: !isDeleted && Boolean(m.video?.url),
+    hasLocation:
+      !isDeleted &&
+      Number.isFinite(Number(m.location?.lat)) &&
+      Number.isFinite(Number(m.location?.lng)),
     canDeleteForMe: !isDeleted && canDM,
     canDeleteForAll: mine && !isDeleted && canDA,
   };
@@ -236,7 +329,8 @@ const copyCount = (f) =>
   (f.hasImage ? 2 : 0) +
   (f.hasFileUrl ? 1 : 0) +
   (f.hasAudio ? 1 : 0) +
-  (f.hasVideo ? 1 : 0);
+  (f.hasVideo ? 1 : 0) +
+  (f.hasLocation ? 2 : 0);
 
 const menuItemsCount = (f) =>
   copyCount(f) + (f.canDeleteForMe ? 1 : 0) + (f.canDeleteForAll ? 1 : 0);
@@ -358,6 +452,140 @@ const VideoAttachment = ({ video, uploading = false }) => (
     )}
   </div>
 );
+
+/* ------------------------------------------------------------------ */
+/*  LOCATION card inside the chat bubble                               */
+/*  - normal pin: map preview + "Open in Maps"                         */
+/*  - live share: pulsing LIVE badge, "updated Xs ago", expiry time,   */
+/*    and a Stop button (only for the sender)                          */
+/*  `share` = latest entry from useGroupStore.liveShares (or undefined)*/
+/* ------------------------------------------------------------------ */
+const LocationAttachment = ({ location, share, isMine, onStop }) => {
+  const lat = Number(share?.lat ?? location.lat);
+  const lng = Number(share?.lng ?? location.lng);
+  const accuracy = share?.accuracy ?? location.accuracy;
+  const expiresAt = share?.expiresAt;
+
+  // live only while the share exists in the store (stop / expire removes it)
+  const liveRaw = Boolean(location.isLive && share);
+  const now = useNow(liveRaw ? 15000 : 0);
+  const live = liveRaw && (!expiresAt || new Date(expiresAt).getTime() > now);
+  const wasLive = Boolean(location.isLive) && !live;
+
+  // move the map only when the pin moved > 25 m (avoids iframe flicker)
+  const [pin, setPin] = useState({ lat, lng });
+  useEffect(() => {
+    setPin((p) => (metersBetween(p, { lat, lng }) > 25 ? { lat, lng } : p));
+  }, [lat, lng]);
+
+  const [stopping, setStopping] = useState(false);
+  const handleStop = async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      await onStop?.(location.shareId);
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const title = live
+    ? "Live location"
+    : wasLive
+      ? "Live location ended"
+      : "Location";
+
+  return (
+    <div className="w-60 sm:w-72 max-w-full overflow-hidden rounded-xl border border-base-300 bg-base-100 text-base-content text-left">
+      <a
+        href={mapsUrl(lat, lng)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="relative block h-32 bg-base-200"
+        aria-label="Open location in Maps"
+      >
+        <iframe
+          title="Map preview"
+          src={osmEmbedUrl(pin.lat, pin.lng)}
+          loading="lazy"
+          tabIndex={-1}
+          className="pointer-events-none h-full w-full border-0"
+        />
+        {/* click catcher so the whole map opens Maps */}
+        <span className="absolute inset-0" />
+        {live && (
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 rounded-full bg-base-100/90 px-2 py-0.5 text-[11px] font-semibold text-success shadow">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-success" />
+            </span>
+            LIVE
+          </span>
+        )}
+      </a>
+
+      <div className="p-2.5">
+        <div className="flex items-center gap-2">
+          <span
+            className={`grid size-8 shrink-0 place-items-center rounded-full ${
+              live ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
+            }`}
+          >
+            {live ? (
+              <Navigation className="size-4" />
+            ) : (
+              <MapPin className="size-4" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{title}</div>
+            <div className="truncate text-xs text-base-content/60">
+              {live
+                ? [
+                    share?.updatedAt
+                      ? `Updated ${timeAgo(share.updatedAt, now)}`
+                      : "",
+                    expiresAt ? `Until ${clockTime(expiresAt)}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : Number.isFinite(Number(accuracy))
+                  ? `±${Math.round(accuracy)} m`
+                  : `${lat.toFixed(5)}, ${lng.toFixed(5)}`}
+            </div>
+          </div>
+          <a
+            href={mapsUrl(lat, lng)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-ghost btn-xs btn-circle shrink-0"
+            aria-label="Open in Maps"
+            title="Open in Maps"
+          >
+            <ExternalLink className="size-4" />
+          </a>
+        </div>
+
+        {live && isMine && (
+          <button
+            type="button"
+            onClick={handleStop}
+            disabled={stopping}
+            className="btn btn-error btn-outline btn-xs mt-2 w-full"
+          >
+            {stopping ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              "Stop sharing"
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const placePopover = (rect, w, h, align, preferAbove = false) => {
   const gap = 6;
@@ -516,6 +744,7 @@ const MessageRow = memo(function MessageRow({
   canReact,
   canDM,
   canDA,
+  share, // LOCATION: live share for this message (or undefined)
   h, // ref with the latest handlers
 }) {
   const mine = sameId(m.senderId, myId);
@@ -534,6 +763,10 @@ const MessageRow = memo(function MessageRow({
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
   const hasVideo = !isDeleted && Boolean(m.video?.url);
+  const hasLocation =
+    !isDeleted &&
+    Number.isFinite(Number(m.location?.lat)) &&
+    Number.isFinite(Number(m.location?.lng));
   const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
   const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
 
@@ -686,6 +919,16 @@ const MessageRow = memo(function MessageRow({
                     />
                   </div>
                 )}
+                {hasLocation && (
+                  <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
+                    <LocationAttachment
+                      location={m.location}
+                      share={share}
+                      isMine={mine}
+                      onStop={h.current.stopLive}
+                    />
+                  </div>
+                )}
                 {hasText && (
                   <p
                     className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
@@ -804,6 +1047,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     markSeen,
     archiveGroup,
     unarchiveGroup,
+    // ---- LOCATION ----
+    liveShares,
+    sendCurrentLocation,
+    startLiveLocation,
+    stopLiveLocation,
     // optional — only used if your store has them
     reactToMessage,
     deleteForMe,
@@ -853,6 +1101,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
   const [confirmId, setConfirmId] = useState(null);
   const [archiving, setArchiving] = useState(false);
+  // ---- LOCATION state ----
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locBusy, setLocBusy] = useState(false);
+  const [liveMin, setLiveMin] = useState(60);
+  const [stoppingBar, setStoppingBar] = useState(false);
 
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ voice }),
@@ -872,7 +1125,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const lastSeenSentRef = useRef({});
   const handlersRef = useRef({}); // latest handlers for memoized rows
 
-  const myId = String(authUser?.id);
+  const myId = String(authUser?.id ?? authUser?._id);
   const group = selectedGroup;
   const list = Array.isArray(groupMessages) ? groupMessages : [];
   const last = list[list.length - 1];
@@ -958,6 +1211,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setShowVideoRecorder(false);
     setPopover(null);
     setConfirmId(null);
+    setLocationOpen(false);
+    setLocBusy(false);
     setIsDragging(false);
     dragDepth.current = 0;
   }, [group?.id, recorder.cancel]);
@@ -1024,18 +1279,20 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     };
   }, [group?.id, hasUnseen, lastKey, markSeen]);
 
-  /* ---- Escape: confirm -> popover -> image viewer ---- */
+  /* ---- Escape: confirm -> location -> popover -> image viewer ---- */
   useEffect(() => {
-    if (!popover && !confirmId && !previewSrc) return;
+    if (!popover && !confirmId && !previewSrc && !locationOpen) return;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
       if (confirmId) setConfirmId(null);
-      else if (popover) setPopover(null);
+      else if (locationOpen) {
+        if (!locBusy) setLocationOpen(false);
+      } else if (popover) setPopover(null);
       else setPreviewSrc(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [popover, confirmId, previewSrc]);
+  }, [popover, confirmId, previewSrc, locationOpen, locBusy]);
 
   /* ---- close popover on outside click / resize ---- */
   useEffect(() => {
@@ -1130,6 +1387,95 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           ? `${typingNames[0]} and ${typingNames[1]} are typing…`
           : "Several people are typing…";
 
+  /* ================= LOCATION logic ================= */
+  const groupShares = Object.values(liveShares?.[group.id] || {});
+  const myShare = groupShares.find((sh) => sameId(sh.sharerId, myId));
+  const othersSharing = groupShares.filter((sh) => !sameId(sh.sharerId, myId));
+  const nameOf = (id) =>
+    group.members.find((x) => sameId(x.id, id))?.fullName?.split(" ")[0] ||
+    "Someone";
+
+  const liveBarText = (() => {
+    const names = othersSharing.map((sh) => nameOf(sh.sharerId));
+    const others =
+      names.length === 0
+        ? ""
+        : names.length === 1
+          ? `${names[0]} is sharing live location`
+          : names.length === 2
+            ? `${names[0]} and ${names[1]} are sharing live location`
+            : `${names[0]} and ${names.length - 1} others are sharing live location`;
+    if (myShare && others) return `You and others are sharing live location`;
+    if (myShare) return "You are sharing your live location";
+    return others;
+  })();
+
+  const openLocationModal = () => {
+    stopTyping();
+    setShowEmoji(false);
+    setShowTools(false);
+    setLocationOpen(true);
+  };
+
+  // one place for: get GPS -> call store -> close modal
+  const runLocation = async (fn) => {
+    if (locBusy) return;
+    setLocBusy(true);
+    try {
+      const coords = await getPosition();
+      const ok = await fn(coords);
+      if (ok) setLocationOpen(false);
+    } catch (e) {
+      toast.error(e?.message || "Couldn't get your location.");
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  const handleSendCurrent = () =>
+    runLocation((coords) => sendCurrentLocation(group.id, coords));
+
+  const handleStartLive = () =>
+    runLocation((coords) => startLiveLocation(group.id, coords, liveMin));
+
+  // used by the bubble button, the top bar and the modal
+  const handleStopLive = async (shareId) => {
+    const id = shareId || myShare?.shareId;
+    if (!id) return false;
+    const ok = await stopLiveLocation(group.id, id);
+    if (ok) toast.success("Live location stopped");
+    return ok;
+  };
+
+  const handleStopFromBar = async () => {
+    if (stoppingBar) return;
+    setStoppingBar(true);
+    try {
+      await handleStopLive(myShare?.shareId);
+    } finally {
+      setStoppingBar(false);
+    }
+  };
+
+  const handleOpenMaps = (m) => {
+    closePopover();
+    const lat = Number(m.location?.lat);
+    const lng = Number(m.location?.lng);
+    window.open(mapsUrl(lat, lng), "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyLocationLink = async (m) => {
+    closePopover();
+    try {
+      await navigator.clipboard.writeText(
+        mapsUrl(Number(m.location?.lat), Number(m.location?.lng)),
+      );
+      toast.success("Location link copied");
+    } catch {
+      toast.error("Couldn't copy link");
+    }
+  };
+
   const openPopover = (e, type, m, mine) => {
     if (popover?.type === type && sameId(popover.id, m.id)) {
       setPopover(null);
@@ -1205,6 +1551,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     reactToMessage,
     retryMessage,
     discardMessage,
+    stopLive: handleStopLive,
     onImageLoad: () => stickToBottomRef.current && scrollToBottom("auto"),
   };
 
@@ -1408,6 +1755,22 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           onClick={() => handleCopyVideoLink(msg)}
         />
       )}
+      {f.hasLocation && (
+        <>
+          <MenuItem
+            large={large}
+            icon={MapPin}
+            label="Open in Maps"
+            onClick={() => handleOpenMaps(msg)}
+          />
+          <MenuItem
+            large={large}
+            icon={Link2}
+            label="Copy location link"
+            onClick={() => handleCopyLocationLink(msg)}
+          />
+        </>
+      )}
       {copyCount(f) > 0 && (f.canDeleteForMe || f.canDeleteForAll) && (
         <div className="my-1 border-t border-base-300" />
       )}
@@ -1570,6 +1933,42 @@ const GroupChatContainer = ({ onToggleInfo }) => {
         {/* ---- "Call in progress · Join" banner ---- */}
         <GroupCallBanner group={group} />
 
+        {/* ---- LOCATION: "X is sharing live location" bar ---- */}
+        <AnimatePresence initial={false}>
+          {liveBarText && (
+            <motion.div
+              key="live-bar"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18, ease: EASE }}
+              className="overflow-hidden border-b border-base-300 bg-success/10"
+            >
+              <div className="flex items-center gap-2 px-3 py-1.5 text-xs sm:text-sm">
+                <span className="relative flex size-2.5 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
+                  <span className="relative inline-flex size-2.5 rounded-full bg-success" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{liveBarText}</span>
+                {myShare && (
+                  <button
+                    type="button"
+                    onClick={handleStopFromBar}
+                    disabled={stoppingBar}
+                    className="btn btn-error btn-outline btn-xs shrink-0"
+                  >
+                    {stoppingBar ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      "Stop"
+                    )}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ---------------- Messages ---------------- */}
         <div
           ref={listRef}
@@ -1633,6 +2032,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 canReact={canReact}
                 canDM={canDM}
                 canDA={canDA}
+                share={
+                  item.location?.shareId
+                    ? liveShares?.[group.id]?.[item.location.shareId]
+                    : undefined
+                }
                 h={handlersRef}
               />
             ),
@@ -1795,7 +2199,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 )}
               </AnimatePresence>
 
-              {/* Tools: image / file / video / emoji / AI.
+              {/* Tools: image / file / video / location / emoji / AI.
                   Phones: hidden behind the "+" button, shown as their own row.
                   sm and up: inline like before. */}
               <div
@@ -1834,6 +2238,20 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                   title="Record video message"
                 >
                   <Video className="size-5" />
+                </motion.button>
+
+                {/* ---- LOCATION button ---- */}
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  className={`btn btn-ghost btn-sm btn-circle ${
+                    myShare ? "text-success" : ""
+                  }`}
+                  onClick={openLocationModal}
+                  aria-label="Share location"
+                  title="Share location"
+                >
+                  <MapPin className="size-5" />
                 </motion.button>
 
                 <motion.button
@@ -2056,6 +2474,159 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                   </div>
                 </motion.div>
               </>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
+        {/* ---------------- LOCATION: share modal / bottom sheet ---------------- */}
+        {createPortal(
+          <AnimatePresence>
+            {locationOpen && (
+              <motion.div
+                key="location-modal"
+                {...fade}
+                className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+                onClick={() => !locBusy && setLocationOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="location-title"
+              >
+                <motion.div
+                  {...modalCard}
+                  className="w-full max-w-sm rounded-t-2xl border border-base-300 bg-base-100 p-4 shadow-2xl pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-5"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                      <MapPin className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 id="location-title" className="font-semibold">
+                        Share location
+                      </h3>
+                      <p className="truncate text-xs text-base-content/60">
+                        with {group.name}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm btn-circle"
+                      onClick={() => setLocationOpen(false)}
+                      disabled={locBusy}
+                      aria-label="Close"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+
+                  {/* 1) one-time pin */}
+                  <button
+                    type="button"
+                    onClick={handleSendCurrent}
+                    disabled={locBusy}
+                    className="mt-4 flex w-full items-center gap-3 rounded-xl border border-base-300 p-3 text-left transition-colors hover:bg-base-200 disabled:opacity-60"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-base-200">
+                      {locBusy ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <MapPin className="size-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">
+                        Send current location
+                      </span>
+                      <span className="block text-xs text-base-content/60">
+                        One-time pin, doesn't update
+                      </span>
+                    </span>
+                  </button>
+
+                  {/* 2) live location */}
+                  <div className="mt-3 rounded-xl border border-base-300 p-3">
+                    <div className="flex items-center gap-3">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-success/15 text-success">
+                        <Navigation className="size-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">
+                          Share live location
+                        </span>
+                        <span className="block text-xs text-base-content/60">
+                          Updates for everyone while you move
+                        </span>
+                      </span>
+                    </div>
+
+                    {myShare ? (
+                      <div className="mt-3">
+                        <p className="mb-2 flex items-center gap-1.5 text-xs text-base-content/60">
+                          <Clock className="size-3.5" />
+                          You're already sharing
+                          {myShare.expiresAt
+                            ? ` until ${clockTime(myShare.expiresAt)}`
+                            : ""}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await handleStopLive(myShare.shareId);
+                            if (ok) setLocationOpen(false);
+                          }}
+                          className="btn btn-error btn-outline btn-sm w-full"
+                        >
+                          Stop sharing
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className="mt-3 grid grid-cols-3 gap-2"
+                          role="radiogroup"
+                          aria-label="Duration"
+                        >
+                          {LIVE_DURATIONS.map((d) => (
+                            <button
+                              key={d.min}
+                              type="button"
+                              role="radio"
+                              aria-checked={liveMin === d.min}
+                              onClick={() => setLiveMin(d.min)}
+                              disabled={locBusy}
+                              className={`btn btn-sm ${
+                                liveMin === d.min
+                                  ? "btn-primary"
+                                  : "btn-ghost border border-base-300"
+                              }`}
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleStartLive}
+                          disabled={locBusy}
+                          className="btn btn-primary btn-sm mt-3 w-full"
+                        >
+                          {locBusy ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            "Start sharing"
+                          )}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <p className="mt-3 text-[11px] leading-snug text-base-content/50">
+                    Live location keeps updating while this tab is open. You can
+                    stop sharing anytime.
+                  </p>
+                </motion.div>
+              </motion.div>
             )}
           </AnimatePresence>,
           document.body,
