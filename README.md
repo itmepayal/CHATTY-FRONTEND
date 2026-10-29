@@ -4,8 +4,6 @@
 
 1 Live Location Sharing User apni current ya live location doosre user ke saath share kar sakega.
 
-4 Archive Chats Chat ko main chat list se hide karke Archived Chats section mein rakh sakega.
-
 Tumhare existing online status, read receipts aur typing indicator settings ko dekhte hue, pehle unki privacy behaviour aur real-time consistency thoroughly test karna useful rahega.
 🏆 Phase 4: Advanced Features — Chatty ko standout banane ke liye
 Ye features tumhare portfolio project ko doosre basic MERN chat projects se alag kar sakte hain.

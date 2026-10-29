@@ -11,6 +11,8 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Ban,
   Check,
@@ -800,6 +802,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     closeGroup,
     emitTyping,
     markSeen,
+    archiveGroup,
+    unarchiveGroup,
     // optional — only used if your store has them
     reactToMessage,
     deleteForMe,
@@ -848,6 +852,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const [previewSrc, setPreviewSrc] = useState(null);
   const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
   const [confirmId, setConfirmId] = useState(null);
+  const [archiving, setArchiving] = useState(false);
 
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ voice }),
@@ -1098,6 +1103,19 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   }, [typingEnabled]);
 
   if (!group) return null;
+
+  const isArchived = Boolean(group.archived);
+
+  const toggleArchive = async () => {
+    if (archiving) return;
+    setArchiving(true);
+    try {
+      if (isArchived) await unarchiveGroup(group.id);
+      else await archiveGroup(group.id);
+    } finally {
+      setArchiving(false);
+    }
+  };
 
   const typingNames = Object.entries(typing?.[group.id] || {})
     .filter(([uid]) => uid !== myId)
@@ -1474,6 +1492,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                       <span className={onlineCount > 0 ? "text-success" : ""}>
                         {onlineCount} online
                       </span>
+                      {isArchived && " · Archived"}
                     </motion.span>
                   )}
                 </AnimatePresence>
@@ -1507,6 +1526,26 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             }
           >
             <Video className="size-[18px]" />
+          </button>
+
+          {/* ---- archive / unarchive ---- */}
+          <button
+            type="button"
+            className={`btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary ${
+              isArchived ? "text-primary" : ""
+            }`}
+            onClick={toggleArchive}
+            disabled={archiving}
+            aria-label={isArchived ? "Unarchive group" : "Archive group"}
+            title={isArchived ? "Unarchive group" : "Archive group"}
+          >
+            {archiving ? (
+              <Loader2 className="size-[18px] animate-spin" />
+            ) : isArchived ? (
+              <ArchiveRestore className="size-[18px]" />
+            ) : (
+              <Archive className="size-[18px]" />
+            )}
           </button>
 
           <button

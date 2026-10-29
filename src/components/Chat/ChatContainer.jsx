@@ -10,6 +10,8 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   Ban,
   Check,
   Clock,
@@ -1808,6 +1810,8 @@ const ChatContainer = () => {
     setDisappearing,
     purgeExpired,
     reportUser,
+    // archive
+    setArchive,
   } = useChatStore();
   const { authUser } = useAuthStore();
 
@@ -2199,6 +2203,15 @@ const ChatContainer = () => {
     setShowScheduled(true);
   };
 
+  // archive state of the open chat (sidebar list me isArchived flag hota hai)
+  const isArchived = Boolean(
+    users.find((u) => sameId(u.id, selectedUser?.id))?.isArchived,
+  );
+
+  const handleArchive = () => {
+    if (selectedUser?.id) setArchive(selectedUser.id, !isArchived);
+  };
+
   const inputArea = isBlocked ? (
     <BlockedBanner name={selectedUser?.fullName} />
   ) : (
@@ -2287,7 +2300,7 @@ const ChatContainer = () => {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <ChatHeader />
 
-        {/* Toolbar: search + scheduled + disappearing + report */}
+        {/* Toolbar: search + scheduled + disappearing + archive + report */}
         <div className="flex items-center gap-1 border-b border-base-300 bg-base-100 px-3 py-1">
           <AnimatePresence mode="wait" initial={false}>
             {searchOpen ? (
@@ -2335,7 +2348,7 @@ const ChatContainer = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -14, transition: { duration: 0.1 } }}
                 transition={springSnappy}
-                className="flex min-w-0 flex-1 items-center gap-1"
+                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
               >
                 <ToolbarBtn icon={Search} onClick={() => setSearchOpen(true)}>
                   Search
@@ -2354,6 +2367,12 @@ const ChatContainer = () => {
                   <AnimatedBadge show={disappearAfter > 0}>
                     {timerLabel(disappearAfter)}
                   </AnimatedBadge>
+                </ToolbarBtn>
+                <ToolbarBtn
+                  icon={isArchived ? ArchiveRestore : Archive}
+                  onClick={handleArchive}
+                >
+                  {isArchived ? "Unarchive" : "Archive"}
                 </ToolbarBtn>
                 <ToolbarBtn
                   icon={Flag}
@@ -3069,7 +3088,6 @@ const ChatContainer = () => {
           )}
         </AnimatePresence>
 
-        {/* Image viewer (drag up/down to dismiss) */}
         <ImageViewer src={previewSrc} onClose={() => setPreviewSrc(null)} />
       </div>
     </MotionConfig>

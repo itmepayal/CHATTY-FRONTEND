@@ -15,10 +15,15 @@ const timeOf = (d) => (d ? new Date(d).getTime() : 0);
 const sortGroups = (list) =>
   [...list].sort((a, b) => timeOf(b.lastMessageAt) - timeOf(a.lastMessageAt));
 
-const upsert = (list, item) =>
-  list.some((x) => sameId(x.id, item.id))
-    ? list.map((x) => (sameId(x.id, item.id) ? { ...x, ...item } : x))
-    : [item, ...list];
+// "archived" is per-user and only comes from GET /groups and the archive
+// endpoints/socket event. Server broadcasts (group:updated / group:created)
+// always carry archived:false, so we must NOT let them overwrite our local value.
+const upsert = (list, item) => {
+  const { archived: _ignored, ...rest } = item;
+  return list.some((x) => sameId(x.id, item.id))
+    ? list.map((x) => (sameId(x.id, item.id) ? { ...x, ...rest } : x))
+    : [{ ...rest, archived: false }, ...list];
+};
 
 const union = (a = [], b = []) => [...new Set([...a, ...b].map(String))];
 
@@ -64,7 +69,19 @@ export const useGroupStore = create((set, get) => ({
     if (!silent) set({ isGroupsLoading: true });
     try {
       const res = await axiosInstance.get("/groups");
-      set({ groups: sortGroups(unwrap(res) || []) });
+      const groups = sortGroups(unwrap(res) || []);
+      set((s) => {
+        // keep the open group's data fresh (incl. archived flag)
+        const open = s.selectedGroup
+          ? groups.find((g) => sameId(g.id, s.selectedGroup.id))
+          : null;
+        return {
+          groups,
+          selectedGroup: open
+            ? { ...s.selectedGroup, archived: open.archived }
+            : s.selectedGroup,
+        };
+      });
     } catch (e) {
       if (!silent) toast.error(errMsg(e));
     } finally {
@@ -161,12 +178,55 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
+  /* ---------- archive ---------- */
+  setGroupArchived: (groupId, archived) =>
+    set((s) => ({
+      groups: s.groups.map((g) =>
+        sameId(g.id, groupId) ? { ...g, archived } : g,
+      ),
+      selectedGroup:
+        s.selectedGroup && sameId(s.selectedGroup.id, groupId)
+          ? { ...s.selectedGroup, archived }
+          : s.selectedGroup,
+    })),
+
+  archiveGroup: async (groupId) => {
+    const prev = get().groups.find((g) => sameId(g.id, groupId))?.archived;
+    get().setGroupArchived(groupId, true); // optimistic
+    try {
+      await axiosInstance.put(`/groups/${groupId}/archive`);
+      toast.success("Group archived");
+      return true;
+    } catch (e) {
+      get().setGroupArchived(groupId, Boolean(prev)); // rollback
+      toast.error(errMsg(e));
+      return false;
+    }
+  },
+
+  unarchiveGroup: async (groupId) => {
+    const prev = get().groups.find((g) => sameId(g.id, groupId))?.archived;
+    get().setGroupArchived(groupId, false); // optimistic
+    try {
+      await axiosInstance.delete(`/groups/${groupId}/archive`);
+      toast.success("Group unarchived");
+      return true;
+    } catch (e) {
+      get().setGroupArchived(groupId, Boolean(prev)); // rollback
+      toast.error(errMsg(e));
+      return false;
+    }
+  },
+
   applyGroupUpdate: (group) =>
     set((s) => ({
       groups: sortGroups(upsert(s.groups, group)),
       selectedGroup:
         s.selectedGroup && sameId(s.selectedGroup.id, group.id)
-          ? { ...s.selectedGroup, ...group }
+          ? (() => {
+              const { archived: _ignored, ...rest } = group;
+              return { ...s.selectedGroup, ...rest };
+            })()
           : s.selectedGroup,
     })),
 
@@ -413,6 +473,10 @@ export const useGroupStore = create((set, get) => ({
       "group:updated": (g) => get().applyGroupUpdate(g),
       "group:removed": ({ groupId }) => get().dropGroup(groupId),
       "group:deleted": ({ groupId }) => get().dropGroup(groupId),
+
+      // archive/unarchive done on another tab/device of the same user
+      "group:archiveChanged": ({ groupId, archived }) =>
+        get().setGroupArchived(groupId, Boolean(archived)),
 
       "group:newMessage": (raw) => {
         const msg = normalizeMsg(raw);

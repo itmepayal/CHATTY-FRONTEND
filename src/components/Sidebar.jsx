@@ -16,6 +16,10 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   PhoneMissed,
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -306,6 +310,31 @@ const UnreadBadge = ({ count }) => (
   </AnimatePresence>
 );
 
+// "Archived (N)" row jo list ke top par dikhti hai (chats aur groups dono me)
+const ArchivedRow = ({ count, unread, onClick, noun = "chat" }) => (
+  <div className="px-1.5 sm:px-2">
+    <motion.button
+      type="button"
+      whileHover={{ x: 2 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className="w-full min-h-[56px] rounded-xl px-2.5 sm:px-3 py-2 flex items-center gap-3 transition-colors hover:bg-base-200 active:bg-base-200"
+    >
+      <span className="grid size-11 sm:size-12 shrink-0 place-items-center rounded-full bg-base-200 text-base-content/60">
+        <Archive className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block text-[15px] font-medium">Archived</span>
+        <span className="block text-[13px] text-base-content/50">
+          {count} {count === 1 ? noun : `${noun}s`}
+        </span>
+      </span>
+      {unread > 0 && <UnreadBadge count={unread} />}
+      <ChevronRight className="size-4 shrink-0 text-base-content/40" />
+    </motion.button>
+  </div>
+);
+
 const SectionLabel = ({ children }) => (
   <motion.div
     initial={{ opacity: 0, y: -4 }}
@@ -518,6 +547,8 @@ const Sidebar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [showArchivedGroups, setShowArchivedGroups] = useState(false);
 
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -530,6 +561,7 @@ const Sidebar = () => {
     isUsersLoading,
     subscribeToMessage,
     unSubscribeFromMessage,
+    setArchive,
   } = useChatStore();
 
   const {
@@ -540,6 +572,8 @@ const Sidebar = () => {
     fetchGroups,
     subscribeToGroups,
     unsubscribeFromGroups,
+    archiveGroup,
+    unarchiveGroup,
   } = useGroupStore();
 
   const { onlineUsers, hiddenUsers, socket, authUser, toggleFavorite, logout } =
@@ -617,7 +651,7 @@ const Sidebar = () => {
        koi message nahi hua (add karte hi list me dikh jayenge) */
   const contactIdSet = new Set((contactIds || []).map(String));
 
-  const chatUsers = (() => {
+  const allChatUsers = (() => {
     const map = new Map();
     users.forEach((u) => {
       const id = String(u.id);
@@ -635,6 +669,28 @@ const Sidebar = () => {
     });
     return Array.from(map.values());
   })();
+
+  const archivedUsers = allChatUsers.filter((u) => u.isArchived);
+  const archivedUnread = archivedUsers.reduce(
+    (sum, u) => sum + (u.unreadCount || 0),
+    0,
+  );
+
+  // current view: main list ya archived list. Neeche ke saare filters,
+  // counts aur search isi par chalte hain, isliye unhe badalna nahi pada.
+  const chatUsers = allChatUsers.filter((u) =>
+    showArchived ? u.isArchived : !u.isArchived,
+  );
+
+  /* ---------- groups: main list ya archived list ---------- */
+  const archivedGroups = groups.filter((g) => g.archived);
+  const archivedGroupUnread = archivedGroups.reduce(
+    (sum, g) => sum + (g.unreadCount || 0),
+    0,
+  );
+  const visibleGroups = groups.filter((g) =>
+    showArchivedGroups ? g.archived : !g.archived,
+  );
 
   const tabMatch = {
     all: () => true,
@@ -668,7 +724,7 @@ const Sidebar = () => {
       return (a.fullName || "").localeCompare(b.fullName || "");
     });
 
-  const filteredGroups = groups
+  const filteredGroups = visibleGroups
     .filter((g) => !q || g.name?.toLowerCase().includes(q))
     .sort((a, b) => timeValue(b) - timeValue(a));
 
@@ -684,6 +740,7 @@ const Sidebar = () => {
   };
 
   const getEmptyText = () => {
+    if (showArchived && !q && !hasActiveFilters) return "No archived chats";
     if (q) return "No contacts match your search";
     if (tab !== "all" && presence !== "any")
       return "Nothing matches these filters";
@@ -714,13 +771,18 @@ const Sidebar = () => {
   const isCallsBusy = isCallsLoading || isGroupCallsLoading;
   const callsInitialLoading = isCallsBusy && allCalls.length === 0;
 
-  const chatUnread = chatUsers.reduce(
-    (sum, u) => sum + (u.unreadCount || 0),
-    0,
-  );
-  const groupUnread = groups.reduce((sum, g) => sum + (g.unreadCount || 0), 0);
+  // archived chats/groups ka unread alag "Archived" row par dikhta hai,
+  // isliye tab ke badge me sirf main list ka unread gino
+  const chatUnread = allChatUsers
+    .filter((u) => !u.isArchived)
+    .reduce((sum, u) => sum + (u.unreadCount || 0), 0);
+  const groupUnread = groups
+    .filter((g) => !g.archived)
+    .reduce((sum, g) => sum + (g.unreadCount || 0), 0);
   const totalUnread = chatUnread + groupUnread;
-  const onlineCount = chatUsers.filter(isOnline).length;
+  const onlineCount = allChatUsers.filter(
+    (u) => !u.isArchived && isOnline(u),
+  ).length;
 
   // Mobile: jab koi chat/group khula ho to sidebar chhup jata hai
   // (desktop par hamesha dikhta hai). Chat header ka back/X button chat band
@@ -753,7 +815,7 @@ const Sidebar = () => {
       return;
     }
     const u =
-      chatUsers.find((x) => sameId(x.id, call.otherId)) ||
+      allChatUsers.find((x) => sameId(x.id, call.otherId)) ||
       users.find((x) => sameId(x.id, call.otherId));
     if (u) openChat(u);
   };
@@ -775,15 +837,29 @@ const Sidebar = () => {
   const onProfile = pathname === "/profile";
 
   const headerTitle =
-    mode === "calls" ? "Calls" : mode === "groups" ? "Groups" : "Messages";
+    mode === "calls"
+      ? "Calls"
+      : mode === "groups"
+        ? showArchivedGroups
+          ? "Archived"
+          : "Groups"
+        : showArchived
+          ? "Archived"
+          : "Messages";
   const headerSub =
     mode === "calls"
       ? missedCount > 0
         ? `${missedCount} missed`
         : `${allCalls.length} recent`
       : mode === "groups"
-        ? `${groups.length} ${groups.length === 1 ? "group" : "groups"}`
-        : `${onlineCount} online`;
+        ? showArchivedGroups
+          ? `${archivedGroups.length} ${archivedGroups.length === 1 ? "group" : "groups"}`
+          : `${groups.length - archivedGroups.length} ${
+              groups.length - archivedGroups.length === 1 ? "group" : "groups"
+            }`
+        : showArchived
+          ? `${archivedUsers.length} ${archivedUsers.length === 1 ? "chat" : "chats"}`
+          : `${onlineCount} online`;
 
   /* ---------- rows ---------- */
   const renderUser = (user, i = 0) => {
@@ -918,6 +994,25 @@ const Sidebar = () => {
             </motion.span>
           </motion.button>
         )}
+
+        {/* Archive / Unarchive (desktop par hover me dikhta hai) */}
+        {!hasUnread && (
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.75 }}
+            whileHover={{ scale: 1.2 }}
+            onClick={() => setArchive(String(user.id), !user.isArchived)}
+            aria-label={user.isArchived ? "Unarchive chat" : "Archive chat"}
+            title={user.isArchived ? "Unarchive chat" : "Archive chat"}
+            className="z-20 hidden lg:flex absolute bottom-1.5 right-11 sm:right-12 p-1.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          >
+            {user.isArchived ? (
+              <ArchiveRestore className="size-4 text-base-content/40 hover:text-primary" />
+            ) : (
+              <Archive className="size-4 text-base-content/40 hover:text-primary" />
+            )}
+          </motion.button>
+        )}
       </motion.div>
     );
   };
@@ -936,7 +1031,7 @@ const Sidebar = () => {
         initial="hidden"
         animate="show"
         exit="exit"
-        className="group px-1.5 sm:px-2"
+        className="relative group px-1.5 sm:px-2"
       >
         <motion.button
           type="button"
@@ -1009,6 +1104,28 @@ const Sidebar = () => {
             </div>
           </div>
         </motion.button>
+
+        {/* Archive / Unarchive (desktop par hover me dikhta hai).
+            Mobile par chat header ka archive button use karo. */}
+        {!hasUnread && (
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.75 }}
+            whileHover={{ scale: 1.2 }}
+            onClick={() =>
+              group.archived ? unarchiveGroup(group.id) : archiveGroup(group.id)
+            }
+            aria-label={group.archived ? "Unarchive group" : "Archive group"}
+            title={group.archived ? "Unarchive group" : "Archive group"}
+            className="z-20 hidden lg:flex absolute bottom-1.5 right-3 sm:right-4 p-1.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          >
+            {group.archived ? (
+              <ArchiveRestore className="size-4 text-base-content/40 hover:text-primary" />
+            ) : (
+              <Archive className="size-4 text-base-content/40 hover:text-primary" />
+            )}
+          </motion.button>
+        )}
       </motion.div>
     );
   };
@@ -1604,6 +1721,30 @@ const Sidebar = () => {
                 )
               ) : mode === "groups" ? (
                 <>
+                  {/* Archived header (archived view) ya "Archived (N)" row (main view) */}
+                  {showArchivedGroups ? (
+                    <div className="px-1.5 sm:px-2 pb-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowArchivedGroups(false)}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:bg-base-200"
+                      >
+                        <ArrowLeft className="size-4" />
+                        Archived groups
+                      </button>
+                    </div>
+                  ) : (
+                    !q &&
+                    archivedGroups.length > 0 && (
+                      <ArchivedRow
+                        noun="group"
+                        count={archivedGroups.length}
+                        unread={archivedGroupUnread}
+                        onClick={() => setShowArchivedGroups(true)}
+                      />
+                    )
+                  )}
+
                   <AnimatePresence initial={false}>
                     {filteredGroups.map((g, i) => renderGroup(g, i))}
                   </AnimatePresence>
@@ -1612,8 +1753,19 @@ const Sidebar = () => {
                     <EmptyState icon={UsersRound}>
                       {q
                         ? "No groups match your search"
-                        : "You're not in any groups yet"}
-                      {!q && (
+                        : showArchivedGroups
+                          ? "No archived groups"
+                          : "You're not in any groups yet"}
+                      {!q && showArchivedGroups && (
+                        <button
+                          type="button"
+                          onClick={() => setShowArchivedGroups(false)}
+                          className="btn btn-sm btn-ghost text-primary mt-1"
+                        >
+                          Back to groups
+                        </button>
+                      )}
+                      {!q && !showArchivedGroups && (
                         <button
                           type="button"
                           onClick={() => setShowCreate(true)}
@@ -1627,6 +1779,29 @@ const Sidebar = () => {
                 </>
               ) : (
                 <>
+                  {/* Archived header (archived view) ya "Archived (N)" row (main view) */}
+                  {showArchived ? (
+                    <div className="px-1.5 sm:px-2 pb-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowArchived(false)}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:bg-base-200"
+                      >
+                        <ArrowLeft className="size-4" />
+                        Archived chats
+                      </button>
+                    </div>
+                  ) : (
+                    !q &&
+                    archivedUsers.length > 0 && (
+                      <ArchivedRow
+                        count={archivedUsers.length}
+                        unread={archivedUnread}
+                        onClick={() => setShowArchived(true)}
+                      />
+                    )
+                  )}
+
                   {showSections ? (
                     <>
                       <SectionLabel>Favorites</SectionLabel>
@@ -1656,16 +1831,25 @@ const Sidebar = () => {
                           Clear filters
                         </button>
                       )}
-                      {!hasActiveFilters && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAddContact(true)}
-                          className="btn btn-sm btn-primary mt-1 gap-1"
-                        >
-                          <UserPlus className="size-4" />
-                          {q ? "Find people to add" : "Add contacts"}
-                        </button>
-                      )}
+                      {!hasActiveFilters &&
+                        (showArchived ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowArchived(false)}
+                            className="btn btn-sm btn-ghost text-primary mt-1"
+                          >
+                            Back to chats
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowAddContact(true)}
+                            className="btn btn-sm btn-primary mt-1 gap-1"
+                          >
+                            <UserPlus className="size-4" />
+                            {q ? "Find people to add" : "Add contacts"}
+                          </button>
+                        ))}
                     </EmptyState>
                   )}
                 </>

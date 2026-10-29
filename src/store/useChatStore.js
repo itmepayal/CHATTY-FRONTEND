@@ -460,6 +460,15 @@ export const useChatStore = create((set, get) => {
         }
       };
 
+      // server "chatArchived" bhejta hai (archive / unarchive / auto-unarchive)
+      const onChatArchived = ({ userId, archived }) => {
+        set((s) => ({
+          users: s.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isArchived: Boolean(archived) } : u,
+          ),
+        }));
+      };
+
       get().unSubscribeFromMessage();
 
       socket.on("newMessage", onNewMessage);
@@ -475,6 +484,7 @@ export const useChatStore = create((set, get) => {
       socket.on("messageLinkPreview", onLinkPreview);
       socket.on("disappearingUpdated", onDisappearingUpdated);
       socket.on("typing", onTyping);
+      socket.on("chatArchived", onChatArchived);
       document.addEventListener("visibilitychange", onVisibilityChange);
 
       set({
@@ -492,6 +502,7 @@ export const useChatStore = create((set, get) => {
         _onLinkPreview: onLinkPreview,
         _onDisappearing: onDisappearingUpdated,
         _onTyping: onTyping,
+        _onChatArchived: onChatArchived,
       });
 
       syncActiveChat();
@@ -517,6 +528,7 @@ export const useChatStore = create((set, get) => {
         socket.off("messageLinkPreview", s._onLinkPreview);
         socket.off("disappearingUpdated", s._onDisappearing);
         socket.off("typing", s._onTyping);
+        socket.off("chatArchived", s._onChatArchived);
       }
       if (s._onVisibilityChange) {
         document.removeEventListener("visibilitychange", s._onVisibilityChange);
@@ -779,6 +791,31 @@ export const useChatStore = create((set, get) => {
         );
         return keep.length === s.messages.length ? {} : { messages: keep };
       }),
+
+    /* ---------------- ARCHIVE ---------------- */
+    setArchive: async (userId, archived) => {
+      const patchUser = (value) =>
+        set((s) => ({
+          users: s.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isArchived: value } : u,
+          ),
+        }));
+
+      const before = Boolean(
+        get().users.find((u) => sameId(u.id, userId))?.isArchived,
+      );
+
+      patchUser(archived); // optimistic
+      try {
+        await axiosInstance.patch(`/messages/archive/${userId}`, { archived });
+        toast.success(archived ? "Chat archived" : "Chat unarchived");
+        return true;
+      } catch (error) {
+        patchUser(before); // sirf isi user ka flag wapas
+        toast.error(errMsg(error, "Failed to update archive"));
+        return false;
+      }
+    },
 
     /* ---------------- REPORT ---------------- */
     reportUser: async (userId, { reason, details, messageId }) => {
