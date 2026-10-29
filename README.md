@@ -2,8 +2,6 @@
 
 2 End-to-End Encryption Messages ko sender aur receiver ke beech securely encrypt karna
 
-1 Live Location Sharing User apni current ya live location doosre user ke saath share kar sakega.
-
 Tumhare existing online status, read receipts aur typing indicator settings ko dekhte hue, pehle unki privacy behaviour aur real-time consistency thoroughly test karna useful rahega.
 🏆 Phase 4: Advanced Features — Chatty ko standout banane ke liye
 Ye features tumhare portfolio project ko doosre basic MERN chat projects se alag kar sakte hain.

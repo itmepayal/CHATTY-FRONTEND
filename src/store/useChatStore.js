@@ -1,9 +1,18 @@
 import { create } from "zustand";
 import { toast } from "react-hot-toast";
 import { axiosInstance } from "../lib/axios.js";
+import { encryptFor, decryptFrom, whenE2EEReady } from "../lib/e2ee.js";
+import {
+  e2eeReady,
+  e2eeErrMsg,
+  dmPeerOf,
+  decryptDmMessage,
+  decryptDmList,
+  decryptDmPreview,
+} from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 
-const ATTACHMENT_FIELD = "image";
+const ATTACHMENT_FIELD = "image"; // router accepts ONE field name for every file type
 
 const sameId = (a, b) => String(a) === String(b);
 const newClientId = () =>
@@ -76,7 +85,7 @@ const markDeleted = (m) => ({
   isDeleted: true,
 });
 
-// Small snapshot of a message used for the "reply to" quote
+// Small PLAINTEXT snapshot of a message used for the local "reply to" quote
 const replySnapshot = (m) =>
   m
     ? {
@@ -105,6 +114,7 @@ const clearTypingTimer = (fromId) => {
 };
 
 const errMsg = (error, fallback) => error?.response?.data?.message || fallback;
+const myId = () => useAuthStore.getState().authUser?.id;
 
 /* ---------------- live location helpers ---------------- */
 const getPosition = () =>
@@ -120,7 +130,7 @@ const getPosition = () =>
   });
 
 const geoErrMsg = (e) => {
-  if (e?.response) return null; // server error, errMsg handle karega
+  if (e?.response) return null;
   if (e?.code === 0) return "Location isn't supported in this browser";
   if (e?.code === 1) return "Location permission denied";
   if (e?.code === 2) return "Location unavailable";
@@ -176,6 +186,11 @@ export const useChatStore = create((set, get) => {
     }
   };
 
+  /* ------------------------------------------------------------------
+   * transmit: text is ENCRYPTED here (fresh IV on every retry).
+   * The server only ever receives ciphertext + iv + encrypted=true.
+   * We never fall back to plaintext: if E2EE isn't ready, the message fails.
+   * ------------------------------------------------------------------ */
   const transmit = async (clientId) => {
     const msg = get().messages.find((m) => m.clientId === clientId);
     if (!msg || (msg.status === "sending" && msg._inFlight)) return;
@@ -186,23 +201,33 @@ export const useChatStore = create((set, get) => {
       uploadProgress: 0,
     });
 
-    const formData = new FormData();
-    formData.append("text", msg.text || "");
-    formData.append("clientId", clientId);
-    if (msg._file) formData.append(ATTACHMENT_FIELD, msg._file);
-
-    // reply (only a real server id, never a temp one)
-    if (msg._replyId && !String(msg._replyId).startsWith("temp-")) {
-      formData.append("replyTo", String(msg._replyId));
-    }
-
-    if (msg._isVoice) formData.append("isVoice", "true");
-    if (msg._isVideo) formData.append("isVideo", "true");
-    if (msg._isVoice || msg._isVideo) {
-      formData.append("duration", String(msg._duration || 0));
-    }
-
     try {
+      const formData = new FormData();
+      formData.append("clientId", clientId);
+
+      if (msg.text) {
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+        const enc = await encryptFor(msg.receiverId, msg.text);
+        formData.append("text", enc.text);
+        formData.append("iv", enc.iv);
+        formData.append("encrypted", "true");
+      } else {
+        formData.append("text", "");
+      }
+
+      if (msg._file) formData.append(ATTACHMENT_FIELD, msg._file);
+
+      // reply (only a real server id, never a temp one)
+      if (msg._replyId && !String(msg._replyId).startsWith("temp-")) {
+        formData.append("replyTo", String(msg._replyId));
+      }
+
+      if (msg._isVoice) formData.append("isVoice", "true");
+      if (msg._isVideo) formData.append("isVideo", "true");
+      if (msg._isVoice || msg._isVideo) {
+        formData.append("duration", String(msg._duration || 0));
+      }
+
       const res = await axiosInstance.post(
         `/messages/send/${msg.receiverId}`,
         formData,
@@ -227,8 +252,12 @@ export const useChatStore = create((set, get) => {
             m.clientId === clientId
               ? {
                   ...saved,
-                  // keep local snapshot if server did not send replyTo populated
-                  replyTo: saved.replyTo || m.replyTo || null,
+                  // saved.text is ciphertext -> keep the plaintext we already have
+                  text: msg.text || "",
+                  decrypted: true,
+                  decryptFailed: false,
+                  // prefer local plaintext quote over the server's (encrypted) one
+                  replyTo: m.replyTo || saved.replyTo || null,
                   clientId,
                   status: saved.status || "sent",
                 }
@@ -244,7 +273,7 @@ export const useChatStore = create((set, get) => {
         _inFlight: false,
         error: true,
       });
-      toast.error(errMsg(error, "Failed to send message"));
+      toast.error(e2eeErrMsg(error) || errMsg(error, "Failed to send message"));
     }
   };
 
@@ -256,36 +285,47 @@ export const useChatStore = create((set, get) => {
     isMessagesLoading: false,
     typingFrom: {},
 
-    replyingTo: null, // message being replied to
-    editingMessage: null, // message being edited
-    scheduled: [], // pending scheduled messages for the open chat
-    disappearAfter: 0, // seconds, 0 = off (for the open chat)
+    replyingTo: null,
+    editingMessage: null,
+    scheduled: [],
+    disappearAfter: 0,
 
-    // live location: { [shareId]: { shareId, sharerId, receiverId, expiresAt, lat, lng, accuracy, updatedAt } }
+    // { [shareId]: { shareId, sharerId, receiverId, expiresAt, lat, lng, accuracy, updatedAt } }
     liveShares: {},
     liveLoaded: false,
 
+    /* ---------------- SIDEBAR ---------------- */
     getUsers: async ({ silent = false } = {}) => {
       if (!silent) set({ isUsersLoading: true });
       try {
         const res = await axiosInstance.get("/messages/");
-        set({ users: res.data.data });
+        const users = await Promise.all(
+          (res.data.data || []).map(async (u) => ({
+            ...u,
+            lastMessage: await decryptDmPreview(u.lastMessage, u.id),
+          })),
+        );
+        set({ users });
       } catch (error) {
-        if (!silent) {
-          toast.error(errMsg(error, "Failed to fetch users"));
-        }
+        if (!silent) toast.error(errMsg(error, "Failed to fetch users"));
       } finally {
         if (!silent) set({ isUsersLoading: false });
       }
     },
 
+    /* ---------------- MESSAGES ---------------- */
     getMessage: async (id, { silent = false } = {}) => {
       if (!silent) set({ isMessagesLoading: true });
       try {
         const res = await axiosInstance.get(`/messages/${id}`);
+        const server = await decryptDmList(res.data.data || [], myId(), id);
+
+        // user switched chats while we were loading -> drop this result
+        if (!sameId(get().selectedUser?.id, id)) return;
+
         set((s) => ({
           messages: mergeServerWithLocal(
-            res.data.data,
+            server,
             silent
               ? s.messages
               : s.messages.filter((m) => sameId(m.receiverId, id)),
@@ -296,8 +336,23 @@ export const useChatStore = create((set, get) => {
       } catch (error) {
         toast.error(errMsg(error, "Failed to fetch messages"));
       } finally {
-        if (!silent) set({ isMessagesLoading: false });
+        if (!silent && sameId(get().selectedUser?.id, id)) {
+          set({ isMessagesLoading: false });
+        }
       }
+    },
+
+    // retry messages that failed to decrypt (e.g. after keys were reset / init finished late)
+    redecryptFailed: async () => {
+      await whenE2EEReady();
+      const me = myId();
+      const peer = get().selectedUser?.id;
+      const next = await Promise.all(
+        get().messages.map((m) =>
+          m.decryptFailed ? decryptDmMessage(m, me, peer) : m,
+        ),
+      );
+      set({ messages: next });
     },
 
     markSeen: async (userId) => {
@@ -309,7 +364,7 @@ export const useChatStore = create((set, get) => {
 
       try {
         await axiosInstance.patch(`/messages/seen/${userId}`);
-      } catch (error) {
+      } catch {
         get().getUsers({ silent: true });
       }
     },
@@ -337,20 +392,29 @@ export const useChatStore = create((set, get) => {
       socket.emit("typing", { to: String(to), isTyping });
     },
 
+    /* ---------------- REALTIME ---------------- */
     subscribeToMessage: () => {
       const socket = getSocket();
       if (!socket) return;
 
-      const onNewMessage = (message) => {
-        const { selectedUser, messages } = get();
-        const myId = useAuthStore.getState().authUser?.id;
+      const onNewMessage = async (raw) => {
+        const me = myId();
 
+        // sender stopped typing the moment their message arrives
         set((s) => {
-          if (!s.typingFrom[String(message.senderId)]) return {};
+          if (!s.typingFrom[String(raw.senderId)]) return {};
           const next = { ...s.typingFrom };
-          delete next[String(message.senderId)];
+          delete next[String(raw.senderId)];
           return { typingFrom: next };
         });
+
+        const peerHint = sameId(raw.senderId, me)
+          ? raw.receiverId
+          : raw.senderId;
+        const message = await decryptDmMessage(raw, me, peerHint);
+
+        // read the store AFTER the async decrypt so we never use stale state
+        const { selectedUser, messages } = get();
 
         if (selectedUser && sameId(message.senderId, selectedUser.id)) {
           if (messages.some((m) => sameId(m.id, message.id))) return;
@@ -372,8 +436,8 @@ export const useChatStore = create((set, get) => {
         // my own message (forwarded / scheduled / sent from another device)
         if (
           selectedUser &&
-          myId &&
-          sameId(message.senderId, myId) &&
+          me &&
+          sameId(message.senderId, me) &&
           sameId(message.receiverId, selectedUser.id)
         ) {
           const exists = messages.some(
@@ -383,13 +447,14 @@ export const useChatStore = create((set, get) => {
           );
           if (!exists) set({ messages: [...messages, message] });
 
-          // a scheduled message just got delivered -> refresh pending list
           if (get().scheduled.length) get().getScheduled(selectedUser.id);
-          return;
         }
       };
 
-      const onConversationUpdated = (u) => get().applyConversationUpdate(u);
+      const onConversationUpdated = async (u) => {
+        const lastMessage = await decryptDmPreview(u.lastMessage, u.userId);
+        get().applyConversationUpdate({ ...u, lastMessage });
+      };
 
       const onReconnect = () => {
         typingTimers.forEach((_, k) => clearTypingTimer(k));
@@ -452,8 +517,34 @@ export const useChatStore = create((set, get) => {
         }));
       };
 
-      const onEdited = ({ messageId, text, isEdited, editedAt }) => {
-        patchById(messageId, { text, isEdited, editedAt, linkPreview: null });
+      // payload: { messageId, text(cipher), iv, encrypted, isEdited, editedAt }
+      const onEdited = async ({
+        messageId,
+        text,
+        iv,
+        encrypted,
+        isEdited,
+        editedAt,
+      }) => {
+        const target = get().messages.find((m) => sameId(m.id, messageId));
+        if (!target) return;
+        let plain = text;
+        if (encrypted && iv) {
+          try {
+            await whenE2EEReady();
+            plain = await decryptFrom(dmPeerOf(target, myId()), text, iv);
+          } catch {
+            plain = "";
+          }
+        }
+        patchById(messageId, {
+          text: plain,
+          isEdited,
+          editedAt,
+          linkPreview: null,
+          decrypted: true,
+          decryptFailed: false,
+        });
       };
 
       const onPinned = ({ messageId, isPinned, pinnedBy }) => {
@@ -464,9 +555,8 @@ export const useChatStore = create((set, get) => {
         });
       };
 
-      // link preview arrives later in the background.
-      // !! Make sure this event name + payload matches what
-      // attachLinkPreview() emits on the server.
+      // NOTE: with E2EE the server cannot read URLs, so it will not generate
+      // previews for encrypted text. Handler kept for plaintext/legacy messages.
       const onLinkPreview = ({ messageId, linkPreview }) => {
         patchById(messageId, { linkPreview });
       };
@@ -510,7 +600,6 @@ export const useChatStore = create((set, get) => {
         }
       };
 
-      // server "chatArchived" bhejta hai (archive / unarchive / auto-unarchive)
       const onChatArchived = ({ userId, archived }) => {
         set((s) => ({
           users: s.users.map((u) =>
@@ -586,7 +675,6 @@ export const useChatStore = create((set, get) => {
     },
 
     setSelectedUser: (selectedUser) => {
-      // reset per-chat composer state
       set({
         selectedUser,
         replyingTo: null,
@@ -609,6 +697,7 @@ export const useChatStore = create((set, get) => {
     sendMessage: ({ text, attachment, imageFile, voice, video, replyTo }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
+      if (!selectedUser || !authUser) return;
       const clientId = newClientId();
 
       const replyMsg = replyTo ?? get().replyingTo;
@@ -638,6 +727,7 @@ export const useChatStore = create((set, get) => {
         senderId: authUser.id,
         receiverId: selectedUser.id,
         text: text ?? "",
+        decrypted: true, // local plaintext
         image: null,
         file: isPlainFile
           ? {
@@ -691,25 +781,35 @@ export const useChatStore = create((set, get) => {
         return { messages: s.messages.filter((x) => x.clientId !== clientId) };
       }),
 
-    /* ---------------- EDIT ---------------- */
+    /* ---------------- EDIT (re-encrypted) ---------------- */
     editMessage: async (messageId, text) => {
       try {
+        const target = get().messages.find((m) => sameId(m.id, messageId));
+        if (!target) return false;
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+
+        const enc = await encryptFor(dmPeerOf(target, myId()), text);
         const res = await axiosInstance.patch(`/messages/edit/${messageId}`, {
-          text,
+          text: enc.text,
+          iv: enc.iv,
+          encrypted: true,
         });
         const p = res.data.data;
-        // server sends { messageId, text, isEdited, editedAt } (or just { messageId } if no change)
+        // server sends { messageId, isEdited, editedAt, ... } (or just { messageId } if no change)
         if (p?.text !== undefined) {
           patchById(messageId, {
-            text: p.text,
-            isEdited: p.isEdited,
-            editedAt: p.editedAt,
+            text, // plaintext we just encrypted, not the server's ciphertext
+            isEdited: p.isEdited ?? true,
+            editedAt: p.editedAt ?? new Date().toISOString(),
             linkPreview: null,
+            decrypted: true,
           });
         }
         return true;
       } catch (error) {
-        toast.error(errMsg(error, "Failed to edit message"));
+        toast.error(
+          e2eeErrMsg(error) || errMsg(error, "Failed to edit message"),
+        );
         return false;
       }
     },
@@ -730,46 +830,94 @@ export const useChatStore = create((set, get) => {
       }
     },
 
-    /* ---------------- FORWARD ---------------- */
+    // GET /messages/pinned/:id  (decrypted)
+    getPinned: async (userId) => {
+      try {
+        const res = await axiosInstance.get(`/messages/pinned/${userId}`);
+        return await decryptDmList(res.data.data || [], myId(), userId);
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to load pinned messages"));
+        return [];
+      }
+    },
+
+    /* ---------------- FORWARD (re-encrypted per recipient) ---------------- */
+    // The server can't re-encrypt, so for text we send one ciphertext per recipient:
+    //   { userIds, ciphertexts: [{ userId, text, iv }] }
     forwardMessages: async (messageId, userIds) => {
       try {
+        const src = get().messages.find((m) => sameId(m.id, messageId));
+        let targets = userIds;
+        const payload = {};
+
+        if (src?.text) {
+          if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+          const results = await Promise.allSettled(
+            userIds.map(async (uid) => {
+              const enc = await encryptFor(uid, src.text);
+              return { userId: String(uid), text: enc.text, iv: enc.iv };
+            }),
+          );
+          const ok = results
+            .filter((r) => r.status === "fulfilled")
+            .map((r) => r.value);
+          const failed = userIds.length - ok.length;
+          if (!ok.length) throw new Error("peer-has-no-key");
+          if (failed)
+            toast.error(
+              `${failed} contact(s) haven't enabled encryption and were skipped.`,
+            );
+          targets = ok.map((o) => o.userId);
+          payload.ciphertexts = ok;
+          payload.encrypted = true;
+        }
+
         const res = await axiosInstance.post(`/messages/forward/${messageId}`, {
-          userIds,
+          userIds: targets,
+          ...payload,
         });
         toast.success(res.data.message || "Forwarded");
         get().getUsers({ silent: true });
         return true;
       } catch (error) {
-        toast.error(errMsg(error, "Failed to forward"));
+        toast.error(e2eeErrMsg(error) || errMsg(error, "Failed to forward"));
         return false;
       }
     },
 
-    /* ---------------- SEARCH ---------------- */
+    /* ---------------- SEARCH (client-side: server only sees ciphertext) ---------------- */
     searchMessages: async (userId, q) => {
-      try {
-        const res = await axiosInstance.get(`/messages/search/${userId}`, {
-          params: { q },
-        });
-        return res.data.data || [];
-      } catch (error) {
-        toast.error(errMsg(error, "Search failed"));
-        return [];
-      }
+      const needle = String(q || "")
+        .trim()
+        .toLowerCase();
+      if (!needle) return [];
+      return get().messages.filter(
+        (m) =>
+          !m.isDeleted &&
+          m.text &&
+          m.text.toLowerCase().includes(needle) &&
+          (sameId(m.senderId, userId) || sameId(m.receiverId, userId)),
+      );
     },
 
-    /* ---------------- SCHEDULE ---------------- */
+    /* ---------------- SCHEDULE (encrypted at schedule time) ---------------- */
     scheduleMessage: async (receiverId, text, scheduledFor) => {
       try {
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+        const enc = await encryptFor(receiverId, text);
         await axiosInstance.post(`/messages/schedule/${receiverId}`, {
-          text,
+          text: enc.text,
+          iv: enc.iv,
+          encrypted: true,
           scheduledFor,
         });
         toast.success("Message scheduled");
         get().getScheduled(receiverId);
         return true;
       } catch (error) {
-        toast.error(errMsg(error, "Failed to schedule message"));
+        toast.error(
+          e2eeErrMsg(error) || errMsg(error, "Failed to schedule message"),
+        );
         return false;
       }
     },
@@ -779,7 +927,21 @@ export const useChatStore = create((set, get) => {
         const res = await axiosInstance.get("/messages/scheduled", {
           params: userId ? { to: userId } : {},
         });
-        set({ scheduled: res.data.data || [] });
+        const me = myId();
+        const items = await Promise.all(
+          (res.data.data || []).map((it) =>
+            decryptDmMessage(
+              {
+                ...it,
+                senderId: me,
+                receiverId: it.receiverId ?? userId,
+              },
+              me,
+              userId,
+            ),
+          ),
+        );
+        set({ scheduled: items });
       } catch (error) {
         toast.error(errMsg(error, "Failed to load scheduled messages"));
       }
@@ -815,13 +977,11 @@ export const useChatStore = create((set, get) => {
 
     setDisappearing: async (userId, seconds) => {
       const previous = get().disappearAfter;
-      set({ disappearAfter: seconds }); // optimistic
+      set({ disappearAfter: seconds });
       try {
         const res = await axiosInstance.put(
           `/messages/disappearing/${userId}`,
-          {
-            seconds,
-          },
+          { seconds },
         );
         toast.success(res.data.message || "Updated");
         return true;
@@ -832,7 +992,6 @@ export const useChatStore = create((set, get) => {
       }
     },
 
-    // remove expired messages from the live UI (server also filters them)
     purgeExpired: () =>
       set((s) => {
         const now = Date.now();
@@ -855,19 +1014,19 @@ export const useChatStore = create((set, get) => {
         get().users.find((u) => sameId(u.id, userId))?.isArchived,
       );
 
-      patchUser(archived); // optimistic
+      patchUser(archived);
       try {
         await axiosInstance.patch(`/messages/archive/${userId}`, { archived });
         toast.success(archived ? "Chat archived" : "Chat unarchived");
         return true;
       } catch (error) {
-        patchUser(before); // sirf isi user ka flag wapas
+        patchUser(before);
         toast.error(errMsg(error, "Failed to update archive"));
         return false;
       }
     },
 
-    /* ---------------- LIVE LOCATION ---------------- */
+    /* ---------------- LIVE LOCATION (not encrypted: server needs coords) ---------------- */
     shareLocation: async (receiverId, { mode, durationMin }) => {
       try {
         const pos = await getPosition();
@@ -915,7 +1074,7 @@ export const useChatStore = create((set, get) => {
 
     stopLiveShare: async (shareId) => {
       const previous = get().liveShares;
-      get().removeLiveShare(shareId); // optimistic
+      get().removeLiveShare(shareId);
       try {
         await axiosInstance.patch(`/messages/location/stop/${shareId}`);
         toast.success("Live location stopped");
@@ -948,7 +1107,7 @@ export const useChatStore = create((set, get) => {
       }
     },
 
-    // LiveLocationSender (global component) isko call karta hai
+    // LiveLocationSender (global component) calls this
     subscribeToLocation: () => {
       const socket = getSocket();
       if (!socket) return;
@@ -1015,15 +1174,14 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- REACT / DELETE ---------------- */
     reactToMessage: async (messageId, emoji) => {
-      const myId = useAuthStore.getState().authUser?.id;
+      const me = myId();
       const target = get().messages.find((m) => sameId(m.id, messageId));
-      if (!target || !myId || target.isDeleted) return;
+      if (!target || !me || target.isDeleted) return;
 
       const prevReactions = target.reactions || [];
-
       const setReactions = (reactions) => patchById(messageId, { reactions });
 
-      setReactions(applyReaction(prevReactions, myId, emoji));
+      setReactions(applyReaction(prevReactions, me, emoji));
 
       try {
         const res = await axiosInstance.patch(`/messages/react/${messageId}`, {
@@ -1074,6 +1232,31 @@ export const useChatStore = create((set, get) => {
         set({ messages: previous });
         toast.error(errMsg(error, "Failed to delete"));
       }
+    },
+
+    /* ---------------- LOGOUT ---------------- */
+    resetOnLogout: () => {
+      get().unSubscribeFromMessage();
+      offLocation();
+      get().messages.forEach((m) => {
+        revokeBlob(m.localPreview);
+        revokeBlob(m.audio?.url);
+        revokeBlob(m.video?.url);
+      });
+      set({
+        messages: [],
+        users: [],
+        selectedUser: null,
+        isUsersLoading: false,
+        isMessagesLoading: false,
+        typingFrom: {},
+        replyingTo: null,
+        editingMessage: null,
+        scheduled: [],
+        disappearAfter: 0,
+        liveShares: {},
+        liveLoaded: false,
+      });
     },
   };
 });

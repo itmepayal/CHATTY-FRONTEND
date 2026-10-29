@@ -31,6 +31,7 @@ import {
   Info,
   Link2,
   Loader2,
+  Lock,
   MapPin,
   MessageSquareText,
   Mic,
@@ -42,9 +43,11 @@ import {
   Plus,
   RotateCw,
   Send,
+  ShieldCheck,
   Smile,
   SmilePlus,
   Trash2,
+  Users,
   Video,
   X,
 } from "lucide-react";
@@ -65,6 +68,9 @@ import {
   copyMessageImage,
   copyMessageText,
 } from "../../lib/messageActions.js";
+// ---- E2EE ----
+import { whenE2EEReady } from "../../lib/e2ee.js";
+import { displayText } from "../../lib/e2eeMessages.js";
 import AiAssist from "../common/AiAssist.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoRecorderModal from "./VideoRecorderModal.jsx";
@@ -84,6 +90,10 @@ const MAX_IMAGE_MB = 5;
 const MAX_FILE_MB = 10;
 const MAX_VIDEO_MB = 25; // keep <= your backend multer limit
 const MAX_VIDEO_SECONDS = 60; // must match backend MAX_VIDEO_SECONDS
+
+// E2EE: how many automatic "re-decrypt" attempts per group open
+const MAX_AUTO_DECRYPT_RETRIES = 2;
+const AUTO_DECRYPT_DELAY_MS = 3000;
 
 // ---- LOCATION: live share durations (minutes) ----
 const LIVE_DURATIONS = [
@@ -309,7 +319,8 @@ const getFlags = (m, mine, canDM, canDA) => {
   const isDeleted = Boolean(m.isDeleted);
   return {
     isDeleted,
-    hasText: !isDeleted && Boolean(m.text),
+    // E2EE: nothing to copy when the text could not be decrypted
+    hasText: !isDeleted && !m.decryptFailed && Boolean(m.text),
     hasImage: !isDeleted && Boolean(m.image?.url),
     hasFile: !isDeleted && Boolean(m.file?.name),
     hasFileUrl: !isDeleted && Boolean(m.file?.url),
@@ -383,6 +394,38 @@ const renderStatus = (m, mine, seenBy, s) => {
     </span>
   );
 };
+
+/* ------------------------------------------------------------------ */
+/*  E2EE notice (WhatsApp style)                                       */
+/*  Small yellow pill at the very top of the chat. Tap -> info modal.  */
+/*  It scrolls away with the messages, exactly like WhatsApp.          */
+/* ------------------------------------------------------------------ */
+const E2EENotice = ({ onOpen }) => (
+  <div className="flex justify-center px-1 pb-3 sm:pb-4">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="max-w-md rounded-xl border border-warning/30 bg-warning/15 px-3 py-2 text-center text-xs leading-snug text-base-content/80 shadow-sm transition-colors hover:bg-warning/25 focus-visible:outline-2 focus-visible:outline-offset-2 sm:text-[13px]"
+    >
+      <Lock className="mr-1 inline size-3 -translate-y-px" />
+      Text messages in this group are end-to-end encrypted. Only people in this
+      group can read them, not even the server. Tap to learn more.
+    </button>
+  </div>
+);
+
+// One row inside the E2EE info modal
+const E2EEPoint = ({ icon: Icon, title, text }) => (
+  <div className="flex items-start gap-3">
+    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-success/15 text-success">
+      <Icon className="size-4" />
+    </span>
+    <div className="min-w-0">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-xs leading-relaxed text-base-content/60">{text}</p>
+    </div>
+  </div>
+);
 
 // File card inside the chat bubble
 const FileAttachment = ({ file, isMine, uploading = false }) => {
@@ -459,6 +502,7 @@ const VideoAttachment = ({ video, uploading = false }) => (
 /*  - live share: pulsing LIVE badge, "updated Xs ago", expiry time,   */
 /*    and a Stop button (only for the sender)                          */
 /*  `share` = latest entry from useGroupStore.liveShares (or undefined)*/
+/*  NOTE: location is NOT end-to-end encrypted (server needs coords). */
 /* ------------------------------------------------------------------ */
 const LocationAttachment = ({ location, share, isMine, onStop }) => {
   const lat = Number(share?.lat ?? location.lat);
@@ -759,7 +803,10 @@ const MessageRow = memo(function MessageRow({
 
   const pending = Boolean(m.pending || m.failed);
   const isDeleted = Boolean(m.isDeleted);
-  const hasText = !isDeleted && Boolean(m.text);
+  // E2EE: a message whose text could not be decrypted still gets a bubble
+  // (with a lock placeholder) instead of an empty one.
+  const decryptFailed = !isDeleted && Boolean(m.decryptFailed);
+  const hasText = !isDeleted && (Boolean(m.text) || decryptFailed);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
   const hasVideo = !isDeleted && Boolean(m.video?.url);
@@ -929,17 +976,26 @@ const MessageRow = memo(function MessageRow({
                     />
                   </div>
                 )}
-                {hasText && (
-                  <p
-                    className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
-                      largeEmoji && isEmojiOnly(m.text)
-                        ? "text-4xl leading-tight"
-                        : cs.text
-                    }`}
-                  >
-                    {m.text}
-                  </p>
-                )}
+                {hasText &&
+                  (decryptFailed ? (
+                    <p
+                      className="flex items-center gap-1.5 italic opacity-70 text-sm"
+                      title="Waiting for this group's encryption key"
+                    >
+                      <Lock className="size-3.5 shrink-0" />
+                      <span>{displayText(m)}</span>
+                    </p>
+                  ) : (
+                    <p
+                      className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
+                        largeEmoji && isEmojiOnly(m.text)
+                          ? "text-4xl leading-tight"
+                          : cs.text
+                      }`}
+                    >
+                      {displayText(m)}
+                    </p>
+                  ))}
               </div>
             )}
 
@@ -1047,6 +1103,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     markSeen,
     archiveGroup,
     unarchiveGroup,
+    // ---- E2EE ----
+    refreshGroupKeys,
     // ---- LOCATION ----
     liveShares,
     sendCurrentLocation,
@@ -1101,6 +1159,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
   const [confirmId, setConfirmId] = useState(null);
   const [archiving, setArchiving] = useState(false);
+  // ---- E2EE state ----
+  const [retryingKeys, setRetryingKeys] = useState(false);
+  const [e2eeInfoOpen, setE2eeInfoOpen] = useState(false); // WhatsApp-style info modal
   // ---- LOCATION state ----
   const [locationOpen, setLocationOpen] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
@@ -1124,6 +1185,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const lastGroupRef = useRef(null);
   const lastSeenSentRef = useRef({});
   const handlersRef = useRef({}); // latest handlers for memoized rows
+  const decryptRetriesRef = useRef({}); // { [groupId]: attempts }
 
   const myId = String(authUser?.id ?? authUser?._id);
   const group = selectedGroup;
@@ -1211,8 +1273,10 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setShowVideoRecorder(false);
     setPopover(null);
     setConfirmId(null);
+    setE2eeInfoOpen(false);
     setLocationOpen(false);
     setLocBusy(false);
+    setRetryingKeys(false);
     setIsDragging(false);
     dragDepth.current = 0;
   }, [group?.id, recorder.cancel]);
@@ -1279,12 +1343,14 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     };
   }, [group?.id, hasUnseen, lastKey, markSeen]);
 
-  /* ---- Escape: confirm -> location -> popover -> image viewer ---- */
+  /* ---- Escape: confirm -> e2ee info -> location -> popover -> image viewer ---- */
   useEffect(() => {
-    if (!popover && !confirmId && !previewSrc && !locationOpen) return;
+    if (!popover && !confirmId && !previewSrc && !locationOpen && !e2eeInfoOpen)
+      return;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
       if (confirmId) setConfirmId(null);
+      else if (e2eeInfoOpen) setE2eeInfoOpen(false);
       else if (locationOpen) {
         if (!locBusy) setLocationOpen(false);
       } else if (popover) setPopover(null);
@@ -1292,7 +1358,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [popover, confirmId, previewSrc, locationOpen, locBusy]);
+  }, [popover, confirmId, previewSrc, locationOpen, locBusy, e2eeInfoOpen]);
 
   /* ---- close popover on outside click / resize ---- */
   useEffect(() => {
@@ -1322,6 +1388,53 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   useEffect(() => {
     if (group?.id) fetchGroupCalls(group.id);
   }, [group?.id, fetchGroupCalls]);
+
+  /* ---- E2EE: how many messages are still locked ---- */
+  const undecryptedCount = useMemo(
+    () => list.filter((m) => m.decryptFailed && !m.isDeleted).length,
+    [list],
+  );
+
+  /* ---- E2EE: auto re-try decrypting (keys may arrive a moment later) ---- */
+  useEffect(() => {
+    const gid = group?.id;
+    if (!gid || undecryptedCount === 0) return;
+    const key = String(gid);
+    if ((decryptRetriesRef.current[key] || 0) >= MAX_AUTO_DECRYPT_RETRIES)
+      return;
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        await whenE2EEReady();
+        if (cancelled) return;
+        decryptRetriesRef.current[key] =
+          (decryptRetriesRef.current[key] || 0) + 1;
+        await refreshGroupKeys(gid);
+      } catch {
+        /* silent: the manual Retry button is still there */
+      }
+    }, AUTO_DECRYPT_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [group?.id, undecryptedCount, refreshGroupKeys]);
+
+  // manual retry (banner button)
+  const handleRetryDecrypt = async () => {
+    if (!group || retryingKeys) return;
+    setRetryingKeys(true);
+    try {
+      await whenE2EEReady();
+      await refreshGroupKeys(group.id);
+    } catch {
+      toast.error("Couldn't refresh encryption keys. Try again.");
+    } finally {
+      setRetryingKeys(false);
+    }
+  };
 
   /* ---- messages + call logs merged by time ---- */
   const timeline = useMemo(() => {
@@ -1499,6 +1612,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
   const handleCopyText = async (m) => {
     closePopover();
+    // E2EE: never copy the placeholder / empty text of a locked message
+    if (m.decryptFailed || !m.text) {
+      toast.error("This message is still encrypted");
+      return;
+    }
     const ok = await copyMessageText(m.text);
     ok ? toast.success("Text copied") : toast.error("Couldn't copy text");
   };
@@ -1617,8 +1735,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     e?.preventDefault();
     if (!text.trim() && !file) return;
     stopTyping();
-    // a video picked via the paperclip is detected inside the store
-    // (attachment.type starts with "video/") and sent as a video message
+    // The store encrypts the text (group key) before upload and never falls
+    // back to plaintext. A video picked via the paperclip is detected inside
+    // the store (attachment.type starts with "video/").
     sendMessage({
       text,
       imageFile: fileIsImage ? file : null,
@@ -1832,8 +1951,12 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               </div>
             )}
             <div className="min-w-0">
-              <div className="font-semibold truncate leading-tight">
-                {group.name}
+              <div className="flex items-center gap-1.5 font-semibold leading-tight">
+                <span className="truncate">{group.name}</span>
+                <Lock
+                  className="size-3 shrink-0 text-base-content/40"
+                  aria-label="End-to-end encrypted"
+                />
               </div>
               <div className="text-xs truncate">
                 <AnimatePresence mode="wait" initial={false}>
@@ -1933,6 +2056,43 @@ const GroupChatContainer = ({ onToggleInfo }) => {
         {/* ---- "Call in progress · Join" banner ---- */}
         <GroupCallBanner group={group} />
 
+        {/* ---- E2EE: some messages are still locked ---- */}
+        <AnimatePresence initial={false}>
+          {undecryptedCount > 0 && !isGroupMessagesLoading && (
+            <motion.div
+              key="e2ee-banner"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18, ease: EASE }}
+              className="overflow-hidden border-b border-base-300 bg-warning/10"
+              role="status"
+            >
+              <div className="flex items-center gap-2 px-3 py-1.5 text-xs sm:text-sm">
+                <Lock className="size-3.5 shrink-0 text-warning" />
+                <span className="min-w-0 flex-1 truncate">
+                  {undecryptedCount === 1
+                    ? "1 message is waiting for the encryption key"
+                    : `${undecryptedCount} messages are waiting for the encryption key`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRetryDecrypt}
+                  disabled={retryingKeys}
+                  className="btn btn-ghost btn-xs shrink-0 gap-1"
+                >
+                  {retryingKeys ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <RotateCw className="size-3" />
+                  )}
+                  Retry
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ---- LOCATION: "X is sharing live location" bar ---- */}
         <AnimatePresence initial={false}>
           {liveBarText && (
@@ -1981,10 +2141,15 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </div>
           )}
 
+          {/* ---- WhatsApp-style E2EE notice (top of the chat) ---- */}
+          {!isGroupMessagesLoading && (
+            <E2EENotice onOpen={() => setE2eeInfoOpen(true)} />
+          )}
+
           {!isGroupMessagesLoading && timeline.length === 0 && (
             <motion.div
               {...fade}
-              className="h-full flex flex-col items-center justify-center text-center gap-3 px-6"
+              className="flex flex-col items-center justify-center text-center gap-3 px-6 py-10"
             >
               <div className="size-14 rounded-2xl bg-base-100 border border-base-300 flex items-center justify-center">
                 <MessageSquareText className="size-6 text-base-content/50" />
@@ -2315,7 +2480,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 maxLength={2000}
-                placeholder="Write a message…"
+                placeholder="Message"
                 // 16px on phones stops iOS from zooming the page on focus
                 className="order-3 flex-1 min-w-0 resize-none bg-transparent outline-none py-1.5 text-base sm:text-sm max-h-[120px]"
               />
@@ -2346,10 +2511,13 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           )}
 
           {!recorderBusy && (
-            <p className="hidden sm:block mt-1.5 px-1 text-[11px] text-base-content/50">
-              {enterToSend
-                ? "Enter to send · Shift+Enter for a new line"
-                : "Enter for a new line · Ctrl+Enter to send"}
+            <p className="hidden sm:flex items-center gap-1 mt-1.5 px-1 text-[11px] text-base-content/50">
+              <Lock className="size-3 shrink-0" />
+              <span>
+                {enterToSend
+                  ? "Enter to send · Shift+Enter for a new line"
+                  : "Enter for a new line · Ctrl+Enter to send"}
+              </span>
             </p>
           )}
         </div>
@@ -2474,6 +2642,78 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                   </div>
                 </motion.div>
               </>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+
+        {/* ---------------- E2EE: "Learn more" modal / bottom sheet ---------------- */}
+        {createPortal(
+          <AnimatePresence>
+            {e2eeInfoOpen && (
+              <motion.div
+                key="e2ee-info-modal"
+                {...fade}
+                className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+                onClick={() => setE2eeInfoOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="e2ee-info-title"
+              >
+                <motion.div
+                  {...modalCard}
+                  className="w-full max-w-sm rounded-t-2xl border border-base-300 bg-base-100 p-5 shadow-2xl pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex flex-col items-center text-center">
+                    <span className="grid size-14 place-items-center rounded-full bg-success/15 text-success">
+                      <ShieldCheck className="size-7" />
+                    </span>
+                    <h3
+                      id="e2ee-info-title"
+                      className="mt-3 text-lg font-semibold"
+                    >
+                      End-to-end encrypted
+                    </h3>
+                    <p className="mt-1 text-sm text-base-content/60">
+                      Text messages sent to {group.name} are secured with a
+                      lock. Only the people in this group have the key.
+                    </p>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <E2EEPoint
+                      icon={Users}
+                      title="Only group members can read"
+                      text="Messages are encrypted on your device before they are sent and decrypted only on the devices of this group's members."
+                    />
+                    <E2EEPoint
+                      icon={Lock}
+                      title="Not even the server can read them"
+                      text="The server only stores encrypted text. It does not have the key, so it can't read your messages."
+                    />
+                    <E2EEPoint
+                      icon={ShieldCheck}
+                      title="Always on"
+                      text="Encryption is automatic for every text message in this chat. There is nothing to turn on."
+                    />
+                  </div>
+
+                  <p className="mt-5 rounded-xl bg-base-200 p-3 text-[11px] leading-relaxed text-base-content/60">
+                    Note: shared locations are not end-to-end encrypted, because
+                    the server needs the coordinates to deliver live updates.
+                  </p>
+
+                  <button
+                    type="button"
+                    autoFocus
+                    className="btn btn-primary btn-sm mt-4 w-full"
+                    onClick={() => setE2eeInfoOpen(false)}
+                  >
+                    Got it
+                  </button>
+                </motion.div>
+              </motion.div>
             )}
           </AnimatePresence>,
           document.body,
@@ -2623,7 +2863,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
                   <p className="mt-3 text-[11px] leading-snug text-base-content/50">
                     Live location keeps updating while this tab is open. You can
-                    stop sharing anytime.
+                    stop sharing anytime. Unlike text messages, location is not
+                    end-to-end encrypted because the server needs the
+                    coordinates to deliver updates.
                   </p>
                 </motion.div>
               </motion.div>

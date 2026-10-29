@@ -5,10 +5,9 @@ import { io } from "socket.io-client";
 import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatPrefsStore } from "./useChatPrefsStore.js";
 import { useAppearanceStore } from "./useAppearanceStore.js";
+import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 
 const baseUrl = import.meta.env.VITE_API_URL;
-
-console.log(baseUrl);
 
 const socketUrl = (() => {
   try {
@@ -55,6 +54,13 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: user });
       seedPrefs(user);
       get().connectSocket();
+      const uid = user?._id ?? user?.id;
+      if (uid) {
+        console.log("[E2EE] checkAuth: initializing encryption for user", uid);
+        initE2EE(uid)
+          .then((s) => console.log("[E2EE] checkAuth: status ->", s))
+          .catch((e) => console.error("[E2EE] checkAuth: init error:", e?.message));
+      }
     } catch (error) {
       console.log(error);
       set({ authUser: null });
@@ -90,6 +96,13 @@ export const useAuthStore = create((set, get) => ({
       seedPrefs(user);
       toast.success("Account created successfully. Welcome aboard!");
       get().connectSocket();
+      const uid = user?._id ?? user?.id;
+      if (uid) {
+        console.log("[E2EE] register: initializing encryption for user", uid);
+        initE2EE(uid)
+          .then((s) => console.log("[E2EE] register: status ->", s))
+          .catch((e) => console.error("[E2EE] register: init error:", e?.message));
+      }
     } catch (error) {
       console.error(error);
       const message =
@@ -125,6 +138,13 @@ export const useAuthStore = create((set, get) => ({
       seedPrefs(user);
       toast.success("Account login successful. Welcome aboard!");
       get().connectSocket();
+      const uid = user?._id ?? user?.id;
+      if (uid) {
+        console.log("[E2EE] login: initializing encryption for user", uid);
+        initE2EE(uid)
+          .then((s) => console.log("[E2EE] login: status ->", s))
+          .catch((e) => console.error("[E2EE] login: init error:", e?.message));
+      }
     } catch (error) {
       console.error("Login error:", error);
       const message =
@@ -160,6 +180,13 @@ export const useAuthStore = create((set, get) => ({
       seedPrefs(user);
       toast.success("Signed in successfully.");
       get().connectSocket();
+      const uid = user?._id ?? user?.id;
+      if (uid) {
+        console.log("[E2EE] 2FA login: initializing encryption for user", uid);
+        initE2EE(uid)
+          .then((s) => console.log("[E2EE] 2FA login: status ->", s))
+          .catch((e) => console.error("[E2EE] 2FA login: init error:", e?.message));
+      }
     } catch (error) {
       const message =
         error?.response?.data?.message ||
@@ -177,6 +204,8 @@ export const useAuthStore = create((set, get) => ({
     try {
       await axiosInstance.post("/auth/logout", {}, { withCredentials: true });
       get().disconnectSocket();
+      clearE2EECache();
+      console.log("[E2EE] logout: encryption cache cleared");
       set({ authUser: null });
       toast.success("You have been logged out successfully.");
     } catch (error) {
@@ -293,13 +322,13 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = isFavorite
         ? await axiosInstance.delete(`/users/${id}/favorite`, {
-            withCredentials: true,
-          })
+          withCredentials: true,
+        })
         : await axiosInstance.post(
-            `/users/${id}/favorite`,
-            {},
-            { withCredentials: true },
-          );
+          `/users/${id}/favorite`,
+          {},
+          { withCredentials: true },
+        );
       set({ authUser: extractUser(res) });
     } catch (error) {
       toast.error(

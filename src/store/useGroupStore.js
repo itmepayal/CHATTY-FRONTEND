@@ -1,6 +1,23 @@
 import { create } from "zustand";
 import { toast } from "react-hot-toast";
 import { axiosInstance } from "../lib/axios.js";
+import {
+  encryptGroupText,
+  loadGroupKeys,
+  wrapGroupKey,
+  cacheGroupKeyRaw,
+  exportGroupKeyRaw,
+  getGroupLatestVersion,
+  forgetGroup,
+  whenE2EEReady,
+} from "../lib/e2ee.js";
+import {
+  e2eeReady,
+  e2eeErrMsg,
+  decryptGroupMessage,
+  decryptGroupList,
+  decryptGroupPreview,
+} from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 
 const sameId = (a, b) => String(a) === String(b);
@@ -11,12 +28,12 @@ const newClientId = () =>
   crypto.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-// FIX 5: authUser me id ya _id, dono me se jo bhi ho
+// authUser can have id OR _id
 const myId = () => idOf(useAuthStore.getState().authUser);
 
 const timeOf = (d) => (d ? new Date(d).getTime() : 0);
 
-// FIX 1: naye group (jisme lastMessageAt nahi) ko createdAt se sort karo
+// groups without lastMessageAt fall back to createdAt
 const sortGroups = (list) =>
   [...list].sort(
     (a, b) =>
@@ -32,6 +49,14 @@ const upsert = (list, item) => {
 };
 
 const union = (a = [], b = []) => [...new Set([...a, ...b].map(String))];
+
+// members may be [{ userId }], [{ user: {...} }], [{ id }] or plain ids
+const memberIdsOf = (g) =>
+  [
+    ...new Set(
+      (g?.members || []).map((m) => idOf(m?.userId ?? m?.user ?? m?.id ?? m)),
+    ),
+  ].filter(Boolean);
 
 const normalizeMsg = (m) => ({
   ...m,
@@ -85,32 +110,156 @@ const extFor = (mime = "") =>
 const videoExtFor = (mime = "") =>
   mime.includes("mp4") ? "mp4" : mime.includes("quicktime") ? "mov" : "webm";
 
+// Wrap one raw group key for many users. Users without a public key are SKIPPED
+// (not fatal) -> they get the key later via syncPendingGroupKeys().
+const wrapForUsers = async (raw, userIds, version) => {
+  const entries = [];
+  const skipped = [];
+  await Promise.all(
+    [...new Set(userIds.map(String))].map(async (userId) => {
+      try {
+        entries.push({ userId, version, ...(await wrapGroupKey(raw, userId)) });
+      } catch {
+        skipped.push(userId);
+      }
+    }),
+  );
+  return { entries, skipped };
+};
+
 /* ---------------- LIVE LOCATION CONSTANTS ---------------- */
-const LIVE_PUSH_MS = 5000; // server ko kitni der me ek baar position bhejni hai
+const LIVE_PUSH_MS = 5000;
 
 let handlers = null;
 const seenInFlight = new Set();
-const seenDirty = new Set(); // FIX: in-flight ke dauran naya message aaya to dobara markSeen
-// shareId -> { watchId, last }
-const watchers = new Map();
+const seenDirty = new Set();
+const watchers = new Map(); // shareId -> { watchId, last }
 
 export const useGroupStore = create((set, get) => ({
   groups: [],
   selectedGroup: null,
   groupMessages: [],
   typing: {},
-  // { [groupId]: { [shareId]: share } }  (apne + dusron ke active live shares)
+  // { [groupId]: { [shareId]: share } }
   liveShares: {},
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
 
+  /* =====================================================
+   *                    E2EE GROUP KEYS
+   * ===================================================== */
+
+  // Create + upload a NEW key version for the given users.
+  // POST /groups/:id/keys  { version, entries: [{ userId, version, wrappedKey, iv }] }
+  provisionGroupKey: async (groupId, userIds, version = 1) => {
+    try {
+      if (!(await e2eeReady())) return false;
+      const raw = crypto.getRandomValues(new Uint8Array(32));
+      const { entries, skipped } = await wrapForUsers(raw, userIds, version);
+      // I must be able to read it myself
+      if (!entries.some((e) => sameId(e.userId, myId()))) return false;
+
+      await axiosInstance.post(`/groups/${groupId}/keys`, { version, entries });
+      await cacheGroupKeyRaw(groupId, version, raw);
+
+      if (skipped.length) {
+        console.warn("[e2ee] members without a public key yet:", skipped);
+      }
+      return true;
+    } catch (e) {
+      console.error("provisionGroupKey failed:", e?.response?.data || e);
+      return false;
+    }
+  },
+
+  // New key version (e.g. after a member is removed) -> removed user can't read new messages
+  rotateGroupKey: async (groupId) => {
+    const group = get().groups.find((g) => sameId(g.id, groupId));
+    if (!group) return false;
+    const latest = await loadGroupKeys(groupId, { force: true }).catch(() => 0);
+    return get().provisionGroupKey(groupId, memberIdsOf(group), latest + 1);
+  },
+
+  // Give the CURRENT key version to specific users (new members / pending members)
+  shareKeyWith: async (groupId, userIds) => {
+    try {
+      if (!userIds.length || !(await e2eeReady())) return false;
+      const latest =
+        getGroupLatestVersion(groupId) || (await loadGroupKeys(groupId));
+      if (!latest) return false;
+      const raw = await exportGroupKeyRaw(groupId, latest);
+      if (!raw) return false;
+      const { entries } = await wrapForUsers(raw, userIds, latest);
+      if (!entries.length) return false;
+      await axiosInstance.post(`/groups/${groupId}/keys`, {
+        version: latest,
+        entries,
+      });
+      return true;
+    } catch (e) {
+      console.error("shareKeyWith failed:", e?.response?.data || e);
+      return false;
+    }
+  },
+
+  // GET /groups/:id/keys/pending -> members that still have no key -> wrap for them
+  syncPendingGroupKeys: async (groupId) => {
+    try {
+      const res = await axiosInstance.get(`/groups/${groupId}/keys/pending`);
+      const d = unwrap(res);
+      const list = Array.isArray(d) ? d : d?.members || d?.userIds || [];
+      const ids = list.map((x) => idOf(x?.userId ?? x)).filter(Boolean);
+      if (ids.length) await get().shareKeyWith(groupId, ids);
+    } catch {
+      /* not allowed / no pending -> silent */
+    }
+  },
+
+  // load keys; if the group has none yet, try to create version 1; else resolve pending members
+  prepareGroupKeys: async (groupId) => {
+    try {
+      if (!(await e2eeReady())) return;
+      const latest = await loadGroupKeys(groupId, { force: true });
+      if (!latest) {
+        const group = get().groups.find((g) => sameId(g.id, groupId));
+        if (group) {
+          await get().provisionGroupKey(groupId, memberIdsOf(group), 1);
+        }
+      } else {
+        get().syncPendingGroupKeys(groupId);
+      }
+    } catch {
+      /* silent */
+    }
+  },
+
+  // re-try messages that couldn't be decrypted (call after keys arrive)
+  refreshGroupKeys: async (groupId) => {
+    await loadGroupKeys(groupId, { force: true }).catch(() => {});
+    if (!sameId(get().selectedGroup?.id, groupId)) return;
+    const next = await Promise.all(
+      get().groupMessages.map((m) =>
+        m.decryptFailed ? decryptGroupMessage(m) : m,
+      ),
+    );
+    set({ groupMessages: next });
+  },
+
+  /* =====================================================
+   *                        GROUPS
+   * ===================================================== */
   fetchGroups: async ({ silent = false } = {}) => {
     if (!silent) set({ isGroupsLoading: true });
     try {
       const res = await axiosInstance.get("/groups");
-      const groups = sortGroups(unwrap(res) || []);
+      const withPreview = await Promise.all(
+        (unwrap(res) || []).map(async (g) => ({
+          ...g,
+          lastMessage: await decryptGroupPreview(g.lastMessage, g.id),
+        })),
+      );
+      const groups = sortGroups(withPreview);
       set((s) => {
-        // keep the open group's data fresh (incl. archived flag)
         const open = s.selectedGroup
           ? groups.find((g) => sameId(g.id, s.selectedGroup.id))
           : null;
@@ -137,7 +286,19 @@ export const useGroupStore = create((set, get) => ({
       const res = await axiosInstance.post("/groups", fd);
       const group = unwrap(res);
       get().applyGroupUpdate(group);
+
+      // E2EE: generate key v1 and wrap it for every member (+ me)
+      const ids = [
+        ...new Set([...memberIds, ...memberIdsOf(group), myId()].map(String)),
+      ].filter(Boolean);
+      const keyed = await get().provisionGroupKey(group.id, ids, 1);
+
       toast.success("Group created");
+      if (!keyed) {
+        toast.error(
+          "Group created, but encryption keys couldn't be set up. Open the group to retry.",
+        );
+      }
       return group;
     } catch (e) {
       toast.error(errMsg(e));
@@ -165,6 +326,8 @@ export const useGroupStore = create((set, get) => ({
         memberIds,
       });
       get().applyGroupUpdate(unwrap(res));
+      // give the new members the current key
+      await get().shareKeyWith(groupId, memberIds);
       return true;
     } catch (e) {
       toast.error(errMsg(e));
@@ -178,6 +341,10 @@ export const useGroupStore = create((set, get) => ({
         `/groups/${groupId}/members/${userId}`,
       );
       get().applyGroupUpdate(unwrap(res));
+      // rotate so the removed member can't read FUTURE messages
+      const rotated = await get().rotateGroupKey(groupId);
+      if (!rotated)
+        toast.error("Member removed, but the key couldn't be rotated.");
     } catch (e) {
       toast.error(errMsg(e));
     }
@@ -231,13 +398,13 @@ export const useGroupStore = create((set, get) => ({
 
   archiveGroup: async (groupId) => {
     const prev = get().groups.find((g) => sameId(g.id, groupId))?.archived;
-    get().setGroupArchived(groupId, true); // optimistic
+    get().setGroupArchived(groupId, true);
     try {
       await axiosInstance.put(`/groups/${groupId}/archive`);
       toast.success("Group archived");
       return true;
     } catch (e) {
-      get().setGroupArchived(groupId, Boolean(prev)); // rollback
+      get().setGroupArchived(groupId, Boolean(prev));
       toast.error(errMsg(e));
       return false;
     }
@@ -245,13 +412,13 @@ export const useGroupStore = create((set, get) => ({
 
   unarchiveGroup: async (groupId) => {
     const prev = get().groups.find((g) => sameId(g.id, groupId))?.archived;
-    get().setGroupArchived(groupId, false); // optimistic
+    get().setGroupArchived(groupId, false);
     try {
       await axiosInstance.delete(`/groups/${groupId}/archive`);
       toast.success("Group unarchived");
       return true;
     } catch (e) {
-      get().setGroupArchived(groupId, Boolean(prev)); // rollback
+      get().setGroupArchived(groupId, Boolean(prev));
       toast.error(errMsg(e));
       return false;
     }
@@ -270,10 +437,10 @@ export const useGroupStore = create((set, get) => ({
     })),
 
   dropGroup: (groupId) => {
-    // is group ke saare live shares/watchers saaf karo
     Object.keys(get().liveShares[groupId] || {}).forEach((shareId) =>
       get().stopWatch(shareId),
     );
+    forgetGroup(groupId); // wipe cached group keys
     set((s) => {
       const open = s.selectedGroup && sameId(s.selectedGroup.id, groupId);
       const { [groupId]: _gone, ...restShares } = s.liveShares;
@@ -297,10 +464,12 @@ export const useGroupStore = create((set, get) => ({
       get().fetchMessages(group.id),
       get().fetchActiveShares(group.id),
     ]);
-    // FIX: agar beech me user ne dusra group khol liya, to uska loader mat band karo
     if (!sameId(get().selectedGroup?.id, group.id)) return;
     set({ isGroupMessagesLoading: false });
     if (visible()) get().markSeen(group.id);
+
+    // background: make sure keys exist / pending members get theirs
+    get().prepareGroupKeys(group.id);
   },
 
   closeGroup: () => {
@@ -311,42 +480,39 @@ export const useGroupStore = create((set, get) => ({
   fetchMessages: async (groupId) => {
     try {
       const res = await axiosInstance.get(`/groups/${groupId}/messages`);
-      if (sameId(get().selectedGroup?.id, groupId)) {
-        // keep local pending/failed messages the server doesn't know yet
-        const server = (unwrap(res) || []).map(normalizeMsg);
-        const current = get().groupMessages;
-        const isKnownByServer = (m) =>
-          m.clientId && server.some((x) => x.clientId === m.clientId);
+      const server = await decryptGroupList(
+        (unwrap(res) || []).map(normalizeMsg),
+        groupId,
+      );
 
-        const keep = current.filter(
-          (m) => (m.pending || m.failed) && !isKnownByServer(m),
-        );
+      // user opened another group while we were loading
+      if (!sameId(get().selectedGroup?.id, groupId)) return;
 
-        // FIX: jo local messages server ke message se replace ho rahe hain,
-        // unke blob URLs revoke karo (memory leak)
-        current
-          .filter((m) => (m.pending || m.failed) && isKnownByServer(m))
-          .forEach(revokeMsgBlobs);
+      const current = get().groupMessages;
+      const isKnownByServer = (m) =>
+        m.clientId && server.some((x) => x.clientId === m.clientId);
 
-        set({ groupMessages: [...server, ...keep] });
-      }
+      const keep = current.filter(
+        (m) => (m.pending || m.failed) && !isKnownByServer(m),
+      );
+
+      current
+        .filter((m) => (m.pending || m.failed) && isKnownByServer(m))
+        .forEach(revokeMsgBlobs);
+
+      set({ groupMessages: [...server, ...keep] });
     } catch (e) {
       toast.error(errMsg(e));
     }
   },
 
-  // Accepts: text, imageFile (image), attachment (any other file; a video file
-  // picked with the paperclip is auto-detected and sent as a video message),
-  // voice ({ blob, duration, mimeType }) from useVoiceRecorder,
-  // video ({ blob, duration, mimeType }) from VideoRecorderModal
+  // Accepts: text, imageFile, attachment, voice, video
   sendMessage: async ({ text, imageFile, attachment, voice, video }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
     const meId = myId();
     const trimmed = text?.trim() || "";
 
-    // Strip codec params ("audio/webm;codecs=opus" -> "audio/webm") so the
-    // server's mimetype checks match.
     const voiceMime = voice?.mimeType?.split(";")[0] || "audio/webm";
     const voiceFile = voice
       ? new File([voice.blob], `voice-${Date.now()}.${extFor(voiceMime)}`, {
@@ -379,6 +545,7 @@ export const useGroupStore = create((set, get) => ({
       senderId: meId,
       sender: { id: meId, fullName: me.fullName, avatar: me.avatar },
       text: trimmed,
+      decrypted: true, // local plaintext
       image: imageFile ? { url: localUrl } : null,
       file:
         attachment && !videoFile
@@ -413,6 +580,7 @@ export const useGroupStore = create((set, get) => ({
     return get().transmit(clientId);
   },
 
+  // text is encrypted with the group's latest key; never falls back to plaintext
   transmit: async (clientId) => {
     const msg = get().groupMessages.find((m) => m.clientId === clientId);
     if (!msg) return;
@@ -423,7 +591,30 @@ export const useGroupStore = create((set, get) => ({
     }));
     try {
       const fd = new FormData();
-      if (msg.text) fd.append("text", msg.text);
+
+      if (msg.text) {
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+        let enc;
+        try {
+          enc = await encryptGroupText(msg.groupId, msg.text);
+        } catch (e) {
+          // group has no key yet / keys not loaded -> try once to fix, then retry
+          if (
+            e?.message === "group-not-encrypted" ||
+            e?.message === "no-group-key"
+          ) {
+            await get().prepareGroupKeys(msg.groupId);
+            enc = await encryptGroupText(msg.groupId, msg.text);
+          } else {
+            throw e;
+          }
+        }
+        fd.append("text", enc.text);
+        fd.append("iv", enc.iv);
+        fd.append("keyVersion", String(enc.keyVersion));
+        fd.append("encrypted", "true");
+      }
+
       // The router accepts ONE field name ("image") for every attachment type.
       if (msg._file) fd.append("image", msg._file);
       if (msg._isVoice) {
@@ -444,7 +635,13 @@ export const useGroupStore = create((set, get) => ({
 
       const saved = unwrap(res);
       if (!saved) throw new Error("Empty server response");
-      get().receiveMessage(saved);
+      // saved.text is ciphertext -> keep the plaintext we already have
+      get().receiveMessage({
+        ...saved,
+        text: msg.text || "",
+        decrypted: true,
+        decryptFailed: false,
+      });
     } catch (e) {
       console.error("send group message failed:", e?.response?.data || e);
       set((s) => ({
@@ -452,7 +649,7 @@ export const useGroupStore = create((set, get) => ({
           m.clientId === clientId ? { ...m, pending: false, failed: true } : m,
         ),
       }));
-      toast.error(errMsg(e));
+      toast.error(e2eeErrMsg(e) || errMsg(e));
     }
   },
 
@@ -467,7 +664,7 @@ export const useGroupStore = create((set, get) => ({
       };
     }),
 
-  // Used by both HTTP response and socket event -> never duplicates
+  // Sync insert. Expects ALREADY-DECRYPTED data (use ingestMessage for raw server data)
   receiveMessage: (raw) => {
     const msg = normalizeMsg(raw);
     const s = get();
@@ -491,6 +688,13 @@ export const useGroupStore = create((set, get) => ({
     set({ groupMessages: next });
   },
 
+  // Async: normalize -> decrypt -> insert. Used for socket events.
+  ingestMessage: async (raw) => {
+    const msg = await decryptGroupMessage(normalizeMsg(raw));
+    get().receiveMessage(msg);
+    return msg;
+  },
+
   markSeen: async (groupId) => {
     set((s) => ({
       groups: s.groups.map((g) =>
@@ -500,7 +704,6 @@ export const useGroupStore = create((set, get) => ({
 
     const key = String(groupId);
     if (seenInFlight.has(key)) {
-      // FIX: request chal rahi hai, par naya message aaya -> baad me dobara bhejo
       seenDirty.add(key);
       return;
     }
@@ -526,10 +729,8 @@ export const useGroupStore = create((set, get) => ({
   },
 
   /* =====================================================
-   *                  LIVE LOCATION
+   *            LIVE LOCATION (not encrypted)
    * ===================================================== */
-
-  // Selector: is group me mera active live share (ya undefined)
   getMyShare: (groupId) => {
     const me = myId();
     return Object.values(get().liveShares[groupId] || {}).find((sh) =>
@@ -537,7 +738,6 @@ export const useGroupStore = create((set, get) => ({
     );
   },
 
-  // Ek baar ka current location pin bhejo
   // coords = { lat, lng, accuracy }
   sendCurrentLocation: async (groupId, coords) => {
     try {
@@ -549,7 +749,7 @@ export const useGroupStore = create((set, get) => ({
         clientId: newClientId(),
       });
       const saved = unwrap(res);
-      if (saved) get().receiveMessage(saved);
+      if (saved) await get().ingestMessage(saved);
       return true;
     } catch (e) {
       toast.error(errMsg(e));
@@ -557,7 +757,7 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Live location shuru karo. durationMin: 15 | 60 | 480
+  // durationMin: 15 | 60 | 480
   startLiveLocation: async (groupId, coords, durationMin) => {
     try {
       const res = await axiosInstance.post(`/groups/${groupId}/location`, {
@@ -569,7 +769,7 @@ export const useGroupStore = create((set, get) => ({
         clientId: newClientId(),
       });
       const { message, share } = unwrap(res) || {};
-      if (message) get().receiveMessage(message);
+      if (message) await get().ingestMessage(message);
       if (share) {
         const sh = normalizeShare({ ...share, groupId });
         get().setShare(sh);
@@ -582,7 +782,6 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Live location band karo
   stopLiveLocation: async (groupId, shareId) => {
     try {
       await axiosInstance.post(`/groups/${groupId}/location/${shareId}/stop`);
@@ -594,7 +793,6 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Server se is group ke active shares lao; mere shares ka watcher dobara chalao
   fetchActiveShares: async (groupId) => {
     try {
       const res = await axiosInstance.get(`/groups/${groupId}/location/active`);
@@ -605,15 +803,13 @@ export const useGroupStore = create((set, get) => ({
         map[sh.shareId] = sh;
       });
       set((s) => ({ liveShares: { ...s.liveShares, [groupId]: map } }));
-      // page refresh ke baad bhi apna live sharing chalta rahe
       mine.forEach((raw) => get().startWatch(groupId, idOf(raw._id ?? raw.id)));
     } catch {
       /* silent */
     }
   },
 
-  // FIX 3: refresh/login ke baad SAARE groups ke mere active shares resume karo
-  // (sirf open group nahi). App start / socket connect pe call hota hai.
+  // after refresh/login resume MY active shares in ALL groups
   resumeMyLiveShares: async () => {
     const list = get().groups.filter((g) => !g.archived);
     await Promise.all(list.map((g) => get().fetchActiveShares(g.id)));
@@ -633,7 +829,6 @@ export const useGroupStore = create((set, get) => ({
       },
     })),
 
-  // share khatam: watcher band, store se hatao, message ko "ended" mark karo
   endShareLocal: (groupId, shareId) => {
     get().stopWatch(shareId);
     set((s) => {
@@ -649,7 +844,6 @@ export const useGroupStore = create((set, get) => ({
     });
   },
 
-  // Browser GPS watch -> har LIVE_PUSH_MS me server ko position bhejo
   startWatch: (groupId, shareId) => {
     if (watchers.has(shareId)) return;
     if (!navigator.geolocation) {
@@ -689,17 +883,31 @@ export const useGroupStore = create((set, get) => ({
     watchers.delete(shareId);
   },
 
-  // FIX 4: logout pe call karo -> saare GPS watchers band + local state saaf
-  // (server pe share chalta rahega; sirf is device ka GPS push band hota hai)
   stopAllWatchers: () => {
     [...watchers.keys()].forEach((id) => get().stopWatch(id));
     set({ liveShares: {} });
   },
 
-  // Logout ke time ek hi call me sab reset
+  pushLivePosition: async (groupId, shareId, coords) => {
+    try {
+      await axiosInstance.patch(
+        `/groups/${groupId}/location/${shareId}`,
+        coords,
+      );
+    } catch (e) {
+      const status = e?.response?.status;
+      // 404 = share not found / stopped, 410 = expired
+      if (status === 404 || status === 410) {
+        get().endShareLocal(groupId, shareId);
+      }
+    }
+  },
+
+  /* ---------- logout: reset everything in one call ---------- */
   resetOnLogout: () => {
     get().stopAllWatchers();
     get().unsubscribeFromGroups();
+    get().groupMessages.forEach(revokeMsgBlobs);
     seenInFlight.clear();
     seenDirty.clear();
     set({
@@ -713,21 +921,6 @@ export const useGroupStore = create((set, get) => ({
     });
   },
 
-  pushLivePosition: async (groupId, shareId, coords) => {
-    try {
-      await axiosInstance.patch(
-        `/groups/${groupId}/location/${shareId}`,
-        coords,
-      );
-    } catch (e) {
-      const status = e?.response?.status;
-      // 404 = share nahi mila / band, 410 = expire ho gaya
-      if (status === 404 || status === 410) {
-        get().endShareLocal(groupId, shareId);
-      }
-    }
-  },
-
   /* ---------- realtime ---------- */
   subscribeToGroups: () => {
     const socket = useAuthStore.getState().socket;
@@ -736,17 +929,25 @@ export const useGroupStore = create((set, get) => ({
 
     const h = {
       "group:created": (g) => get().applyGroupUpdate(g),
-      "group:updated": (g) => get().applyGroupUpdate(g),
+      "group:updated": (g) => {
+        get().applyGroupUpdate(g);
+        // members may have changed -> resolve pending keys for the open group
+        if (sameId(get().selectedGroup?.id, g?.id)) {
+          get().syncPendingGroupKeys(g.id);
+        }
+      },
       "group:removed": ({ groupId }) => get().dropGroup(groupId),
       "group:deleted": ({ groupId }) => get().dropGroup(groupId),
 
-      // archive/unarchive done on another tab/device of the same user
+      // OPTIONAL: emit this from the server after POST /groups/:id/keys
+      // so members who were waiting for a key can decrypt immediately.
+      "group:keysUpdated": ({ groupId }) => get().refreshGroupKeys(groupId),
+
       "group:archiveChanged": ({ groupId, archived }) =>
         get().setGroupArchived(groupId, Boolean(archived)),
 
-      "group:newMessage": (raw) => {
-        const msg = normalizeMsg(raw);
-        get().receiveMessage(msg);
+      "group:newMessage": async (raw) => {
+        const msg = await get().ingestMessage(raw);
 
         if (msg.location?.isLive && msg.location.shareId) {
           get().setShare(
@@ -775,7 +976,8 @@ export const useGroupStore = create((set, get) => ({
         }
       },
 
-      "group:conversationUpdated": (u) =>
+      "group:conversationUpdated": async (u) => {
+        const lastMessage = await decryptGroupPreview(u.lastMessage, u.groupId);
         set((s) => {
           const open = sameId(s.selectedGroup?.id, u.groupId) && visible();
           return {
@@ -785,14 +987,15 @@ export const useGroupStore = create((set, get) => ({
                   ? {
                       ...g,
                       unreadCount: open ? 0 : u.unreadCount,
-                      lastMessage: u.lastMessage,
+                      lastMessage,
                       lastMessageAt: u.lastMessageAt || g.lastMessageAt,
                     }
                   : g,
               ),
             ),
           };
-        }),
+        });
+      },
 
       "group:messagesSeen": ({ groupId, seenBy, messageIds = [] }) =>
         set((s) =>
@@ -840,6 +1043,7 @@ export const useGroupStore = create((set, get) => ({
         get().endShareLocal(String(groupId), String(shareId)),
 
       connect: async () => {
+        await whenE2EEReady();
         await get().fetchGroups({ silent: true });
         const open = get().selectedGroup;
         if (open) {
