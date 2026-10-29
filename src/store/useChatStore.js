@@ -66,6 +66,7 @@ const markDeleted = (m) => ({
   file: null,
   audio: null,
   video: null,
+  location: null,
   linkPreview: null,
   localPreview: null,
   reactions: [],
@@ -86,6 +87,9 @@ const replySnapshot = (m) =>
         file: m.file?.name ? { name: m.file.name } : null,
         audio: m.audio?.url ? { url: m.audio.url } : null,
         video: m.video?.url ? { url: m.video.url } : null,
+        location: Number.isFinite(m.location?.lat)
+          ? { lat: m.location.lat, lng: m.location.lng }
+          : null,
         isDeleted: Boolean(m.isDeleted),
       }
     : null;
@@ -101,6 +105,39 @@ const clearTypingTimer = (fromId) => {
 };
 
 const errMsg = (error, fallback) => error?.response?.data?.message || fallback;
+
+/* ---------------- live location helpers ---------------- */
+const getPosition = () =>
+  new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      return reject(Object.assign(new Error("unsupported"), { code: 0 }));
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+  });
+
+const geoErrMsg = (e) => {
+  if (e?.response) return null; // server error, errMsg handle karega
+  if (e?.code === 0) return "Location isn't supported in this browser";
+  if (e?.code === 1) return "Location permission denied";
+  if (e?.code === 2) return "Location unavailable";
+  if (e?.code === 3) return "Location request timed out";
+  return null;
+};
+
+const shareToLive = (sh) => ({
+  shareId: String(sh._id),
+  sharerId: String(sh.sharerId),
+  receiverId: String(sh.receiverId),
+  expiresAt: sh.expiresAt,
+  lat: sh.lastLocation?.lat,
+  lng: sh.lastLocation?.lng,
+  accuracy: sh.lastLocation?.accuracy,
+  updatedAt: sh.lastLocation?.updatedAt,
+});
 
 export const useChatStore = create((set, get) => {
   const patchMessage = (clientId, patch) =>
@@ -118,6 +155,15 @@ export const useChatStore = create((set, get) => {
     }));
 
   const getSocket = () => useAuthStore.getState().socket;
+
+  const offLocation = () => {
+    const socket = getSocket();
+    const s = get();
+    if (!socket) return;
+    if (s._onLocUpdate) socket.off("location:update", s._onLocUpdate);
+    if (s._onLocEnded) socket.off("location:ended", s._onLocEnded);
+    if (s._onLocConnect) socket.off("connect", s._onLocConnect);
+  };
 
   const syncActiveChat = () => {
     const socket = getSocket();
@@ -214,6 +260,10 @@ export const useChatStore = create((set, get) => {
     editingMessage: null, // message being edited
     scheduled: [], // pending scheduled messages for the open chat
     disappearAfter: 0, // seconds, 0 = off (for the open chat)
+
+    // live location: { [shareId]: { shareId, sharerId, receiverId, expiresAt, lat, lng, accuracy, updatedAt } }
+    liveShares: {},
+    liveLoaded: false,
 
     getUsers: async ({ silent = false } = {}) => {
       if (!silent) set({ isUsersLoading: true });
@@ -815,6 +865,136 @@ export const useChatStore = create((set, get) => {
         toast.error(errMsg(error, "Failed to update archive"));
         return false;
       }
+    },
+
+    /* ---------------- LIVE LOCATION ---------------- */
+    shareLocation: async (receiverId, { mode, durationMin }) => {
+      try {
+        const pos = await getPosition();
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+
+        const res = await axiosInstance.post("/messages/location/share", {
+          receiverId,
+          mode,
+          durationMin,
+          lat,
+          lng,
+          accuracy,
+        });
+
+        const data = res.data.data;
+        const message = mode === "live" ? data.message : data;
+
+        if (mode === "live" && data.share) {
+          set((s) => ({
+            liveShares: {
+              ...s.liveShares,
+              [String(data.share._id)]: shareToLive(data.share),
+            },
+          }));
+        }
+
+        set((s) =>
+          s.messages.some((m) => sameId(m.id, message.id))
+            ? {}
+            : { messages: [...s.messages, message] },
+        );
+        get().getUsers({ silent: true });
+
+        toast.success(
+          mode === "live" ? "Live location started" : "Location sent",
+        );
+        return true;
+      } catch (error) {
+        toast.error(
+          geoErrMsg(error) || errMsg(error, "Failed to share location"),
+        );
+        return false;
+      }
+    },
+
+    stopLiveShare: async (shareId) => {
+      const previous = get().liveShares;
+      get().removeLiveShare(shareId); // optimistic
+      try {
+        await axiosInstance.patch(`/messages/location/stop/${shareId}`);
+        toast.success("Live location stopped");
+      } catch (error) {
+        set({ liveShares: previous });
+        toast.error(errMsg(error, "Failed to stop sharing"));
+      }
+    },
+
+    removeLiveShare: (shareId) =>
+      set((s) => {
+        const key = String(shareId);
+        if (!s.liveShares[key]) return {};
+        const next = { ...s.liveShares };
+        delete next[key];
+        return { liveShares: next };
+      }),
+
+    getActiveShares: async () => {
+      try {
+        const res = await axiosInstance.get("/messages/location/active");
+        const { mine = [], forMe = [] } = res.data.data || {};
+        const map = {};
+        [...mine, ...forMe].forEach((sh) => {
+          map[String(sh._id)] = shareToLive(sh);
+        });
+        set({ liveShares: map, liveLoaded: true });
+      } catch {
+        /* silent */
+      }
+    },
+
+    // LiveLocationSender (global component) isko call karta hai
+    subscribeToLocation: () => {
+      const socket = getSocket();
+      if (!socket) return;
+      offLocation();
+
+      const onUpdate = ({
+        shareId,
+        lat,
+        lng,
+        accuracy,
+        heading,
+        updatedAt,
+      }) => {
+        const key = String(shareId);
+        set((s) => ({
+          liveShares: {
+            ...s.liveShares,
+            [key]: {
+              ...(s.liveShares[key] || { shareId: key }),
+              lat,
+              lng,
+              accuracy,
+              heading,
+              updatedAt,
+            },
+          },
+        }));
+      };
+
+      const onEnded = ({ shareId }) => get().removeLiveShare(shareId);
+      const onConnect = () => get().getActiveShares();
+
+      socket.on("location:update", onUpdate);
+      socket.on("location:ended", onEnded);
+      socket.on("connect", onConnect);
+
+      set({
+        _onLocUpdate: onUpdate,
+        _onLocEnded: onEnded,
+        _onLocConnect: onConnect,
+      });
+    },
+
+    unsubscribeFromLocation: () => {
+      offLocation();
+      set({ liveShares: {}, liveLoaded: false });
     },
 
     /* ---------------- REPORT ---------------- */

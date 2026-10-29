@@ -18,10 +18,11 @@ import ChattyLoader from "./components/common/ChattyLoader";
 import { CallProvider } from "./context/CallContext";
 import CallUI from "./components/Call/CallUI";
 
-// group calls
 import useGroupCallListeners from "./hooks/useGroupCallListeners";
 import GroupCallModal from "./components/group/common/GroupCallModal.jsx";
 import IncomingGroupCall from "./components/group/common/IncomingGroupCall.jsx";
+
+import LiveLocationSender from "./components/Location/LiveLocationSender.jsx";
 
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth } = useAuthStore();
@@ -100,6 +101,7 @@ const App = () => {
 
         {authUser && (
           <>
+            <LiveLocationSender />
             <CallUI />
             <GroupCallModal />
             <IncomingGroupCall />

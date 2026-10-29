@@ -10,8 +10,6 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   AlertCircle,
-  Archive,
-  ArchiveRestore,
   Ban,
   Check,
   Clock,
@@ -40,7 +38,6 @@ import {
   PinOff,
   Reply,
   RotateCw,
-  Search,
   Send,
   Smile,
   Timer,
@@ -81,7 +78,6 @@ import {
 
 // Motion kit (must live in the same folder as this file)
 import {
-  AnimatedBadge,
   AnimatedTicks,
   CollapseBar,
   ImageViewer,
@@ -98,6 +94,11 @@ import {
   springSoft,
 } from "./chatMotionKit.jsx";
 
+import ChatToolbar from "./Common/ChatToolBar.jsx";
+
+import LocationMessage from "../Location/LocationMessage.jsx";
+import ShareLocationModal from "../Location/ShareLocationModel.jsx";
+
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 const MENU_W = 208;
@@ -107,12 +108,10 @@ const REACT_H = 48;
 const MAX_IMAGE_MB = 5;
 const MAX_FILE_MB = 10;
 
-// keep these in sync with the backend (messages.controller.js)
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_PINS = 3;
 const MAX_FORWARD_TARGETS = 5;
 
-// ⚠️ must EXACTLY match ALLOWED_TIMERS in chatSetting.model.js
 const TIMER_OPTIONS = [
   { seconds: 0, label: "Off" },
   { seconds: 24 * 3600, label: "24 hours" },
@@ -232,6 +231,7 @@ const replyPreviewText = (r) => {
   if (r.file?.name) return `📎 ${r.file.name}`;
   if (r.audio?.url) return "🎤 Voice message";
   if (r.video?.url) return "🎥 Video";
+  if (Number.isFinite(r.location?.lat)) return "📍 Location";
   return "Message";
 };
 
@@ -434,20 +434,6 @@ const DayChip = ({ value }) => (
   </motion.div>
 );
 
-const ToolbarBtn = ({ icon: Icon, onClick, className = "", children }) => (
-  <motion.button
-    type="button"
-    whileHover={{ y: -1 }}
-    whileTap={{ scale: 0.94 }}
-    transition={springSnappy}
-    className={`btn btn-ghost btn-xs gap-1 ${className}`}
-    onClick={onClick}
-  >
-    <Icon className="size-4" />
-    {children}
-  </motion.button>
-);
-
 // little audio-style bars for the voice recorder
 const Equalizer = ({ active }) => (
   <span className="flex h-5 items-center gap-0.5" aria-hidden="true">
@@ -566,6 +552,7 @@ const messageFlags = (message, isMine) => {
     hasFileUrl: !isDeleted && Boolean(message.file?.url),
     hasAudio,
     hasVideo,
+    hasLocation: !isDeleted && Number.isFinite(message.location?.lat),
     hasLinkPreview: !isDeleted && Boolean(message.linkPreview?.url),
     canDeleteForAll: isMine && !isDeleted,
     canReply: !isDeleted,
@@ -1812,6 +1799,9 @@ const ChatContainer = () => {
     reportUser,
     // archive
     setArchive,
+    // live location
+    liveShares,
+    stopLiveShare,
   } = useChatStore();
   const { authUser } = useAuthStore();
 
@@ -1854,6 +1844,14 @@ const ChatContainer = () => {
   const [reportCtx, setReportCtx] = useState(null); // { messageId? }
   const [showFab, setShowFab] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [showShareLocation, setShowShareLocation] = useState(false);
+
+  // is chat me meri active live share (agar hai)
+  const myLiveShare = Object.values(liveShares || {}).find(
+    (x) =>
+      sameId(x.sharerId, authUser?.id) &&
+      sameId(x.receiverId, selectedUser?.id),
+  );
 
   const list = Array.isArray(messages) ? messages : [];
   const last = list[list.length - 1];
@@ -1902,6 +1900,7 @@ const ChatContainer = () => {
   useEffect(() => {
     setShowDisappearing(false);
     setReportCtx(null);
+    setShowShareLocation(false);
   }, [selectedUser?.id]);
 
   // reset search when switching chats
@@ -2300,91 +2299,25 @@ const ChatContainer = () => {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <ChatHeader />
 
-        {/* Toolbar: search + scheduled + disappearing + archive + report */}
-        <div className="flex items-center gap-1 border-b border-base-300 bg-base-100 px-3 py-1">
-          <AnimatePresence mode="wait" initial={false}>
-            {searchOpen ? (
-              <motion.div
-                key="search"
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 14, transition: { duration: 0.1 } }}
-                transition={springSnappy}
-                className="flex min-w-0 flex-1 items-center gap-2"
-              >
-                <Search className="size-4 shrink-0 text-base-content/50" />
-                <input
-                  autoFocus
-                  value={searchQ}
-                  onChange={(e) => setSearchQ(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      setSearchOpen(false);
-                      setSearchQ("");
-                    }
-                  }}
-                  placeholder="Search in this chat"
-                  className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none"
-                />
-                {searching && <Loader2 className="size-4 animate-spin" />}
-                <motion.button
-                  type="button"
-                  whileHover={{ rotate: 90 }}
-                  whileTap={{ scale: 0.88 }}
-                  className="btn btn-ghost btn-xs btn-circle"
-                  onClick={() => {
-                    setSearchOpen(false);
-                    setSearchQ("");
-                  }}
-                  aria-label="Close search"
-                >
-                  <X className="size-4" />
-                </motion.button>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="actions"
-                initial={{ opacity: 0, x: -14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -14, transition: { duration: 0.1 } }}
-                transition={springSnappy}
-                className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar"
-              >
-                <ToolbarBtn icon={Search} onClick={() => setSearchOpen(true)}>
-                  Search
-                </ToolbarBtn>
-                <ToolbarBtn icon={Clock} onClick={openScheduled}>
-                  Scheduled
-                  <AnimatedBadge show={scheduled.length > 0}>
-                    {scheduled.length}
-                  </AnimatedBadge>
-                </ToolbarBtn>
-                <ToolbarBtn
-                  icon={Timer}
-                  onClick={() => setShowDisappearing(true)}
-                >
-                  Disappearing
-                  <AnimatedBadge show={disappearAfter > 0}>
-                    {timerLabel(disappearAfter)}
-                  </AnimatedBadge>
-                </ToolbarBtn>
-                <ToolbarBtn
-                  icon={isArchived ? ArchiveRestore : Archive}
-                  onClick={handleArchive}
-                >
-                  {isArchived ? "Unarchive" : "Archive"}
-                </ToolbarBtn>
-                <ToolbarBtn
-                  icon={Flag}
-                  className="ml-auto text-error"
-                  onClick={() => setReportCtx({})}
-                >
-                  Report
-                </ToolbarBtn>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+        {/* Toolbar: search + scheduled + disappearing + location (+ archive/report in "More") */}
+        <ChatToolbar
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
+          searchQ={searchQ}
+          setSearchQ={setSearchQ}
+          searching={searching}
+          scheduledCount={scheduled.length}
+          onOpenScheduled={openScheduled}
+          disappearAfter={disappearAfter}
+          disappearLabel={timerLabel(disappearAfter)}
+          onOpenDisappearing={() => setShowDisappearing(true)}
+          showLocation={!isBlocked}
+          isSharingLive={Boolean(myLiveShare)}
+          onOpenLocation={() => setShowShareLocation(true)}
+          isArchived={isArchived}
+          onArchive={handleArchive}
+          onReport={() => setReportCtx({})}
+        />
 
         {/* Disappearing banner */}
         <CollapseBar
@@ -2394,6 +2327,29 @@ const ChatContainer = () => {
           <div className="flex items-center gap-2 px-3 py-1 text-xs text-base-content/70">
             <Timer className="size-3.5 text-primary" />
             Disappearing messages are on · {timerLabel(disappearAfter)}
+          </div>
+        </CollapseBar>
+
+        {/* Live location banner (jab main is chat me live share kar raha hoon) */}
+        <CollapseBar
+          show={Boolean(myLiveShare)}
+          className="border-b border-base-300 bg-base-100"
+        >
+          <div className="flex items-center gap-2 px-3 py-1 text-xs text-base-content/70">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-error opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-error" />
+            </span>
+            Sharing live location
+            {myLiveShare?.expiresAt &&
+              ` · until ${formatTime(myLiveShare.expiresAt, s.timeFormat)}`}
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs ml-auto text-error"
+              onClick={() => stopLiveShare(myLiveShare.shareId)}
+            >
+              Stop
+            </button>
           </div>
         </CollapseBar>
 
@@ -2526,8 +2482,14 @@ const ChatContainer = () => {
 
               const pending =
                 message.status === "sending" || message.status === "failed";
-              const { isDeleted, hasText, hasFile, hasAudio, hasVideo } =
-                messageFlags(message, isMine);
+              const {
+                isDeleted,
+                hasText,
+                hasFile,
+                hasAudio,
+                hasVideo,
+                hasLocation,
+              } = messageFlags(message, isMine);
               const imageSrc = isDeleted
                 ? null
                 : message.image?.url || message.localPreview;
@@ -2712,6 +2674,16 @@ const ChatContainer = () => {
                                   video={message.video}
                                   uploading={message.status === "sending"}
                                   progress={message.uploadProgress}
+                                />
+                              </div>
+                            )}
+                            {hasLocation && (
+                              <div
+                                className={`max-w-full ${hasText ? "mb-2" : ""}`}
+                              >
+                                <LocationMessage
+                                  message={message}
+                                  isMine={isMine}
                                 />
                               </div>
                             )}
@@ -3084,6 +3056,17 @@ const ChatContainer = () => {
                   messageId: reportCtx.messageId,
                 })
               }
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Share location modal */}
+        <AnimatePresence>
+          {showShareLocation && (
+            <ShareLocationModal
+              key="share-location"
+              name={selectedUser?.fullName}
+              onClose={() => setShowShareLocation(false)}
             />
           )}
         </AnimatePresence>

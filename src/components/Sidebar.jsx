@@ -50,14 +50,8 @@ const avatarSrc = (avatar) =>
 const toIds = (arr) =>
   (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
 
-// true  => Chats tab me sirf contacts (jinhe aapne add kiya) + jinse
-//          pehle se baat-cheet hai wo dikhenge
-// false => pehle jaisa, getUsers ke saare users dikhenge
 const SHOW_ONLY_CONTACTS = true;
 
-// true  => contact remove karne ke baad bhi purani chat history wale log
-//          Chats me dikhte rahenge
-// false => remove karte hi sidebar se hat jayenge
 const KEEP_CONVERSATIONS = false;
 
 const TABS = [
@@ -79,11 +73,9 @@ const CALL_FILTERS = [
 
 const MODE_ORDER = ["chats", "groups", "calls"];
 
-/* ---------- motion presets ---------- */
 const SPRING = { type: "spring", stiffness: 500, damping: 38 };
 const POP = { type: "spring", stiffness: 520, damping: 22 };
 
-// list rows: stagger via custom index
 const rowVariants = {
   hidden: { opacity: 0, x: -18, scale: 0.98 },
   show: (i = 0) => ({
@@ -95,7 +87,6 @@ const rowVariants = {
   exit: { opacity: 0, x: -18, transition: { duration: 0.12 } },
 };
 
-// switching Chats <-> Groups <-> Calls: slide in the direction of the tab
 const paneVariants = {
   enter: (dir) => ({ opacity: 0, x: dir * 28 }),
   center: { opacity: 1, x: 0, transition: { duration: 0.22, ease: "easeOut" } },
@@ -106,7 +97,6 @@ const paneVariants = {
   }),
 };
 
-// header entrance
 const headerItem = {
   hidden: { opacity: 0, y: -10 },
   show: { opacity: 1, y: 0, transition: SPRING },
@@ -132,11 +122,11 @@ const formatListTime = (value) => {
   });
 };
 
-/* ---------- message preview (text / video / photo / voice / file) ----------
-   NOTE: agar aapke backend me field ka naam alag hai
-   (jaise `videoUrl`, `video.url`), to neeche isVideo / isAudio me add kar dein.
-   Backend ke getUsers / getGroups me lastMessage ke saath `video` field
-   bhi aana chahiye, warna preview me video detect nahi hoga. */
+const isLocation = (m) =>
+  Number.isFinite(m.location?.lat) ||
+  m.type === "location" ||
+  m.messageType === "location";
+
 const isVideo = (m) =>
   !!(
     m.video ||
@@ -166,6 +156,7 @@ const isFile = (m) =>
 
 const getBody = (m) => {
   if (m.text) return m.text;
+  if (isLocation(m)) return "📍 Location";
   if (isVideo(m)) return "🎥 Video";
   if (isAudio(m)) return "🎤 Voice message";
   if (isImage(m)) return "📷 Photo";
