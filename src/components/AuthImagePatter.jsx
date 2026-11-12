@@ -22,6 +22,7 @@ import {
 import { ChattyLogo } from "./common/ChattyLogo";
 
 const WAVE = [40, 70, 50, 90, 60, 100, 45, 80, 55, 75, 35, 65, 50, 85, 40, 60];
+const PLAYED_BARS = 8;
 const TOTAL_MESSAGES = 4;
 
 const bubble = {
@@ -52,17 +53,25 @@ const titleWord = {
 
 const Avatar = ({ letter, className = "" }) => (
   <div
-    className={`flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-xs font-semibold text-white shadow-sm ${className}`}
+    className={`flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-xs font-semibold text-primary-content shadow-sm ${className}`}
   >
     {letter}
   </div>
 );
 
-const Chip = ({ icon, children, className = "", delay = 0 }) => {
+const Chip = ({
+  icon,
+  children,
+  className = "",
+  delay = 0,
+  xlOnly = false,
+}) => {
   const reduce = useReducedMotion();
   return (
     <motion.div
-      className={`absolute flex items-center gap-2 rounded-full border border-base-300 bg-base-100/95 px-4 py-2.5 text-sm font-medium shadow-xl backdrop-blur ${className}`}
+      className={`absolute z-10 items-center gap-2 rounded-full border border-base-300 bg-base-100/95 px-4 py-2.5 text-sm font-medium shadow-xl shadow-primary/10 backdrop-blur ${
+        xlOnly ? "hidden xl:flex" : "flex"
+      } ${className}`}
       initial={{ opacity: 0, scale: 0.5 }}
       animate={{ opacity: 1, scale: 1, y: reduce ? 0 : [0, -10, 0] }}
       transition={{
@@ -80,7 +89,7 @@ const Chip = ({ icon, children, className = "", delay = 0 }) => {
           ease: "easeInOut",
         },
       }}
-      whileHover={{ scale: 1.08 }}
+      whileHover={reduce ? undefined : { scale: 1.08 }}
     >
       {icon}
       {children}
@@ -88,16 +97,13 @@ const Chip = ({ icon, children, className = "", delay = 0 }) => {
   );
 };
 
-const HeaderIconButton = ({ children, label }) => (
-  <motion.button
-    type="button"
-    aria-label={label}
-    whileHover={{ scale: 1.15, y: -1 }}
-    whileTap={{ scale: 0.88 }}
+const HeaderIcon = ({ children }) => (
+  <span
+    aria-hidden="true"
     className="flex size-8 items-center justify-center rounded-full text-base-content/50 transition-colors hover:bg-base-200 hover:text-primary"
   >
     {children}
-  </motion.button>
+  </span>
 );
 
 const TypingDots = () => (
@@ -121,7 +127,7 @@ const TypingDots = () => (
 const AuthImagePatter = ({ title, subtitle }) => {
   const reduce = useReducedMotion();
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(reduce ? TOTAL_MESSAGES : 0);
 
   useEffect(() => {
     if (reduce) {
@@ -136,7 +142,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
     return () => clearTimeout(t);
   }, [step, reduce]);
 
-  const isTyping = step === TOTAL_MESSAGES;
+  const isTyping = !reduce && step === TOTAL_MESSAGES;
 
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
@@ -168,7 +174,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
     my.set(0);
   };
 
-  const words = (title || "").split(" ");
+  const words = (title || "").split(" ").filter(Boolean);
 
   return (
     <motion.div
@@ -180,6 +186,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
       className="relative hidden items-center justify-center overflow-hidden bg-gradient-to-br from-primary/15 via-base-200 to-secondary/15 p-12 lg:flex"
     >
       <div
+        aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-40"
         style={{
           backgroundImage:
@@ -193,6 +200,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
       />
 
       <motion.div
+        aria-hidden="true"
         style={{ x: glowX, y: glowY }}
         className="pointer-events-none absolute -top-20 -right-20"
       >
@@ -203,6 +211,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
         />
       </motion.div>
       <motion.div
+        aria-hidden="true"
         style={{ x: glowX, y: glowY }}
         className="pointer-events-none absolute -bottom-24 -left-16"
       >
@@ -215,6 +224,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
 
       <div className="relative w-full max-w-xl text-center">
         <motion.div
+          aria-hidden="true"
           initial={{ opacity: 0, y: 50, scale: 0.94 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{
@@ -232,7 +242,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
         >
           <div className="absolute inset-4 -z-10 rounded-[2rem] bg-gradient-to-br from-primary/30 to-secondary/30 blur-2xl" />
 
-          <div className="overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 text-left shadow-2xl shadow-base-content/15">
+          <div className="overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 text-left shadow-2xl shadow-base-content/15 ring-1 ring-base-content/5">
             <div className="flex items-center gap-3 border-b border-base-300 bg-base-100 px-5 py-4">
               <div className="relative">
                 <Avatar letter="A" className="size-12 text-base" />
@@ -248,8 +258,8 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 </span>
               </div>
 
-              <div className="leading-tight">
-                <p className="text-base font-semibold">Aarav Sharma</p>
+              <div className="min-w-0 leading-tight">
+                <p className="truncate text-base font-semibold">Aarav Sharma</p>
                 <div className="h-4 overflow-hidden">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.p
@@ -260,26 +270,26 @@ const AuthImagePatter = ({ title, subtitle }) => {
                       transition={{ duration: 0.18 }}
                       className="text-xs text-success"
                     >
-                      {isTyping ? "typing..." : "Online"}
+                      {isTyping ? "typing…" : "Online"}
                     </motion.p>
                   </AnimatePresence>
                 </div>
               </div>
 
               <div className="ml-auto flex items-center gap-1">
-                <HeaderIconButton label="Voice call">
+                <HeaderIcon>
                   <Phone className="size-4" />
-                </HeaderIconButton>
-                <HeaderIconButton label="Video call">
+                </HeaderIcon>
+                <HeaderIcon>
                   <Video className="size-4" />
-                </HeaderIconButton>
+                </HeaderIcon>
                 <ChattyLogo className="ml-1 size-7" animated={false} />
               </div>
             </div>
 
-            <div className="min-h-[360px] space-y-4 bg-base-200/40 px-5 py-6">
+            <div className="h-[440px] space-y-4 overflow-hidden bg-gradient-to-b from-base-200/40 to-base-200/70 px-5 py-6">
               <div className="flex items-center justify-center">
-                <span className="rounded-full bg-base-100 px-3 py-1 text-[11px] font-medium text-base-content/50 shadow-sm">
+                <span className="rounded-full bg-base-100 px-3 py-1 text-[11px] font-medium text-base-content/50 shadow-sm ring-1 ring-base-300">
                   Today
                 </span>
               </div>
@@ -288,7 +298,6 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 {step >= 1 && (
                   <motion.div
                     key="m1"
-                    layout
                     variants={bubble}
                     initial="hidden"
                     animate="show"
@@ -299,6 +308,9 @@ const AuthImagePatter = ({ title, subtitle }) => {
                     <Avatar letter="A" />
                     <div className="max-w-[75%] rounded-2xl rounded-bl-md bg-base-100 px-4 py-2.5 text-[15px] shadow-sm">
                       Hey! Kya chal raha hai? 👋
+                      <p className="mt-1 text-[10px] text-base-content/40">
+                        9:40
+                      </p>
                     </div>
                   </motion.div>
                 )}
@@ -306,7 +318,6 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 {step >= 2 && (
                   <motion.div
                     key="m2"
-                    layout
                     variants={bubble}
                     initial="hidden"
                     animate="show"
@@ -314,9 +325,9 @@ const AuthImagePatter = ({ title, subtitle }) => {
                     style={{ originX: 1 }}
                     className="flex justify-end"
                   >
-                    <div className="max-w-[75%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] text-primary-content shadow-md shadow-primary/25">
+                    <div className="max-w-[75%] rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-secondary px-4 py-2.5 text-[15px] text-primary-content shadow-md shadow-primary/25">
                       Bas naya account bana raha hu 😎
-                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-70">
+                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-80">
                         9:41
                         <motion.span
                           initial={{ opacity: 0.3 }}
@@ -334,7 +345,6 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 {step >= 3 && (
                   <motion.div
                     key="m3"
-                    layout
                     variants={bubble}
                     initial="hidden"
                     animate="show"
@@ -343,8 +353,11 @@ const AuthImagePatter = ({ title, subtitle }) => {
                     className="flex items-end gap-2.5"
                   >
                     <Avatar letter="A" />
-                    <div className="relative mb-2 max-w-[75%] rounded-2xl rounded-bl-md bg-base-100 px-4 py-2.5 text-[15px] shadow-sm">
+                    <div className="relative mb-3 max-w-[75%] rounded-2xl rounded-bl-md bg-base-100 px-4 py-2.5 text-[15px] shadow-sm">
                       Mast! Jaldi join kar 🚀
+                      <p className="mt-1 text-[10px] text-base-content/40">
+                        9:41
+                      </p>
                       <motion.span
                         initial={{ scale: 0, rotate: -40 }}
                         animate={{ scale: 1, rotate: 0 }}
@@ -365,7 +378,6 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 {step >= 4 && (
                   <motion.div
                     key="m4"
-                    layout
                     variants={bubble}
                     initial="hidden"
                     animate="show"
@@ -373,7 +385,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
                     style={{ originX: 1 }}
                     className="flex justify-end"
                   >
-                    <div className="flex items-center gap-3 rounded-2xl rounded-br-md bg-primary px-3.5 py-3 text-primary-content shadow-md shadow-primary/25">
+                    <div className="flex items-center gap-3 rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-secondary px-3.5 py-3 text-primary-content shadow-md shadow-primary/25">
                       <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-content/20">
                         {!reduce && (
                           <motion.span
@@ -389,7 +401,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
                           <motion.span
                             key={i}
                             className={`w-[3px] rounded-full bg-primary-content ${
-                              i < 8 ? "opacity-100" : "opacity-40"
+                              i < PLAYED_BARS ? "opacity-100" : "opacity-40"
                             }`}
                             style={{ height: `${h}%` }}
                             animate={
@@ -404,7 +416,9 @@ const AuthImagePatter = ({ title, subtitle }) => {
                           />
                         ))}
                       </div>
-                      <span className="text-[11px] opacity-80">0:12</span>
+                      <span className="text-[11px] tabular-nums opacity-80">
+                        0:12
+                      </span>
                     </div>
                   </motion.div>
                 )}
@@ -412,7 +426,6 @@ const AuthImagePatter = ({ title, subtitle }) => {
                 {isTyping && (
                   <motion.div
                     key="typing"
-                    layout
                     variants={bubble}
                     initial="hidden"
                     animate="show"
@@ -432,13 +445,13 @@ const AuthImagePatter = ({ title, subtitle }) => {
             <div className="flex items-center gap-2 border-t border-base-300 bg-base-100 px-4 py-3.5">
               <div className="flex flex-1 items-center gap-2 rounded-full bg-base-200 px-4 py-2.5 text-sm text-base-content/40">
                 <Smile className="size-5" />
-                <span className="flex-1">Type a message...</span>
+                <span className="flex-1">Type a message…</span>
                 <Paperclip className="size-5" />
               </div>
               <motion.span
-                whileHover={{ scale: 1.1, rotate: -8 }}
-                whileTap={{ scale: 0.9 }}
-                className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-white shadow-lg shadow-primary/30"
+                whileHover={reduce ? undefined : { scale: 1.1, rotate: -8 }}
+                whileTap={reduce ? undefined : { scale: 0.9 }}
+                className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-content shadow-lg shadow-primary/30"
               >
                 <SendHorizontal className="size-5" />
               </motion.span>
@@ -447,21 +460,22 @@ const AuthImagePatter = ({ title, subtitle }) => {
 
           <Chip
             icon={<ShieldCheck className="size-4 text-success" />}
-            className="-top-5 -right-10"
+            className="-top-5 -right-6"
           >
             Secure
           </Chip>
           <Chip
             icon={<Zap className="size-4 text-warning" />}
-            className="-bottom-5 -left-10"
+            className="-bottom-5 -left-6"
             delay={0.5}
           >
             Real-time
           </Chip>
           <Chip
             icon={<Sparkles className="size-4 text-secondary" />}
-            className="top-1/2 -left-14 hidden xl:flex"
+            className="top-1/2 -left-8"
             delay={0.9}
+            xlOnly
           >
             Fast
           </Chip>
@@ -475,7 +489,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
         >
           {words.map((w, i) => (
             <motion.span
-              key={i}
+              key={`${w}-${i}`}
               variants={titleWord}
               className={`mr-[0.25em] inline-block ${
                 i === words.length - 1
@@ -492,7 +506,7 @@ const AuthImagePatter = ({ title, subtitle }) => {
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1, duration: 0.5 }}
-          className="mx-auto max-w-md text-sm text-base-content/60"
+          className="mx-auto max-w-md text-sm leading-relaxed text-base-content/60"
         >
           {subtitle}
         </motion.p>
@@ -501,4 +515,5 @@ const AuthImagePatter = ({ title, subtitle }) => {
   );
 };
 
+export { AuthImagePatter };
 export default AuthImagePatter;

@@ -10,6 +10,7 @@ import {
   Camera,
   X,
   ArrowRight,
+  Check,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -26,6 +27,8 @@ import { ChattyLogo } from "../../components/common/ChattyLogo";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_MB = 2;
+const PASSWORD_MIN = 4;
+const PASSWORD_MAX = 12;
 
 const getStrength = (pw) => {
   let score = 0;
@@ -33,7 +36,7 @@ const getStrength = (pw) => {
   if (pw.length >= 8) score++;
   if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
   if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++;
-  return score; // 0-4
+  return score;
 };
 
 const STRENGTH_META = [
@@ -44,46 +47,38 @@ const STRENGTH_META = [
   { label: "Strong", color: "bg-success" },
 ];
 
+const spring = { type: "spring", stiffness: 140, damping: 18 };
+
 const container = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
+  show: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
 };
 
 const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { type: "spring", stiffness: 120, damping: 18 },
-  },
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: spring },
 };
 
 const formCard = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 20 },
   show: {
     opacity: 1,
     y: 0,
     transition: {
-      type: "spring",
-      stiffness: 120,
-      damping: 18,
-      staggerChildren: 0.08,
-      delayChildren: 0.15,
+      ...spring,
+      staggerChildren: 0.06,
+      delayChildren: 0.1,
     },
   },
 };
 
 const fieldItem = {
-  hidden: { opacity: 0, x: -16 },
-  show: {
-    opacity: 1,
-    x: 0,
-    transition: { type: "spring", stiffness: 140, damping: 18 },
-  },
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: spring },
 };
 
 const logoVariant = {
-  hidden: { opacity: 0, scale: 0.5, rotate: -20 },
+  hidden: { opacity: 0, scale: 0.6, rotate: -16 },
   show: {
     opacity: 1,
     scale: 1,
@@ -134,11 +129,11 @@ const RegisterPage = () => {
     if (!file) return;
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      toast.error("Only JPG, PNG, and WEBP formats are allowed.");
+      toast.error("Only JPG, PNG, and WEBP images are allowed.");
       return;
     }
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`File size should be under ${MAX_SIZE_MB}MB.`);
+      toast.error(`Image must be under ${MAX_SIZE_MB} MB.`);
       return;
     }
 
@@ -171,13 +166,13 @@ const RegisterPage = () => {
     const { fullName, email, password } = formData;
     const next = {};
 
-    if (!fullName.trim()) next.fullName = "Full name is required.";
-    if (!email.trim()) next.email = "Email is required.";
+    if (!fullName.trim()) next.fullName = "Enter your full name.";
+    if (!email.trim()) next.email = "Enter your email address.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       next.email = "Enter a valid email address.";
-    if (!password.trim()) next.password = "Password is required.";
-    else if (password.length < 4 || password.length > 12)
-      next.password = "Password must be 4 to 12 characters.";
+    if (!password.trim()) next.password = "Enter a password.";
+    else if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX)
+      next.password = `Use ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.`;
 
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -185,6 +180,7 @@ const RegisterPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSigninUp) return;
     if (!validateForm()) {
       shakeForm();
       return;
@@ -200,77 +196,77 @@ const RegisterPage = () => {
     } catch (error) {
       console.error(error);
       shakeForm();
-      toast.error("Registration failed. Please try again.");
+      toast.error(
+        "Couldn't create your account. Check your details and try again.",
+      );
     }
   };
 
   const strength = getStrength(formData.password);
   const meta = STRENGTH_META[formData.password ? Math.max(strength, 1) : 0];
+  const activeStrength = formData.password ? Math.max(strength, 1) : 0;
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="relative flex flex-col items-center justify-center overflow-hidden p-6 sm:p-12">
+      <div className="relative flex flex-col items-center justify-center overflow-hidden p-5 sm:p-12">
         <motion.div
+          aria-hidden="true"
           className="pointer-events-none absolute -top-24 -left-24 size-72 rounded-full bg-primary/10 blur-3xl"
           animate={
             reduceMotion
               ? undefined
               : { x: [0, 40, 0], y: [0, 30, 0], scale: [1, 1.15, 1] }
           }
-          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
         />
         <motion.div
+          aria-hidden="true"
           className="pointer-events-none absolute -right-24 -bottom-24 size-72 rounded-full bg-secondary/10 blur-3xl"
           animate={
             reduceMotion
               ? undefined
               : { x: [0, -40, 0], y: [0, -30, 0], scale: [1, 1.2, 1] }
           }
-          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
         />
 
         <motion.div
-          className="relative w-full max-w-md space-y-8"
+          className="relative w-full max-w-md space-y-7"
           variants={container}
           initial="hidden"
           animate="show"
         >
-          <motion.div variants={fadeUp} className="text-center">
+          <motion.header variants={fadeUp} className="text-center">
             <div className="flex flex-col items-center gap-3">
               <motion.div
                 variants={logoVariant}
-                whileHover={{ rotate: -6, scale: 1.1 }}
+                whileHover={
+                  reduceMotion ? undefined : { rotate: -6, scale: 1.08 }
+                }
                 whileTap={{ scale: 0.95 }}
                 className="flex size-14 items-center justify-center rounded-2xl bg-base-200 shadow-sm ring-1 ring-base-300"
               >
-                <motion.div
-                  animate={reduceMotion ? undefined : { y: [0, -3, 0] }}
-                  transition={{
-                    duration: 3,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
-                >
-                  <ChattyLogo className="size-9" />
-                </motion.div>
+                <ChattyLogo className="size-9" />
               </motion.div>
 
               <h1 className="mt-1 text-3xl font-bold tracking-tight">
                 Create your account
               </h1>
               <p className="text-base-content/60">
-                Join Chatty and start talking, free forever.
+                Join Chatty and start talking. It's free.
               </p>
             </div>
-          </motion.div>
+          </motion.header>
 
           <motion.div variants={formCard}>
             <form
               ref={shakeScope}
               onSubmit={handleSubmit}
               noValidate
-              className="space-y-5 rounded-2xl border border-base-300 bg-base-100/80 p-6 shadow-xl shadow-base-content/5 backdrop-blur sm:p-8"
+              aria-busy={isSigninUp}
+              className="space-y-5 rounded-2xl border border-base-300 bg-base-100/80 p-5 shadow-xl shadow-base-content/5 backdrop-blur sm:p-8"
             >
+              {/* Avatar uploader */}
               <motion.div
                 variants={fieldItem}
                 className="flex flex-col items-center gap-2"
@@ -287,15 +283,21 @@ const RegisterPage = () => {
                   <motion.button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    aria-label="Upload profile picture"
+                    aria-label={
+                      filePreview
+                        ? "Change profile photo"
+                        : "Upload profile photo"
+                    }
                     animate={{ scale: dragging ? 1.1 : 1 }}
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.94 }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                     transition={{ type: "spring", stiffness: 300, damping: 18 }}
-                    className={`group/avatar relative flex size-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-colors ${
-                      dragging
-                        ? "border-primary bg-primary/10"
-                        : "border-base-300 bg-base-200 hover:border-primary"
+                    className={`group/avatar relative flex size-24 items-center justify-center overflow-hidden rounded-full border-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100 ${
+                      filePreview
+                        ? "border-transparent"
+                        : dragging
+                          ? "border-dashed border-primary bg-primary/10"
+                          : "border-dashed border-base-300 bg-base-200 hover:border-primary"
                     }`}
                   >
                     <AnimatePresence mode="wait" initial={false}>
@@ -303,10 +305,10 @@ const RegisterPage = () => {
                         <motion.img
                           key={filePreview}
                           src={filePreview}
-                          alt="Avatar preview"
-                          initial={{ opacity: 0, scale: 0.6 }}
+                          alt="Your profile photo preview"
+                          initial={{ opacity: 0, scale: 0.7 }}
                           animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.6 }}
+                          exit={{ opacity: 0, scale: 0.7 }}
                           transition={{
                             type: "spring",
                             stiffness: 260,
@@ -317,20 +319,9 @@ const RegisterPage = () => {
                       ) : (
                         <motion.span
                           key="placeholder"
-                          initial={{ opacity: 0, scale: 0.6 }}
-                          animate={{
-                            opacity: 1,
-                            scale: 1,
-                            y: reduceMotion ? 0 : [0, -3, 0],
-                          }}
-                          exit={{ opacity: 0, scale: 0.6 }}
-                          transition={{
-                            y: {
-                              duration: 2.5,
-                              repeat: Infinity,
-                              ease: "easeInOut",
-                            },
-                          }}
+                          initial={{ opacity: 0, scale: 0.7 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.7 }}
                           className="flex"
                         >
                           <User className="size-10 text-base-content/30" />
@@ -338,7 +329,7 @@ const RegisterPage = () => {
                       )}
                     </AnimatePresence>
 
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover/avatar:opacity-100">
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover/avatar:opacity-100 group-focus-visible/avatar:opacity-100">
                       <Camera className="size-6 text-white" />
                     </span>
                   </motion.button>
@@ -349,7 +340,7 @@ const RegisterPage = () => {
                         key="remove"
                         type="button"
                         onClick={clearFile}
-                        aria-label="Remove picture"
+                        aria-label="Remove profile photo"
                         initial={{ scale: 0, rotate: -90 }}
                         animate={{ scale: 1, rotate: 0 }}
                         exit={{ scale: 0, rotate: 90 }}
@@ -360,7 +351,7 @@ const RegisterPage = () => {
                           stiffness: 400,
                           damping: 16,
                         }}
-                        className="absolute -top-1 -right-1 flex size-7 items-center justify-center rounded-full bg-error text-error-content shadow-md"
+                        className="absolute -top-1 -right-1 flex size-7 items-center justify-center rounded-full bg-error text-error-content shadow-md outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-base-100"
                       >
                         <X className="size-4" />
                       </motion.button>
@@ -373,17 +364,20 @@ const RegisterPage = () => {
                     accept="image/jpeg,image/png,image/webp"
                     className="hidden"
                     onChange={handleFileChange}
+                    tabIndex={-1}
                   />
                 </div>
+
                 <p className="text-xs text-base-content/50">
-                  Profile photo JPG, PNG, WEBP · max {MAX_SIZE_MB}
-                  MB
+                  {dragging
+                    ? "Drop your photo here"
+                    : `JPG, PNG or WEBP, up to ${MAX_SIZE_MB} MB.`}
                 </p>
               </motion.div>
 
               <motion.div variants={fieldItem}>
                 <InputField
-                  label="Full Name"
+                  label="Full name"
                   name="fullName"
                   type="text"
                   autoComplete="name"
@@ -417,6 +411,7 @@ const RegisterPage = () => {
                   autoComplete="new-password"
                   icon={<Lock className="size-5" />}
                   placeholder="••••••••"
+                  maxLength={PASSWORD_MAX}
                   value={formData.password}
                   onChange={handleChange}
                   error={errors.password}
@@ -427,9 +422,10 @@ const RegisterPage = () => {
                       aria-label={
                         showPassword ? "Hide password" : "Show password"
                       }
+                      aria-pressed={showPassword}
                       whileHover={{ scale: 1.15 }}
                       whileTap={{ scale: 0.85 }}
-                      className="rounded-full p-1 text-base-content/40 transition-colors hover:text-base-content"
+                      className="rounded-full p-1 text-base-content/40 outline-none transition-colors hover:text-base-content focus-visible:ring-2 focus-visible:ring-primary"
                     >
                       <AnimatePresence mode="wait" initial={false}>
                         <motion.span
@@ -459,43 +455,95 @@ const RegisterPage = () => {
                       animate={{ opacity: 1, height: "auto", marginTop: 10 }}
                       exit={{ opacity: 0, height: 0, marginTop: 0 }}
                       transition={{ duration: 0.25 }}
-                      className="flex items-center gap-3 overflow-hidden"
+                      className="overflow-hidden"
                     >
-                      <div className="flex flex-1 gap-1.5">
-                        {[1, 2, 3, 4].map((i) => (
-                          <div
-                            key={i}
-                            className="h-1.5 flex-1 overflow-hidden rounded-full bg-base-300"
-                          >
-                            <motion.div
-                              className={`h-full origin-left rounded-full ${meta.color}`}
-                              initial={false}
-                              animate={{ scaleX: i <= strength ? 1 : 0 }}
-                              transition={{
-                                type: "spring",
-                                stiffness: 300,
-                                damping: 25,
-                                delay: i * 0.04,
-                              }}
-                            />
-                          </div>
-                        ))}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="flex flex-1 gap-1.5"
+                          role="meter"
+                          aria-label="Password strength"
+                          aria-valuemin={0}
+                          aria-valuemax={4}
+                          aria-valuenow={activeStrength}
+                          aria-valuetext={meta.label}
+                        >
+                          {[1, 2, 3, 4].map((i) => (
+                            <div
+                              key={i}
+                              className="h-1.5 flex-1 overflow-hidden rounded-full bg-base-300"
+                            >
+                              <motion.div
+                                className={`h-full origin-left rounded-full ${meta.color}`}
+                                initial={false}
+                                animate={{
+                                  scaleX: i <= activeStrength ? 1 : 0,
+                                }}
+                                transition={{
+                                  type: "spring",
+                                  stiffness: 300,
+                                  damping: 25,
+                                  delay: i * 0.04,
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        <div
+                          className="h-4 w-12 overflow-hidden text-right"
+                          aria-live="polite"
+                        >
+                          <AnimatePresence mode="wait" initial={false}>
+                            <motion.span
+                              key={meta.label}
+                              initial={{ y: 10, opacity: 0 }}
+                              animate={{ y: 0, opacity: 1 }}
+                              exit={{ y: -10, opacity: 0 }}
+                              transition={{ duration: 0.15 }}
+                              className="block text-xs leading-4 text-base-content/60"
+                            >
+                              {meta.label}
+                            </motion.span>
+                          </AnimatePresence>
+                        </div>
                       </div>
 
-                      <div className="h-4 w-12 overflow-hidden text-right">
-                        <AnimatePresence mode="wait" initial={false}>
-                          <motion.span
-                            key={meta.label}
-                            initial={{ y: 10, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: -10, opacity: 0 }}
-                            transition={{ duration: 0.15 }}
-                            className="block text-xs leading-4 text-base-content/60"
+                      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/60">
+                        {[
+                          {
+                            ok:
+                              formData.password.length >= PASSWORD_MIN &&
+                              formData.password.length <= PASSWORD_MAX,
+                            text: `${PASSWORD_MIN} to ${PASSWORD_MAX} characters`,
+                          },
+                          {
+                            ok:
+                              /[A-Z]/.test(formData.password) &&
+                              /[a-z]/.test(formData.password),
+                            text: "Upper and lowercase",
+                          },
+                          {
+                            ok:
+                              /\d/.test(formData.password) &&
+                              /[^A-Za-z0-9]/.test(formData.password),
+                            text: "Number and symbol",
+                          },
+                        ].map(({ ok, text }) => (
+                          <li
+                            key={text}
+                            className={`flex items-center gap-1 transition-colors ${
+                              ok ? "text-success" : ""
+                            }`}
                           >
-                            {meta.label}
-                          </motion.span>
-                        </AnimatePresence>
-                      </div>
+                            <Check
+                              className={`size-3.5 transition-opacity ${
+                                ok ? "opacity-100" : "opacity-30"
+                              }`}
+                            />
+                            {text}
+                          </li>
+                        ))}
+                      </ul>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -532,18 +580,8 @@ const RegisterPage = () => {
                         transition={{ duration: 0.15 }}
                         className="flex items-center gap-2"
                       >
-                        Create Account
-                        <motion.span
-                          animate={reduceMotion ? undefined : { x: [0, 4, 0] }}
-                          transition={{
-                            duration: 1.4,
-                            repeat: Infinity,
-                            ease: "easeInOut",
-                          }}
-                          className="flex"
-                        >
-                          <ArrowRight className="size-5" />
-                        </motion.span>
+                        Create account
+                        <ArrowRight className="size-5" />
                       </motion.span>
                     )}
                   </AnimatePresence>
@@ -554,24 +592,21 @@ const RegisterPage = () => {
 
           <motion.p
             variants={fadeUp}
-            className="text-center text-base-content/60 text-sm"
+            className="text-center text-sm text-base-content/60"
           >
             Already have an account?{" "}
-            <motion.span
-              className="inline-block"
-              whileHover={{ x: 3 }}
-              transition={{ type: "spring", stiffness: 300 }}
+            <Link
+              to="/login"
+              className="link link-primary font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <Link to="/login" className="link link-primary font-medium">
-                Sign In
-              </Link>
-            </motion.span>
+              Sign in
+            </Link>
           </motion.p>
         </motion.div>
       </div>
 
       <AuthImagePatter
-        title="Join our Community"
+        title="Join our community"
         subtitle="Connect, collaborate, and grow with like-minded professionals worldwide."
       />
     </div>
