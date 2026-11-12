@@ -1,68 +1,92 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import {
-  motion,
-  AnimatePresence,
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  LazyMotion,
   MotionConfig,
+  AnimatePresence,
+  m,
   useScroll,
-  useSpring,
+  useMotionValueEvent,
 } from "framer-motion";
 import { ArrowUp } from "lucide-react";
 
-import { useAuthStore } from "../store/useAuthStore"; // adjust to your auth store/context
+import { useAuthStore } from "../store/useAuthStore";
 
 import { NAV_LINKS, GRADIENT } from "../components/landing/landingData";
 import { LandingNavbar } from "../components/landing/LandingNavbar";
 import { HeroSection } from "../components/landing/HeroSection";
-import { ChatbotWidget } from "../components/landing/Chatbotwidget";
 
-const FeaturesSection = lazy(() =>
-  import("../components/landing/FeaturesSection").then((m) => ({
-    default: m.FeaturesSection,
-  })),
-);
-const AiGroupsSection = lazy(() =>
-  import("../components/landing/AiGroupsSection").then((m) => ({
-    default: m.AiGroupsSection,
-  })),
-);
-const ThemesSection = lazy(() =>
-  import("../components/landing/ThemesSection").then((m) => ({
-    default: m.ThemesSection,
-  })),
-);
-const SecuritySection = lazy(() =>
-  import("../components/landing/SecuritySection").then((m) => ({
-    default: m.SecuritySection,
-  })),
-);
-const PrivacySection = lazy(() =>
-  import("../components/landing/PrivacySection").then((m) => ({
-    default: m.PrivacySection,
-  })),
-);
-const HowItWorksSection = lazy(() =>
-  import("../components/landing/HowItWorksSection").then((m) => ({
-    default: m.HowItWorksSection,
-  })),
-);
-const FaqSection = lazy(() =>
-  import("../components/landing/FaqSection").then((m) => ({
-    default: m.FaqSection,
-  })),
-);
-const CtaSection = lazy(() =>
-  import("../components/landing/CtaSection").then((m) => ({
-    default: m.CtaSection,
-  })),
-);
-const LandingFooter = lazy(() =>
-  import("../components/landing/LandingFooter").then((m) => ({
-    default: m.LandingFooter,
-  })),
-);
+const loadMotionFeatures = () =>
+  import("../lib/motionFeatures").then((mod) => mod.default);
 
-const SectionFallback = () => (
-  <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28">
+const lazyNamed = (loader, name) =>
+  lazy(() => loader().then((mod) => ({ default: mod[name] })));
+
+const importFeatures = () => import("../components/landing/FeaturesSection");
+const importAiGroups = () => import("../components/landing/AiGroupsSection");
+const importThemes = () => import("../components/landing/ThemesSection");
+const importSecurity = () => import("../components/landing/SecuritySection");
+const importPrivacy = () => import("../components/landing/PrivacySection");
+const importHowItWorks = () =>
+  import("../components/landing/HowItWorksSection");
+const importFaq = () => import("../components/landing/FaqSection");
+const importCta = () => import("../components/landing/CtaSection");
+const importFooter = () => import("../components/landing/LandingFooter");
+const importChatbot = () => import("../components/landing/Chatbotwidget");
+
+const FeaturesSection = lazyNamed(importFeatures, "FeaturesSection");
+const AiGroupsSection = lazyNamed(importAiGroups, "AiGroupsSection");
+const ThemesSection = lazyNamed(importThemes, "ThemesSection");
+const SecuritySection = lazyNamed(importSecurity, "SecuritySection");
+const PrivacySection = lazyNamed(importPrivacy, "PrivacySection");
+const HowItWorksSection = lazyNamed(importHowItWorks, "HowItWorksSection");
+const FaqSection = lazyNamed(importFaq, "FaqSection");
+const CtaSection = lazyNamed(importCta, "CtaSection");
+const LandingFooter = lazyNamed(importFooter, "LandingFooter");
+const ChatbotWidget = lazyNamed(importChatbot, "ChatbotWidget");
+
+const PRELOAD = [
+  importFeatures,
+  importAiGroups,
+  importThemes,
+  importSecurity,
+  importPrivacy,
+  importHowItWorks,
+  importFaq,
+  importCta,
+  importFooter,
+];
+
+const onIdle = (cb, timeout = 2000) => {
+  if (typeof window.requestIdleCallback === "function") {
+    const id = window.requestIdleCallback(cb, { timeout });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(cb, 800);
+  return () => clearTimeout(id);
+};
+
+const scrollToSection = (id) => {
+  requestAnimationFrame(() => {
+    const el =
+      document.getElementById(id) ??
+      document.querySelector(`[data-section="${id}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+};
+
+const SectionFallback = ({ minHeight }) => (
+  <div
+    className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28"
+    style={{ minHeight }}
+  >
     <div className="mx-auto h-6 max-w-sm animate-pulse rounded-full bg-base-300" />
     <div className="mt-6 grid gap-4 sm:grid-cols-3">
       {[1, 2, 3].map((n) => (
@@ -72,32 +96,133 @@ const SectionFallback = () => (
   </div>
 );
 
-export default function LandingPage() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const [showTop, setShowTop] = useState(false);
-  const [activeSection, setActiveSection] = useState("");
-
-  // Auth state: if logged in, show "Open Chats" instead of Login/Sign up
-  const authUser = useAuthStore((s) => s.authUser);
-  const isCheckingAuth = useAuthStore((s) => s.isCheckingAuth);
-  const isLoggedIn = Boolean(authUser);
-
-  const { scrollYProgress } = useScroll();
-  const progress = useSpring(scrollYProgress, {
-    stiffness: 120,
-    damping: 28,
-    mass: 0.3,
-  });
+const LazyOnView = ({ id, minHeight = 600, children }) => {
+  const ref = useRef(null);
+  const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => {
-      setScrolled(window.scrollY > 16);
-      setShowTop(window.scrollY > 700);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShow(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "800px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} data-section={id} style={show ? undefined : { minHeight }}>
+      {show && (
+        <Suspense fallback={<SectionFallback minHeight={minHeight} />}>
+          {children}
+        </Suspense>
+      )}
+    </div>
+  );
+};
+
+const Backdrop = memo(() => (
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[720px] overflow-hidden"
+  >
+    <div
+      className="absolute left-1/2 top-[-120px] h-[420px] w-[120%] -translate-x-1/2 text-primary sm:h-[520px] sm:w-[80%]"
+      style={{
+        background:
+          "radial-gradient(closest-side, color-mix(in srgb, currentColor 22%, transparent), transparent)",
+      }}
+    />
+    <div
+      className="absolute right-[-15%] top-[180px] h-[360px] w-[60%] text-secondary sm:w-[40%]"
+      style={{
+        background:
+          "radial-gradient(closest-side, color-mix(in srgb, currentColor 12%, transparent), transparent)",
+      }}
+    />
+    <div
+      className="absolute inset-0 text-base-content/[0.07]"
+      style={{
+        backgroundImage:
+          "linear-gradient(currentColor 1px, transparent 1px), linear-gradient(90deg, currentColor 1px, transparent 1px)",
+        backgroundSize: "48px 48px",
+        maskImage:
+          "radial-gradient(ellipse 70% 50% at 50% 0%, black, transparent 75%)",
+        WebkitMaskImage:
+          "radial-gradient(ellipse 70% 50% at 50% 0%, black, transparent 75%)",
+      }}
+    />
+  </div>
+));
+Backdrop.displayName = "Backdrop";
+
+const ScrollProgress = memo(() => {
+  const { scrollYProgress } = useScroll();
+  return (
+    <m.div
+      aria-hidden="true"
+      style={{ scaleX: scrollYProgress }}
+      className="fixed inset-x-0 top-0 z-50 h-0.5 origin-left bg-gradient-to-r from-primary via-secondary to-accent will-change-transform"
+    />
+  );
+});
+ScrollProgress.displayName = "ScrollProgress";
+
+const BackToTop = memo(() => {
+  const { scrollY } = useScroll();
+  const [show, setShow] = useState(false);
+
+  useMotionValueEvent(scrollY, "change", (y) => setShow(y > 700));
+
+  return (
+    <AnimatePresence>
+      {show && (
+        <m.button
+          initial={{ opacity: 0, y: 20, scale: 0.8 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.8 }}
+          transition={{ duration: 0.2 }}
+          whileTap={{ scale: 0.92 }}
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          aria-label="Back to top"
+          className={`${GRADIENT} fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-40 flex size-11 touch-manipulation items-center justify-center rounded-lg shadow-lg shadow-primary/30 sm:bottom-6 sm:left-6`}
+        >
+          <ArrowUp className="size-5" />
+        </m.button>
+      )}
+    </AnimatePresence>
+  );
+});
+BackToTop.displayName = "BackToTop";
+
+const DeferredChatbot = memo(() => {
+  const [ready, setReady] = useState(false);
+  useEffect(() => onIdle(() => setReady(true), 4000), []);
+  if (!ready) return null;
+  return (
+    <Suspense fallback={null}>
+      <ChatbotWidget />
+    </Suspense>
+  );
+});
+DeferredChatbot.displayName = "DeferredChatbot";
+
+const NavbarContainer = memo(({ isLoggedIn, isCheckingAuth }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
+
+  const { scrollY } = useScroll();
+  useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 16));
+
+  useEffect(() => {
+    setScrolled(window.scrollY > 16);
   }, []);
 
   useEffect(() => {
@@ -115,13 +240,14 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
-    const els = NAV_LINKS.map((l) => document.getElementById(l.id)).filter(
-      Boolean,
+    const ids = new Set(NAV_LINKS.map((l) => l.id));
+    const els = [...document.querySelectorAll("[data-section]")].filter((el) =>
+      ids.has(el.dataset.section),
     );
     const io = new IntersectionObserver(
       (entries) =>
         entries.forEach(
-          (e) => e.isIntersecting && setActiveSection(e.target.id),
+          (e) => e.isIntersecting && setActiveSection(e.target.dataset.section),
         ),
       { rootMargin: "-40% 0px -50% 0px" },
     );
@@ -131,110 +257,93 @@ export default function LandingPage() {
 
   const scrollTo = useCallback((id) => {
     setMenuOpen(false);
-    requestAnimationFrame(() =>
-      document
-        .getElementById(id)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-    );
+    scrollToSection(id);
   }, []);
 
   return (
-    <MotionConfig reducedMotion="user">
-      <div className="relative min-h-screen overflow-x-clip bg-base-100 text-base-content antialiased [-webkit-tap-highlight-color:transparent]">
-        <motion.div
-          aria-hidden="true"
-          style={{ scaleX: progress }}
-          className="fixed inset-x-0 top-0 z-50 h-0.5 origin-left bg-gradient-to-r from-primary via-secondary to-accent"
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
-        >
-          <motion.div
-            animate={{ scale: [1, 1.08, 1], opacity: [0.9, 1, 0.9] }}
-            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute left-1/2 top-[-10%] h-[320px] w-[110%] -translate-x-1/2 rounded-full bg-primary/20 blur-[100px] sm:h-[460px] sm:w-[75%] sm:blur-[130px]"
-          />
-          <motion.div
-            animate={{ x: [0, -30, 0], y: [0, 20, 0] }}
-            transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute right-[-10%] top-[30%] h-[300px] w-[60%] rounded-full bg-secondary/10 blur-[100px] sm:h-[380px] sm:w-[40%] sm:blur-[120px]"
-          />
-          <div
-            className="absolute inset-0 text-base-content/[0.07]"
-            style={{
-              backgroundImage:
-                "linear-gradient(currentColor 1px, transparent 1px), linear-gradient(90deg, currentColor 1px, transparent 1px)",
-              backgroundSize: "48px 48px",
-              maskImage:
-                "radial-gradient(ellipse 70% 50% at 50% 0%, black, transparent 75%)",
-              WebkitMaskImage:
-                "radial-gradient(ellipse 70% 50% at 50% 0%, black, transparent 75%)",
-            }}
-          />
-        </div>
+    <LandingNavbar
+      scrolled={scrolled}
+      menuOpen={menuOpen}
+      setMenuOpen={setMenuOpen}
+      scrollTo={scrollTo}
+      activeSection={activeSection}
+      isLoggedIn={isLoggedIn}
+      isCheckingAuth={isCheckingAuth}
+    />
+  );
+});
+NavbarContainer.displayName = "NavbarContainer";
 
-        <LandingNavbar
-          scrolled={scrolled}
-          menuOpen={menuOpen}
-          setMenuOpen={setMenuOpen}
-          scrollTo={scrollTo}
-          activeSection={activeSection}
-          isLoggedIn={isLoggedIn}
-          isCheckingAuth={isCheckingAuth}
-        />
+export default function LandingPage() {
+  const authUser = useAuthStore((s) => s.authUser);
+  const isCheckingAuth = useAuthStore((s) => s.isCheckingAuth);
+  const isLoggedIn = Boolean(authUser);
 
-        <main className="relative z-10">
-          <HeroSection
-            scrollTo={scrollTo}
+  useEffect(() => {
+    if (navigator.connection?.saveData) return;
+    return onIdle(() => PRELOAD.forEach((load) => load()), 3000);
+  }, []);
+
+  return (
+    <LazyMotion features={loadMotionFeatures}>
+      <MotionConfig reducedMotion="user">
+        <div className="relative min-h-screen overflow-x-clip bg-base-100 text-base-content antialiased [-webkit-tap-highlight-color:transparent]">
+          <ScrollProgress />
+          <Backdrop />
+
+          <NavbarContainer
             isLoggedIn={isLoggedIn}
             isCheckingAuth={isCheckingAuth}
           />
 
-          <Suspense fallback={<SectionFallback />}>
-            <FeaturesSection />
-            <AiGroupsSection />
-            <ThemesSection />
-            <SecuritySection />
-            <PrivacySection />
-            <HowItWorksSection />
-            <FaqSection />
-            <CtaSection
+          <main className="relative z-10">
+            <HeroSection
+              scrollTo={scrollToSection}
               isLoggedIn={isLoggedIn}
               isCheckingAuth={isCheckingAuth}
             />
-          </Suspense>
-        </main>
 
-        <Suspense fallback={null}>
-          <LandingFooter
-            scrollTo={scrollTo}
-            isLoggedIn={isLoggedIn}
-            isCheckingAuth={isCheckingAuth}
-          />
-        </Suspense>
+            <LazyOnView id="features" minHeight={720}>
+              <FeaturesSection />
+            </LazyOnView>
+            <LazyOnView id="ai-groups" minHeight={680}>
+              <AiGroupsSection />
+            </LazyOnView>
+            <LazyOnView id="themes" minHeight={640}>
+              <ThemesSection />
+            </LazyOnView>
+            <LazyOnView id="security" minHeight={640}>
+              <SecuritySection />
+            </LazyOnView>
+            <LazyOnView id="privacy" minHeight={640}>
+              <PrivacySection />
+            </LazyOnView>
+            <LazyOnView id="how-it-works" minHeight={640}>
+              <HowItWorksSection />
+            </LazyOnView>
+            <LazyOnView id="faq" minHeight={640}>
+              <FaqSection />
+            </LazyOnView>
+            <LazyOnView id="cta" minHeight={420}>
+              <CtaSection
+                isLoggedIn={isLoggedIn}
+                isCheckingAuth={isCheckingAuth}
+              />
+            </LazyOnView>
+          </main>
 
-        {/* Chatbot: bottom-right */}
-        <ChatbotWidget />
+          <LazyOnView id="footer" minHeight={420}>
+            <LandingFooter
+              scrollTo={scrollToSection}
+              isLoggedIn={isLoggedIn}
+              isCheckingAuth={isCheckingAuth}
+            />
+          </LazyOnView>
 
-        {/* Back to top: bottom-left, respects iPhone notch / home bar */}
-        <AnimatePresence>
-          {showTop && (
-            <motion.button
-              initial={{ opacity: 0, y: 20, scale: 0.8 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.8 }}
-              whileHover={{ y: -3 }}
-              whileTap={{ scale: 0.92 }}
-              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-              aria-label="Back to top"
-              className={`${GRADIENT} fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-40 flex size-11 touch-manipulation items-center justify-center rounded-lg shadow-lg shadow-primary/30 sm:bottom-6 sm:left-6`}
-            >
-              <ArrowUp className="size-5" />
-            </motion.button>
-          )}
-        </AnimatePresence>
-      </div>
-    </MotionConfig>
+          <DeferredChatbot />
+          <BackToTop />
+        </div>
+      </MotionConfig>
+    </LazyMotion>
   );
 }

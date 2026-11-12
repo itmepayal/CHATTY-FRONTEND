@@ -8,6 +8,16 @@ body {
   font-family: "Saira", sans-serif;
 }
 
+/* Scrollbar hide (scroll phir bhi chalega) */
+html {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* purana Edge/IE */
+}
+
+html::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
+}
+
 @layer utilities {
   @keyframes marquee {
     from {
