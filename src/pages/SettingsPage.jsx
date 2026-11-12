@@ -32,6 +32,12 @@ import { useChatPrefsStore } from "../store/useChatPrefsStore";
 import { AI_TONES } from "../store/useAiStore";
 import { THEME, PREVIEW_MESSAGE } from "../constants";
 
+const VISIBILITY_OPTIONS = [
+  { value: "everyone", label: "Everyone" },
+  { value: "contacts", label: "My Contacts" },
+  { value: "nobody", label: "Nobody" },
+];
+
 /* ------------------------------------------------------------------ */
 /*  Motion presets (sirf framer-motion, koi CSS animation nahi)        */
 /* ------------------------------------------------------------------ */
@@ -174,12 +180,14 @@ const Toggle = ({ checked, onChange, label, disabled }) => (
 );
 
 // Active pill options ke beech slide karta hai (layoutId)
-const Segmented = ({ value, options, onChange, label }) => (
+const Segmented = ({ value, options, onChange, label, disabled }) => (
   <LayoutGroup id={`seg-${label}`}>
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex w-full max-w-full rounded-xl bg-base-200 p-1 sm:w-auto"
+      className={`inline-flex w-full max-w-full rounded-xl bg-base-200 p-1 sm:w-auto ${
+        disabled ? "opacity-60 cursor-not-allowed" : ""
+      }`}
     >
       {options.map((o) => {
         const active = value === o.value;
@@ -189,17 +197,18 @@ const Segmented = ({ value, options, onChange, label }) => (
             type="button"
             role="radio"
             aria-checked={active}
+            disabled={disabled}
             onClick={() => onChange(o.value)}
-            whileTap={{ scale: 0.94 }}
+            whileTap={disabled ? undefined : { scale: 0.94 }}
             className={`relative flex-1 rounded-lg px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-primary sm:flex-none sm:py-1.5 ${
               active
-                ? "text-primary"
+                ? "text-primary font-semibold"
                 : "text-base-content/60 hover:text-base-content"
             }`}
           >
             {active && (
               <motion.span
-                layoutId="seg-pill"
+                layoutId={`seg-pill-${label}`}
                 transition={SPRING}
                 className="absolute inset-0 rounded-lg bg-base-100 shadow-sm"
               />
@@ -679,66 +688,143 @@ const SettingsPage = () => {
 
       case "privacy":
         return (
-          <Card>
-            {privacyLoading ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-base-content/50">
-                <Spinner className="size-4" />
-                <span className="text-sm">Loading privacy settings…</span>
+          <div className="space-y-6">
+            <Card>
+              {privacyLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-base-content/50">
+                  <Spinner className="size-4" />
+                  <span className="text-sm">Loading privacy settings…</span>
+                </div>
+              ) : (
+                <>
+                  <div className="py-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                      Who can see my personal info
+                    </span>
+                  </div>
+
+                  <Row
+                    title="Last seen"
+                    desc="Choose who can see when you were last active on Chatty."
+                    stack
+                  >
+                    <Segmented
+                      value={privacy.lastSeenVisibility}
+                      options={VISIBILITY_OPTIONS}
+                      onChange={(v) => setPrivacy("lastSeenVisibility", v)}
+                      label="Last seen visibility"
+                      disabled={privacySaving}
+                    />
+                  </Row>
+
+                  <Row
+                    title="Online status"
+                    desc="Choose who can see when you are currently online."
+                    stack
+                  >
+                    <Segmented
+                      value={privacy.onlineStatusVisibility ?? "everyone"}
+                      options={VISIBILITY_OPTIONS}
+                      onChange={(v) => setPrivacy("onlineStatusVisibility", v)}
+                      label="Online status visibility"
+                      disabled={privacySaving}
+                    />
+                  </Row>
+
+                  <Row
+                    title="Profile photo"
+                    desc="Choose who can see your profile picture across direct chats, contacts, groups, and search."
+                    stack
+                  >
+                    <Segmented
+                      value={privacy.profilePhotoVisibility}
+                      options={VISIBILITY_OPTIONS}
+                      onChange={(v) => setPrivacy("profilePhotoVisibility", v)}
+                      label="Profile photo visibility"
+                      disabled={privacySaving}
+                    />
+                  </Row>
+
+                  <Row
+                    title="About"
+                    desc="Control who can view your bio, status message, and profile information."
+                    stack
+                  >
+                    <Segmented
+                      value={privacy.aboutVisibility}
+                      options={VISIBILITY_OPTIONS}
+                      onChange={(v) => setPrivacy("aboutVisibility", v)}
+                      label="About visibility"
+                      disabled={privacySaving}
+                    />
+                  </Row>
+
+                  <Row
+                    title="Who can add me to groups"
+                    desc="Who can add you to group chats without sending an invitation."
+                    stack
+                  >
+                    <Segmented
+                      value={privacy.groupAddPermission}
+                      options={VISIBILITY_OPTIONS}
+                      onChange={(v) => setPrivacy("groupAddPermission", v)}
+                      label="Group add permission"
+                      disabled={privacySaving}
+                    />
+                  </Row>
+                </>
+              )}
+            </Card>
+
+            <Card>
+              <div className="py-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                  Activity & Receipts
+                </span>
               </div>
-            ) : (
-              <>
-                <Row
-                  title="Show online status"
-                  desc="Let others see when you're online"
-                >
-                  <Toggle
-                    checked={privacy.showOnlineStatus}
-                    onChange={(v) => setPrivacy("showOnlineStatus", v)}
-                    label="Show online status"
-                    disabled={privacySaving}
-                  />
-                </Row>
-                <Row
-                  title="Read receipts"
-                  desc="Show blue ticks when messages are seen"
-                >
-                  <Toggle
-                    checked={privacy.readReceipts}
-                    onChange={(v) => setPrivacy("readReceipts", v)}
-                    label="Read receipts"
-                    disabled={privacySaving}
-                  />
-                </Row>
-                <Row
-                  title="Typing indicator"
-                  desc="Let others see when you're typing"
-                >
-                  <Toggle
-                    checked={privacy.typingIndicator}
-                    onChange={(v) => setPrivacy("typingIndicator", v)}
-                    label="Typing indicator"
-                    disabled={privacySaving}
-                  />
-                </Row>
-                <AnimatePresence initial={false}>
-                  {privacySaving && (
-                    <motion.div
-                      key="saving"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-base-content/50">
-                        <Spinner className="size-3" />
-                        Saving…
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
-          </Card>
+
+              <Row
+                title="Read receipts"
+                desc="Show blue checkmarks when messages are seen. If off, you won't see others' read receipts."
+              >
+                <Toggle
+                  checked={privacy.readReceipts}
+                  onChange={(v) => setPrivacy("readReceipts", v)}
+                  label="Read receipts"
+                  disabled={privacySaving}
+                />
+              </Row>
+
+              <Row
+                title="Typing indicator"
+                desc="Let others see a typing bubble when you're composing a message"
+              >
+                <Toggle
+                  checked={privacy.typingIndicator}
+                  onChange={(v) => setPrivacy("typingIndicator", v)}
+                  label="Typing indicator"
+                  disabled={privacySaving}
+                />
+              </Row>
+
+              <AnimatePresence initial={false}>
+                {privacySaving && (
+                  <motion.div
+                    key="saving"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex items-center gap-1.5 px-1 py-2 text-xs text-base-content/50">
+                      <Spinner className="size-3" />
+                      Saving changes…
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Card>
+          </div>
         );
 
       case "ai":

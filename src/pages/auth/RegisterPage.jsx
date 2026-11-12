@@ -114,7 +114,7 @@ const RegisterPage = () => {
     animate(
       shakeScope.current,
       { x: [0, -10, 10, -8, 8, -4, 4, 0] },
-      { duration: 0.45, ease: "easeInOut" }
+      { duration: 0.45, ease: "easeInOut" },
     );
   };
 
@@ -292,10 +292,11 @@ const RegisterPage = () => {
                     whileHover={{ scale: 1.06 }}
                     whileTap={{ scale: 0.94 }}
                     transition={{ type: "spring", stiffness: 300, damping: 18 }}
-                    className={`group/avatar relative flex size-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-colors ${dragging
-                      ? "border-primary bg-primary/10"
-                      : "border-base-300 bg-base-200 hover:border-primary"
-                      }`}
+                    className={`group/avatar relative flex size-24 items-center justify-center overflow-hidden rounded-full border-2 border-dashed transition-colors ${
+                      dragging
+                        ? "border-primary bg-primary/10"
+                        : "border-base-300 bg-base-200 hover:border-primary"
+                    }`}
                   >
                     <AnimatePresence mode="wait" initial={false}>
                       {filePreview ? (
@@ -375,7 +376,7 @@ const RegisterPage = () => {
                   />
                 </div>
                 <p className="text-xs text-base-content/50">
-                  Profile photo (optional) · JPG, PNG, WEBP · max {MAX_SIZE_MB}
+                  Profile photo JPG, PNG, WEBP · max {MAX_SIZE_MB}
                   MB
                 </p>
               </motion.div>

@@ -5,17 +5,17 @@
 }
 
 body {
-  font-family: "Poppins", sans-serif;
+  font-family: "Saira", sans-serif;
 }
 
 @layer utilities {
   @keyframes marquee {
     from {
-      transform: translateX(0)
+      transform: translateX(0);
     }
 
     to {
-      transform: translateX(-50%)
+      transform: translateX(-50%);
     }
   }
 
@@ -28,5 +28,4 @@ body {
       animation: none;
     }
   }
-
 }

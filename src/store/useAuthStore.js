@@ -400,6 +400,29 @@ export const useAuthStore = create((set, get) => ({
       }
     });
 
+    socket.on("presence:updated", ({ userId, isOnline }) => {
+      const uid = String(userId);
+      set((state) => {
+        const setIds = new Set(state.onlineUsers.map(String));
+        if (isOnline) {
+          setIds.add(uid);
+        } else {
+          setIds.delete(uid);
+        }
+        return { onlineUsers: Array.from(setIds) };
+      });
+    });
+
+    socket.on("privacy:settings-updated", (settings) => {
+      usePrivacyStore.getState().initFromUser(settings);
+    });
+
+    socket.on("user:profile-updated", ({ userId }) => {
+      window.dispatchEvent(
+        new CustomEvent("chatty:profile-updated", { detail: { userId } }),
+      );
+    });
+
     socket.on("session:revoked", ({ sessionId }) => {
       console.log("[security] session revoked:", sessionId);
       window.dispatchEvent(

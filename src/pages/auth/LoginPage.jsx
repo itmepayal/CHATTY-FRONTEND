@@ -51,7 +51,8 @@ const logoVariant = {
 };
 
 const LoginPage = () => {
-  const { login, isLoggingIn, twoFactorChallenge, clearTwoFactorChallenge } = useAuthStore();
+  const { login, isLoggingIn, twoFactorChallenge, clearTwoFactorChallenge } =
+    useAuthStore();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);

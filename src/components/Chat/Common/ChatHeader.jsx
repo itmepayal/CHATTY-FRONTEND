@@ -7,6 +7,7 @@ import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
 import { useVisibleOnlineUsers } from "../../../hooks/useVisibleOnlineUsers";
 import { useCall } from "../../../context/CallContext";
+import { axiosInstance } from "../../../lib/axios";
 
 const SPRING = { type: "spring", stiffness: 420, damping: 28 };
 
@@ -105,6 +106,28 @@ const ChatHeader = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [viewAvatar]);
+
+  // Sync profile when other user updates privacy or details
+  useEffect(() => {
+    if (!selectedUser?.id) return;
+    const handler = async (e) => {
+      if (String(e.detail?.userId) === String(selectedUser.id)) {
+        try {
+          const res = await axiosInstance.get(
+            `/users/${selectedUser.id}/profile`,
+          );
+          const updated = res.data?.data?.user;
+          if (updated) {
+            setSelectedUser({ ...selectedUser, ...updated });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+    window.addEventListener("chatty:profile-updated", handler);
+    return () => window.removeEventListener("chatty:profile-updated", handler);
+  }, [selectedUser?.id, setSelectedUser]);
 
   if (!selectedUser) return null;
 
