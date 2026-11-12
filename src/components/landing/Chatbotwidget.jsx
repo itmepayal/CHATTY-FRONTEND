@@ -8,8 +8,11 @@ import {
   Smile,
   CheckCheck,
   RotateCcw,
+  Copy,
+  Check,
+  ChevronDown,
+  AlertCircle,
 } from "lucide-react";
-// Adjust this path to wherever your store file lives
 import {
   useAiStore,
   isAiAbort,
@@ -17,17 +20,19 @@ import {
 } from "../../store/useAiStore.js";
 
 const QUICK_REPLIES = [
-  "How do groups work?",
-  "Is my chat secure?",
-  "Change theme",
-  "Talk to support",
+  { label: "How do groups work?", emoji: "👥" },
+  { label: "Is my chat secure?", emoji: "🔒" },
+  { label: "Change theme", emoji: "🎨" },
+  { label: "Talk to support", emoji: "💬" },
 ];
 
 const EMOJIS = ["😀", "😂", "😍", "👍", "🙏", "🎉", "🔥", "😎"];
-const MAX_LENGTH = AI_CHAT_MAX_LENGTH; // 400, same limit the store enforces
-const MAX_HISTORY = 10; // how many recent messages are sent to the AI
+const MAX_LENGTH = AI_CHAT_MAX_LENGTH;
+const MAX_HISTORY = 10;
 
-// Offline fallback: used only if the AI request fails
+const FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+
 const ANSWERS = [
   {
     match: /group/i,
@@ -57,12 +62,12 @@ const formatTime = (date) =>
   date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 let nextId = 1;
-// `local: true` messages (welcome / errors) are never sent to the AI
-const makeMessage = (from, text, local = false) => ({
+const makeMessage = (from, text, local = false, error = false) => ({
   id: nextId++,
   from,
   text,
   local,
+  error,
   time: formatTime(new Date()),
 });
 
@@ -73,7 +78,6 @@ const WELCOME = () =>
     true,
   );
 
-// Convert UI messages -> API history ({ role, content }), ending with the user's message
 const toHistory = (messages) => {
   const history = messages
     .filter((m) => !m.local)
@@ -86,10 +90,10 @@ const toHistory = (messages) => {
   return history;
 };
 
-const BotAvatar = () => (
+const BotAvatar = ({ size = "size-8" }) => (
   <div
     aria-hidden="true"
-    className="flex size-8 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-base-300 text-primary"
+    className={`${size} flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-content shadow-md shadow-primary/30`}
   >
     <Sparkles className="size-4" />
   </div>
@@ -119,33 +123,84 @@ const TypingDots = ({ reduce }) => (
   </div>
 );
 
-const Message = ({ message, reduce }) => {
+const Message = ({ message, showAvatar, reduce }) => {
   const isUser = message.from === "user";
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(null);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard?.writeText(message.text);
+    } catch {}
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1500);
+  };
+
+  const canCopy = !isUser && !message.local;
 
   return (
     <motion.div
-      initial={reduce ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={`flex items-end gap-2.5 ${isUser ? "justify-end" : ""}`}
+      initial={reduce ? false : { opacity: 0, y: 10, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.22 }}
+      style={{ originX: isUser ? 1 : 0 }}
+      className={`group flex items-end gap-2.5 ${isUser ? "justify-end" : ""}`}
     >
-      {!isUser && <BotAvatar />}
+      {!isUser &&
+        (showAvatar ? <BotAvatar /> : <span className="size-8 shrink-0" />)}
+
       <div
-        className={`max-w-[85%] px-3.5 py-2.5 text-[13.5px] leading-relaxed break-words whitespace-pre-wrap sm:max-w-[78%] ${
-          isUser
-            ? "rounded-2xl rounded-br-md bg-primary font-medium text-primary-content shadow-lg shadow-primary/20"
-            : "rounded-2xl rounded-bl-md border border-base-300 bg-base-200 text-base-content"
+        className={`flex max-w-[85%] items-center gap-1 sm:max-w-[78%] ${
+          isUser ? "flex-row-reverse" : ""
         }`}
       >
-        {message.text}
         <div
-          className={`mt-1 flex items-center gap-1 text-[10px] ${
-            isUser ? "justify-end opacity-70" : "text-base-content/40"
+          className={`min-w-0 px-3.5 py-2.5 text-[13.5px] leading-relaxed break-words whitespace-pre-wrap ${
+            isUser
+              ? "rounded-2xl rounded-br-md bg-gradient-to-br from-primary to-secondary font-medium text-primary-content shadow-lg shadow-primary/25"
+              : message.error
+                ? "rounded-2xl rounded-bl-md border border-error/40 bg-error/10 text-base-content"
+                : "rounded-2xl rounded-bl-md border border-base-300 bg-base-200 text-base-content shadow-sm"
           }`}
         >
-          {message.time}
-          {isUser && <CheckCheck className="size-3.5" aria-label="Delivered" />}
+          {message.error && (
+            <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-error">
+              <AlertCircle className="size-3.5" /> Something went wrong
+            </span>
+          )}
+          {message.text}
+          <div
+            className={`mt-1 flex items-center gap-1 text-[10px] ${
+              isUser ? "justify-end opacity-75" : "text-base-content/40"
+            }`}
+          >
+            {message.time}
+            {isUser && (
+              <CheckCheck className="size-3.5" aria-label="Delivered" />
+            )}
+          </div>
         </div>
+
+        {canCopy && (
+          <button
+            type="button"
+            onClick={copy}
+            aria-label={copied ? "Copied" : "Copy reply"}
+            title={copied ? "Copied" : "Copy reply"}
+            className={`flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-full text-base-content/40 transition-all hover:bg-base-200 hover:text-primary sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 ${
+              copied ? "!opacity-100 text-success" : ""
+            } ${FOCUS}`}
+          >
+            {copied ? (
+              <Check className="size-3.5" />
+            ) : (
+              <Copy className="size-3.5" />
+            )}
+          </button>
+        )}
       </div>
     </motion.div>
   );
@@ -161,6 +216,9 @@ export function ChatbotWidget() {
   const [typing, setTyping] = useState(false);
   const [unread, setUnread] = useState(1);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [teaser, setTeaser] = useState(false);
+  const [teaserSeen, setTeaserSeen] = useState(false);
+  const [showJump, setShowJump] = useState(false);
 
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
@@ -177,7 +235,15 @@ export function ChatbotWidget() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Escape closes the emoji tray first, then the chat
+  useEffect(() => {
+    if (open || teaserSeen) {
+      setTeaser(false);
+      return;
+    }
+    const t = setTimeout(() => setTeaser(true), 3500);
+    return () => clearTimeout(t);
+  }, [open, teaserSeen]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -192,25 +258,35 @@ export function ChatbotWidget() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, emojiOpen]);
 
-  // Clear unread + focus input when opened
   useEffect(() => {
     if (!open) return;
     setUnread(0);
+    setTeaserSeen(true);
     const t = setTimeout(() => inputRef.current?.focus(), 250);
     return () => clearTimeout(t);
   }, [open]);
 
-  // Keep the newest message in view
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el)
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: reduce ? "auto" : "smooth",
-      });
-  }, [messages, typing, reduce]);
+  const scrollToBottom = useCallback(
+    (smooth = true) => {
+      const el = scrollRef.current;
+      if (el)
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: reduce || !smooth ? "auto" : "smooth",
+        });
+    },
+    [reduce],
+  );
 
-  // Auto-grow textarea (max ~4 lines)
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, typing, scrollToBottom]);
+
+  const onScroll = (e) => {
+    const el = e.currentTarget;
+    setShowJump(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+  };
+
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -218,7 +294,6 @@ export function ChatbotWidget() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [draft, open]);
 
-  // Cancel any in-flight request on unmount
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const send = useCallback(
@@ -239,14 +314,15 @@ export function ChatbotWidget() {
 
       let replyText;
       let isLocal = false;
+      let isError = false;
       try {
         replyText = await askChatbot(toHistory(next), {
           signal: controller.signal,
         });
       } catch (error) {
-        if (isAiAbort(error)) return; // reset / unmount: stay silent
-        // AI failed: use a built-in answer if one matches, else show the error
+        if (isAiAbort(error)) return;
         const fallback = getLocalAnswer(text);
+        isError = !fallback;
         replyText =
           fallback ??
           error?.message ??
@@ -255,7 +331,10 @@ export function ChatbotWidget() {
       }
 
       if (abortRef.current !== controller) return; // stale
-      setMessages((m) => [...m, makeMessage("bot", replyText, isLocal)]);
+      setMessages((m) => [
+        ...m,
+        makeMessage("bot", replyText, isLocal, isError),
+      ]);
       setTyping(false);
       if (!openRef.current) setUnread((u) => u + 1);
     },
@@ -297,31 +376,34 @@ export function ChatbotWidget() {
             exit={reduce ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.92 }}
             transition={{ type: "spring", stiffness: 320, damping: 26 }}
             style={{ originX: 1, originY: 1 }}
-            className="flex max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl shadow-black/50"
+            className="flex max-h-[calc(100dvh-6.5rem)] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl shadow-black/50 ring-1 ring-primary/10"
           >
-            {/* header */}
-            <div className="flex shrink-0 items-center gap-3 border-b border-base-300 bg-base-200/40 px-4 py-3.5">
+            <div className="relative flex shrink-0 items-center gap-3 overflow-hidden border-b border-base-300 bg-gradient-to-br from-primary/20 via-base-200/60 to-secondary/15 px-4 py-3.5">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-10 -right-8 size-28 rounded-full bg-primary/20 blur-2xl"
+              />
               <div className="relative">
-                <div className="flex size-10 items-center justify-center rounded-full border border-primary/40 bg-base-300 text-primary">
-                  <Sparkles className="size-5" />
-                </div>
+                <BotAvatar size="size-10" />
                 <span className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-base-100 bg-success" />
               </div>
-              <div className="leading-tight">
+              <div className="relative leading-tight">
                 <p className="text-sm font-semibold text-base-content">
                   Chatty Assistant
                 </p>
-                <p className="text-xs text-success">
-                  {typing ? "Typing…" : "Online · replies instantly"}
+                <p
+                  className={`text-xs ${typing ? "text-primary" : "text-success"}`}
+                >
+                  {typing ? "Typing…" : "Online, replies instantly"}
                 </p>
               </div>
-              <div className="ml-auto flex items-center gap-1">
+              <div className="relative ml-auto flex items-center gap-1">
                 <button
                   type="button"
                   onClick={reset}
                   aria-label="Start a new conversation"
                   title="New conversation"
-                  className="flex size-9 items-center justify-center rounded-full text-base-content/50 transition-colors hover:bg-base-200 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary sm:size-8"
+                  className={`flex size-9 items-center justify-center rounded-full text-base-content/55 transition-colors hover:bg-base-100/70 hover:text-primary sm:size-8 ${FOCUS}`}
                 >
                   <RotateCcw className="size-4" />
                 </button>
@@ -332,42 +414,72 @@ export function ChatbotWidget() {
                     launcherRef.current?.focus();
                   }}
                   aria-label="Close chat"
-                  className="flex size-9 items-center justify-center rounded-full text-base-content/50 transition-colors hover:bg-base-200 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary sm:size-8"
+                  className={`flex size-9 items-center justify-center rounded-full text-base-content/55 transition-colors hover:bg-base-100/70 hover:text-primary sm:size-8 ${FOCUS}`}
                 >
                   <X className="size-4" />
                 </button>
               </div>
             </div>
 
-            {/* messages */}
-            <div
-              ref={scrollRef}
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions"
-              className="h-[clamp(14rem,50dvh,26rem)] min-h-0 space-y-3.5 overflow-y-auto overscroll-contain bg-base-100 px-4 py-4 [scrollbar-color:var(--color-base-300)_transparent] [scrollbar-width:thin] sm:h-96"
-            >
-              <div className="flex justify-center">
-                <span className="rounded-full border border-base-300 bg-base-200/60 px-3 py-0.5 text-[11px] font-medium text-base-content/70">
-                  Today
-                </span>
+            <div className="relative min-h-0">
+              <div
+                ref={scrollRef}
+                onScroll={onScroll}
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions"
+                className="h-[clamp(14rem,50dvh,26rem)] min-h-0 space-y-2.5 overflow-y-auto overscroll-contain bg-gradient-to-b from-base-100 to-base-200/30 px-4 py-4 [scrollbar-color:var(--color-base-300)_transparent] [scrollbar-width:thin] sm:h-96"
+              >
+                <div className="flex justify-center pb-1">
+                  <span className="rounded-full border border-base-300 bg-base-200/60 px-3 py-0.5 text-[11px] font-medium text-base-content/70">
+                    Today
+                  </span>
+                </div>
+
+                {messages.map((m, i) => {
+                  const prev = messages[i - 1];
+                  const showAvatar = !prev || prev.from !== m.from;
+                  return (
+                    <div
+                      key={m.id}
+                      className={showAvatar && i > 0 ? "pt-1.5" : ""}
+                    >
+                      <Message
+                        message={m}
+                        showAvatar={showAvatar}
+                        reduce={reduce}
+                      />
+                    </div>
+                  );
+                })}
+
+                {typing && (
+                  <div className="flex items-end gap-2.5">
+                    <BotAvatar />
+                    <div className="rounded-2xl rounded-bl-md border border-base-300 bg-base-200 px-3.5 py-3">
+                      <TypingDots reduce={reduce} />
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {messages.map((m) => (
-                <Message key={m.id} message={m} reduce={reduce} />
-              ))}
-
-              {typing && (
-                <div className="flex items-end gap-2.5">
-                  <BotAvatar />
-                  <div className="rounded-2xl rounded-bl-md border border-base-300 bg-base-200 px-3.5 py-3">
-                    <TypingDots reduce={reduce} />
-                  </div>
-                </div>
-              )}
+              <AnimatePresence>
+                {showJump && (
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    onClick={() => scrollToBottom()}
+                    aria-label="Scroll to latest message"
+                    className={`absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-[11px] font-medium text-base-content/70 shadow-lg transition-colors hover:text-primary ${FOCUS}`}
+                  >
+                    <ChevronDown className="size-3.5" /> Latest
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* quick replies (shown until the user starts chatting) */}
             <AnimatePresence initial={false}>
               {!hasUserMessages && (
                 <motion.div
@@ -380,13 +492,14 @@ export function ChatbotWidget() {
                   <div className="flex gap-2 overflow-x-auto border-t border-base-300 px-4 py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {QUICK_REPLIES.map((q) => (
                       <button
-                        key={q}
+                        key={q.label}
                         type="button"
                         disabled={typing}
-                        onClick={() => send(q)}
-                        className="shrink-0 touch-manipulation rounded-full border border-primary/30 bg-base-200/60 px-3.5 py-1.5 text-xs font-medium sm:px-3 sm:py-1 text-primary transition-colors hover:bg-primary hover:text-primary-content focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                        onClick={() => send(q.label)}
+                        className={`flex shrink-0 touch-manipulation items-center gap-1.5 rounded-full border border-primary/30 bg-base-200/60 px-3.5 py-1.5 text-xs font-medium text-primary transition-all hover:-translate-y-0.5 hover:bg-primary hover:text-primary-content active:translate-y-0 disabled:opacity-50 sm:px-3 sm:py-1 ${FOCUS}`}
                       >
-                        {q}
+                        <span aria-hidden="true">{q.emoji}</span>
+                        {q.label}
                       </button>
                     ))}
                   </div>
@@ -394,8 +507,7 @@ export function ChatbotWidget() {
               )}
             </AnimatePresence>
 
-            {/* composer */}
-            <div className="relative shrink-0 border-t border-base-300 px-3 pt-2.5 pb-2">
+            <div className="relative shrink-0 border-t border-base-300 bg-base-100 px-3 pt-2.5 pb-2">
               <AnimatePresence>
                 {emojiOpen && (
                   <motion.div
@@ -414,7 +526,7 @@ export function ChatbotWidget() {
                           setDraft((d) => (d + emoji).slice(0, MAX_LENGTH));
                           inputRef.current?.focus();
                         }}
-                        className="flex size-9 items-center justify-center rounded-lg text-lg sm:size-8 transition-colors hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-primary"
+                        className={`flex size-9 items-center justify-center rounded-lg text-lg transition-transform hover:scale-110 hover:bg-base-200 sm:size-8 ${FOCUS}`}
                       >
                         {emoji}
                       </button>
@@ -423,13 +535,15 @@ export function ChatbotWidget() {
                 )}
               </AnimatePresence>
 
-              <div className="flex items-end gap-2 rounded-3xl border border-base-300 bg-base-200/60 py-1.5 pr-1.5 pl-2 transition-colors focus-within:border-primary/60">
+              <div className="flex items-end gap-2 rounded-3xl border border-base-300 bg-base-200/60 py-1.5 pr-1.5 pl-2 transition-all focus-within:border-primary/60 focus-within:bg-base-100 focus-within:ring-2 focus-within:ring-primary/20">
                 <button
                   type="button"
                   onClick={() => setEmojiOpen((v) => !v)}
                   aria-label="Add emoji"
                   aria-expanded={emojiOpen}
-                  className="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full text-base-content/50 sm:size-8 transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
+                  className={`mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:text-primary sm:size-8 ${
+                    emojiOpen ? "text-primary" : "text-base-content/50"
+                  } ${FOCUS}`}
                 >
                   <Smile className="size-[18px]" />
                 </button>
@@ -443,7 +557,7 @@ export function ChatbotWidget() {
                   onKeyDown={onKeyDown}
                   placeholder="Write a message…"
                   aria-label="Message"
-                  className="max-h-24 min-h-8 flex-1 resize-none bg-transparent py-1.5 text-base text-base-content sm:text-sm outline-none placeholder:text-base-content/40"
+                  className="max-h-24 min-h-8 flex-1 resize-none bg-transparent py-1.5 text-base text-base-content outline-none placeholder:text-base-content/40 sm:text-sm"
                 />
 
                 <button
@@ -451,16 +565,20 @@ export function ChatbotWidget() {
                   onClick={() => send(draft)}
                   disabled={!canSend}
                   aria-label="Send message"
-                  className="flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-primary text-primary-content shadow-md sm:size-8 shadow-primary/30 transition-all hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                  className={`flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-content shadow-md shadow-primary/30 transition-all hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:scale-100 disabled:opacity-40 disabled:shadow-none sm:size-8 ${FOCUS}`}
                 >
                   <SendHorizontal className="size-4" />
                 </button>
               </div>
 
               <div className="mt-1.5 flex items-center justify-between px-1.5 text-[11px] text-base-content/40">
-                <span>Enter to send · Shift+Enter for a new line</span>
+                <span>Enter to send, Shift+Enter for a new line</span>
                 {remaining <= 50 && (
-                  <span className={remaining <= 10 ? "text-warning" : ""}>
+                  <span
+                    className={`tabular-nums ${
+                      remaining <= 10 ? "font-semibold text-warning" : ""
+                    }`}
+                  >
                     {remaining}
                   </span>
                 )}
@@ -470,7 +588,44 @@ export function ChatbotWidget() {
         )}
       </AnimatePresence>
 
-      {/* launcher */}
+      <AnimatePresence>
+        {!open && teaser && (
+          <motion.div
+            role="status"
+            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 320, damping: 24 }}
+            style={{ originX: 1, originY: 1 }}
+            className="relative max-w-[16rem] rounded-2xl rounded-br-md border border-base-300 bg-base-100 py-2.5 pr-9 pl-3.5 shadow-xl shadow-black/30"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(true);
+              }}
+              className={`text-left text-[13px] leading-snug text-base-content ${FOCUS} rounded-md`}
+            >
+              <span className="font-semibold">Need a hand? 👋</span>
+              <span className="block text-base-content/60">
+                Ask me about groups, themes or privacy.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTeaser(false);
+                setTeaserSeen(true);
+              }}
+              aria-label="Dismiss"
+              className={`absolute top-1.5 right-1.5 flex size-7 items-center justify-center rounded-full text-base-content/45 transition-colors hover:bg-base-200 hover:text-base-content ${FOCUS}`}
+            >
+              <X className="size-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.button
         ref={launcherRef}
         type="button"
@@ -479,8 +634,14 @@ export function ChatbotWidget() {
         aria-expanded={open}
         whileHover={reduce ? undefined : { scale: 1.08 }}
         whileTap={reduce ? undefined : { scale: 0.92 }}
-        className="relative flex size-14 items-center justify-center rounded-full bg-primary text-primary-content shadow-xl shadow-primary/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        className={`relative flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-primary-content shadow-xl shadow-primary/40 ${FOCUS}`}
       >
+        {!open && unread > 0 && !reduce && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 -z-10 animate-ping rounded-full bg-primary/40"
+          />
+        )}
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={open ? "x" : "chat"}
