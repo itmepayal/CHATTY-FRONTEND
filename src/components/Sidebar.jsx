@@ -10,7 +10,6 @@ import {
   Settings,
   LogOut,
   Loader2,
-  UserRound,
   Phone,
   Video,
   PhoneIncoming,
@@ -51,7 +50,6 @@ const toIds = (arr) =>
   (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
 
 const SHOW_ONLY_CONTACTS = true;
-
 const KEEP_CONVERSATIONS = false;
 
 const TABS = [
@@ -73,33 +71,26 @@ const CALL_FILTERS = [
 
 const MODE_ORDER = ["chats", "groups", "calls"];
 
-const SPRING = { type: "spring", stiffness: 500, damping: 38 };
-const POP = { type: "spring", stiffness: 520, damping: 22 };
+const SPRING = { type: "spring", stiffness: 500, damping: 40 };
 
 const rowVariants = {
-  hidden: { opacity: 0, x: -18, scale: 0.98 },
+  hidden: { opacity: 0, y: 4 },
   show: (i = 0) => ({
     opacity: 1,
-    x: 0,
-    scale: 1,
-    transition: { ...SPRING, delay: Math.min(i, 8) * 0.03 },
+    y: 0,
+    transition: { duration: 0.18, delay: Math.min(i, 8) * 0.02 },
   }),
-  exit: { opacity: 0, x: -18, transition: { duration: 0.12 } },
+  exit: { opacity: 0, transition: { duration: 0.1 } },
 };
 
 const paneVariants = {
-  enter: (dir) => ({ opacity: 0, x: dir * 28 }),
-  center: { opacity: 1, x: 0, transition: { duration: 0.22, ease: "easeOut" } },
+  enter: (dir) => ({ opacity: 0, x: dir * 16 }),
+  center: { opacity: 1, x: 0, transition: { duration: 0.18, ease: "easeOut" } },
   exit: (dir) => ({
     opacity: 0,
-    x: dir * -28,
-    transition: { duration: 0.14, ease: "easeIn" },
+    x: dir * -16,
+    transition: { duration: 0.12, ease: "easeIn" },
   }),
-};
-
-const headerItem = {
-  hidden: { opacity: 0, y: -10 },
-  show: { opacity: 1, y: 0, transition: SPRING },
 };
 
 const formatListTime = (value) => {
@@ -160,8 +151,8 @@ const getBody = (m) => {
   if (isVideo(m)) return "🎥 Video";
   if (isAudio(m)) return "🎤 Voice message";
   if (isImage(m)) return "📷 Photo";
-  if (isFile(m)) return "📎 File";
-  return "Message";
+  if (isFile(m)) return "📎 Document";
+  return "💬 Message";
 };
 
 const getPreview = (message, myId) => {
@@ -259,126 +250,303 @@ const normalizeCall = (c, myId, isGroup) => {
 
 const callTime = (c) => (c.time ? new Date(c.time).getTime() : 0);
 
-const AnimatedCount = ({ value, className = "" }) => (
-  <span className={`relative inline-flex overflow-hidden ${className}`}>
-    <AnimatePresence mode="popLayout" initial={false}>
-      <motion.span
-        key={value}
-        initial={{ y: 9, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: -9, opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        className="inline-block"
-      >
-        {value}
-      </motion.span>
-    </AnimatePresence>
-  </span>
-);
-
-const UnreadBadge = ({ count }) => (
-  <AnimatePresence initial={false}>
-    {count > 0 && (
-      <motion.span
-        key={count}
-        initial={{ scale: 0.3, opacity: 0, rotate: -20 }}
-        animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        exit={{ scale: 0.3, opacity: 0 }}
-        transition={POP}
-        className="inline-flex items-center justify-center rounded-full bg-primary text-primary-content text-[11px] font-semibold leading-none min-w-5 h-5 px-1.5 shadow-md shadow-primary/30"
-        aria-label={`${count} unread messages`}
-      >
-        {formatCount(count)}
-      </motion.span>
-    )}
-  </AnimatePresence>
-);
-
-const ArchivedRow = ({ count, unread, onClick, noun = "chat" }) => (
-  <div className="px-1.5 sm:px-2">
-    <motion.button
-      type="button"
-      whileHover={{ x: 2 }}
-      whileTap={{ scale: 0.98 }}
-      onClick={onClick}
-      className="w-full min-h-[56px] rounded-xl px-2.5 sm:px-3 py-2 flex items-center gap-3 transition-colors hover:bg-base-200 active:bg-base-200"
+const UnreadBadge = ({ count }) =>
+  count > 0 ? (
+    <span
+      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-none text-primary-content"
+      aria-label={`${count} unread messages`}
     >
-      <span className="grid size-11 sm:size-12 shrink-0 place-items-center rounded-full bg-base-200 text-base-content/60">
-        <Archive className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="block text-[15px] font-medium">Archived</span>
-        <span className="block text-[13px] text-base-content/50">
-          {count} {count === 1 ? noun : `${noun}s`}
-        </span>
-      </span>
-      {unread > 0 && <UnreadBadge count={unread} />}
-      <ChevronRight className="size-4 shrink-0 text-base-content/40" />
-    </motion.button>
+      {formatCount(count)}
+    </span>
+  ) : null;
+
+const Avatar = ({
+  src,
+  name,
+  group = false,
+  online = false,
+  selected = false,
+}) => (
+  <div className="relative shrink-0">
+    {group && !src ? (
+      <div
+        className={`grid size-11 place-items-center rounded-full bg-primary/10 text-base font-semibold text-primary ring-2 transition-colors ${
+          selected ? "ring-primary/30" : "ring-transparent"
+        }`}
+      >
+        {name?.[0]?.toUpperCase() || <UsersRound className="size-5" />}
+      </div>
+    ) : (
+      <img
+        src={src}
+        alt={name}
+        className={`size-11 rounded-full object-cover ring-2 transition-colors ${
+          selected ? "ring-primary/30" : "ring-transparent"
+        }`}
+      />
+    )}
+    {online && (
+      <span
+        className="absolute bottom-0 right-0 size-3 rounded-full bg-success ring-2 ring-base-100"
+        aria-label="Online"
+      />
+    )}
   </div>
 );
 
-const SectionLabel = ({ children }) => (
-  <motion.div
-    initial={{ opacity: 0, y: -4 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="flex items-center gap-2 px-4 sm:px-5 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/40"
+const IconAvatar = ({ icon: Icon }) => (
+  <span className="grid size-11 shrink-0 place-items-center rounded-full bg-base-200 text-base-content/60">
+    <Icon className="size-5" />
+  </span>
+);
+
+const Row = ({
+  index = 0,
+  selected = false,
+  onClick,
+  avatar,
+  title,
+  subtitle,
+  time,
+  unread = 0,
+  tone = "default",
+  trailing,
+  actions,
+}) => {
+  const hasUnread = unread > 0;
+  const danger = tone === "danger";
+
+  return (
+    <motion.div
+      layout="position"
+      variants={rowVariants}
+      custom={index}
+      initial="hidden"
+      animate="show"
+      exit="exit"
+      className="group relative px-2"
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        aria-current={selected ? "true" : undefined}
+        className={`relative flex h-[68px] w-full items-center gap-3 rounded-lg px-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50 ${
+          selected ? "" : "hover:bg-base-200 active:bg-base-200"
+        }`}
+      >
+        {selected && (
+          <motion.span
+            layoutId="sidebar-selected"
+            transition={SPRING}
+            className="absolute inset-0 rounded-lg bg-primary/10"
+          >
+            <span className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-primary" />
+          </motion.span>
+        )}
+
+        <div className="relative z-10">{avatar}</div>
+
+        <div className="relative z-10 min-w-0 flex-1">
+          <div
+            className={`truncate text-[15px] ${
+              danger ? "text-error" : ""
+            } ${hasUnread ? "font-semibold" : "font-medium"}`}
+          >
+            {title}
+          </div>
+          <div
+            className={`truncate text-[13px] ${
+              hasUnread
+                ? "font-medium text-base-content"
+                : "text-base-content/55"
+            }`}
+          >
+            {subtitle}
+          </div>
+        </div>
+
+        <div
+          className={`relative z-10 flex shrink-0 flex-col items-end self-stretch ${
+            time ? "justify-between py-3" : "justify-center"
+          }`}
+        >
+          {time && (
+            <span
+              className={`whitespace-nowrap text-[11px] ${
+                danger
+                  ? "font-medium text-error"
+                  : hasUnread
+                    ? "font-medium text-primary"
+                    : "text-base-content/45"
+              }`}
+            >
+              {time}
+            </span>
+          )}
+          <div className="flex min-h-5 items-center gap-1">{trailing}</div>
+        </div>
+      </button>
+
+      {actions && (
+        <div className="absolute bottom-2 right-3 z-20 flex items-center gap-0.5">
+          {actions}
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+const RowAction = ({ onClick, label, className = "", pressed, children }) => (
+  <button
+    type="button"
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}
+    aria-label={label}
+    aria-pressed={pressed}
+    title={label}
+    className={`grid size-7 place-items-center rounded-md text-base-content/40 transition-all hover:bg-base-300/60 hover:text-base-content focus-visible:opacity-100 ${className}`}
   >
-    <span>{children}</span>
-    <span className="h-px flex-1 bg-gradient-to-r from-base-300 to-transparent" />
-  </motion.div>
+    {children}
+  </button>
+);
+
+const Segmented = ({ items, value, onChange, layoutId, label }) => (
+  <LayoutGroup id={layoutId}>
+    <div
+      role="tablist"
+      aria-label={label}
+      className="flex gap-1 rounded-lg bg-base-200 p-1"
+    >
+      {items.map(
+        ({ key, label: text, icon: Icon, count, badge, tone, dot }) => {
+          const active = value === key;
+          const showCount = count !== undefined && count !== null;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChange(key)}
+              className={`relative flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors ${
+                active
+                  ? "text-base-content"
+                  : "text-base-content/60 hover:text-base-content"
+              }`}
+            >
+              {active && (
+                <motion.span
+                  layoutId="pill"
+                  transition={SPRING}
+                  className="absolute inset-0 rounded-md bg-base-100 shadow-sm ring-1 ring-base-300/60"
+                />
+              )}
+              {Icon && (
+                <Icon
+                  className={`relative z-10 size-4 shrink-0 ${
+                    active ? "text-primary" : ""
+                  }`}
+                />
+              )}
+              {dot === "online" && (
+                <span className="relative z-10 size-2 shrink-0 rounded-full bg-success" />
+              )}
+              {dot === "offline" && (
+                <span className="relative z-10 size-2 shrink-0 rounded-full border border-base-content/40" />
+              )}
+              <span className="relative z-10 truncate">{text}</span>
+              {showCount && (
+                <span
+                  className={`relative z-10 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ${
+                    badge
+                      ? tone === "danger"
+                        ? "bg-error text-error-content"
+                        : "bg-primary text-primary-content"
+                      : "text-base-content/45"
+                  }`}
+                >
+                  {formatCount(count)}
+                </span>
+              )}
+            </button>
+          );
+        },
+      )}
+    </div>
+  </LayoutGroup>
+);
+
+const HeaderButton = ({ icon: Icon, label, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={label}
+    title={label}
+    className="grid size-9 place-items-center rounded-lg text-base-content/70 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50"
+  >
+    <Icon className="size-[18px]" />
+  </button>
+);
+
+const BackBar = ({ label, onClick }) => (
+  <div className="px-2 pb-1">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-base-200"
+    >
+      <ArrowLeft className="size-4" />
+      {label}
+    </button>
+  </div>
+);
+
+const ArchivedRow = ({ count, unread, onClick, noun = "chat" }) => (
+  <Row
+    onClick={onClick}
+    avatar={<IconAvatar icon={Archive} />}
+    title="Archived"
+    subtitle={`${count} ${count === 1 ? noun : `${noun}s`}`}
+    trailing={
+      <>
+        <UnreadBadge count={unread} />
+        <ChevronRight className="size-4 text-base-content/40" />
+      </>
+    }
+  />
+);
+
+const SectionLabel = ({ children }) => (
+  <div className="px-5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/45">
+    {children}
+  </div>
 );
 
 const EmptyState = ({ icon: Icon, children }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 12 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3 }}
-    className="flex flex-col items-center gap-3 text-center text-sm text-base-content/50 py-12 px-4"
-  >
-    <div className="relative grid size-16 place-items-center">
-      {[0, 1].map((n) => (
-        <motion.span
-          key={n}
-          className="absolute inset-0 rounded-full border border-primary/30"
-          animate={{ scale: [1, 1.7], opacity: [0.5, 0] }}
-          transition={{
-            duration: 2.4,
-            repeat: Infinity,
-            delay: n * 1.2,
-            ease: "easeOut",
-          }}
-        />
-      ))}
-      <motion.div
-        animate={{ y: [0, -4, 0] }}
-        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        className="relative grid size-14 place-items-center rounded-full bg-base-200"
-      >
-        <Icon className="size-7 text-base-content/30" />
-      </motion.div>
+  <div className="flex flex-col items-center gap-3 px-6 py-14 text-center text-sm text-base-content/55">
+    <div className="grid size-14 place-items-center rounded-full bg-base-200">
+      <Icon className="size-6 text-base-content/40" />
     </div>
     {children}
-  </motion.div>
+  </div>
 );
 
-const CallSkeleton = () => (
+const ListSkeleton = () => (
   <div className="space-y-1 px-2">
-    {Array.from({ length: 6 }).map((_, i) => (
-      <motion.div
+    {Array.from({ length: 7 }).map((_, i) => (
+      <div
         key={i}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.1 }}
-        className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+        className="flex h-[68px] items-center gap-3 rounded-lg px-3 animate-pulse"
       >
-        <div className="size-12 rounded-full bg-base-300" />
+        <div className="size-11 rounded-full bg-base-300" />
         <div className="flex-1 space-y-2">
           <div className="h-3 w-2/5 rounded bg-base-300" />
           <div className="h-2.5 w-3/5 rounded bg-base-200" />
         </div>
         <div className="h-2.5 w-8 rounded bg-base-200" />
-      </motion.div>
+      </div>
     ))}
   </div>
 );
@@ -389,46 +557,23 @@ const FooterAction = ({
   onClick,
   active = false,
   danger = false,
-  spin = false,
 }) => (
-  <motion.button
+  <button
     type="button"
-    whileHover={{ scale: 1.1 }}
-    whileTap={{ scale: 0.88 }}
     onClick={onClick}
     aria-label={label}
+    title={label}
     aria-current={active ? "page" : undefined}
-    className={`group/act relative grid size-10 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-primary ${
+    className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50 ${
       danger
         ? "text-base-content/60 hover:bg-error/10 hover:text-error"
         : active
-          ? "text-primary"
+          ? "bg-primary/10 text-primary"
           : "text-base-content/60 hover:bg-base-200 hover:text-base-content"
     }`}
   >
-    {active && (
-      <motion.span
-        layoutId="footer-active-pill"
-        transition={SPRING}
-        className="absolute inset-0 rounded-full bg-primary/15 ring-1 ring-primary/30"
-      />
-    )}
-    <motion.span
-      className="relative z-10 inline-flex"
-      whileHover={spin ? { rotate: 90 } : { y: -1 }}
-      transition={{ type: "spring", stiffness: 260, damping: 16 }}
-    >
-      <Icon className="size-[18px]" />
-    </motion.span>
-
-    {/* tooltip: sirf desktop (hover) par */}
-    <span
-      role="tooltip"
-      className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden -translate-x-1/2 translate-y-1 whitespace-nowrap rounded-md bg-neutral px-2 py-1 text-[11px] font-medium text-neutral-content opacity-0 shadow-lg transition-all duration-150 lg:block group-hover/act:translate-y-0 group-hover/act:opacity-100 group-focus-visible/act:translate-y-0 group-focus-visible/act:opacity-100"
-    >
-      {label}
-    </span>
-  </motion.button>
+    <Icon className="size-[18px]" />
+  </button>
 );
 
 const LogoutConfirm = ({ open, loading, onCancel, onConfirm }) => {
@@ -445,36 +590,30 @@ const LogoutConfirm = ({ open, loading, onCancel, onConfirm }) => {
     <AnimatePresence>
       {open && (
         <motion.div
-          // mobile: bottom sheet, desktop: center dialog
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4"
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
           onClick={() => !loading && onCancel()}
           role="dialog"
           aria-modal="true"
           aria-labelledby="logout-title"
         >
           <motion.div
-            className="w-full max-h-[90dvh] overflow-y-auto rounded-t-3xl border border-base-300 bg-base-100 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-sm sm:rounded-2xl sm:pb-5"
-            initial={{ opacity: 0, y: 40, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24, scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 380, damping: 30 }}
+            className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl border border-base-300 bg-base-100 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl sm:max-w-sm sm:rounded-xl sm:pb-5"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.18 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* drag handle - sirf mobile */}
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-base-300 sm:hidden" />
 
             <div className="flex items-start gap-3">
-              <motion.div
-                initial={{ scale: 0.6, rotate: -20 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={POP}
-                className="flex size-11 shrink-0 items-center justify-center rounded-full bg-error/10 text-error"
-              >
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-error/10 text-error">
                 <LogOut className="size-5" />
-              </motion.div>
+              </div>
               <div className="min-w-0">
                 <h3 id="logout-title" className="font-semibold">
                   Log out of Chatty?
@@ -490,7 +629,7 @@ const LogoutConfirm = ({ open, loading, onCancel, onConfirm }) => {
                 type="button"
                 autoFocus
                 disabled={loading}
-                className="btn btn-ghost h-11 min-h-11 sm:btn-sm sm:h-auto sm:min-h-0"
+                className="btn btn-ghost btn-sm h-10 min-h-10"
                 onClick={onCancel}
               >
                 Cancel
@@ -498,7 +637,7 @@ const LogoutConfirm = ({ open, loading, onCancel, onConfirm }) => {
               <button
                 type="button"
                 disabled={loading}
-                className="btn btn-error h-11 min-h-11 gap-1.5 sm:btn-sm sm:h-auto sm:min-h-0"
+                className="btn btn-error btn-sm h-10 min-h-10 gap-1.5"
                 onClick={onConfirm}
               >
                 {loading ? (
@@ -518,15 +657,14 @@ const LogoutConfirm = ({ open, loading, onCancel, onConfirm }) => {
 };
 
 const Sidebar = () => {
-  const [mode, setMode] = useState("chats"); // chats | groups | calls
-  const [dir, setDir] = useState(1); // slide direction for tab switch
+  const [mode, setMode] = useState("chats");
+  const [dir, setDir] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [showAddContact, setShowAddContact] = useState(false);
   const [tab, setTab] = useState("all");
   const [presence, setPresence] = useState("any");
   const [callFilter, setCallFilter] = useState("all");
   const [query, setQuery] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -562,7 +700,6 @@ const Sidebar = () => {
   const { onlineUsers, hiddenUsers, socket, authUser, toggleFavorite, logout } =
     useAuthStore();
 
-  // Contacts (GET /contacts, add / remove via AddContactModal)
   const {
     contacts,
     contactIds,
@@ -571,7 +708,6 @@ const Sidebar = () => {
     reset: resetContacts,
   } = useContactStore();
 
-  // Call history (1:1 + group)
   const {
     calls: userCalls,
     isLoading: isCallsLoading,
@@ -586,8 +722,6 @@ const Sidebar = () => {
     clear: clearGroupCalls,
   } = useGroupCallHistoryStore();
 
-  // Favorites come from the server (authUser.favorites), same source
-  // as the Contact info panel, so both always stay in sync.
   const favorites = toIds(authUser?.favorites);
 
   useEffect(() => {
@@ -596,7 +730,6 @@ const Sidebar = () => {
     fetchContacts();
   }, [getUsers, fetchGroups, fetchContacts]);
 
-  // Calls tab khulte hi history refresh
   useEffect(() => {
     if (mode !== "calls") return;
     fetchCalls();
@@ -628,10 +761,6 @@ const Sidebar = () => {
   const isFavorite = (user) => favorites.includes(String(user.id));
   const meOnline = authUser ? onlineIds.includes(String(authUser.id)) : false;
 
-  /* ---------- chat list = contacts + people you already talked to ----------
-     - users (useChatStore) me lastMessage / unreadCount hota hai
-     - contacts (useContactStore) me wo log bhi aate hain jinse abhi tak
-       koi message nahi hua (add karte hi list me dikh jayenge) */
   const contactIdSet = new Set((contactIds || []).map(String));
 
   const allChatUsers = (() => {
@@ -659,13 +788,10 @@ const Sidebar = () => {
     0,
   );
 
-  // current view: main list ya archived list. Neeche ke saare filters,
-  // counts aur search isi par chalte hain, isliye unhe badalna nahi pada.
   const chatUsers = allChatUsers.filter((u) =>
     showArchived ? u.isArchived : !u.isArchived,
   );
 
-  /* ---------- groups: main list ya archived list ---------- */
   const archivedGroups = groups.filter((g) => g.archived);
   const archivedGroupUnread = archivedGroups.reduce(
     (sum, g) => sum + (g.unreadCount || 0),
@@ -684,11 +810,9 @@ const Sidebar = () => {
   const presenceMatch = {
     any: () => true,
     online: (u) => isOnline(u),
-    // Hidden-status users are NOT genuinely offline — exclude them from Offline
     offline: (u) => !isOnline(u) && !isHidden(u),
   };
 
-  // Counts react to the other filter, so numbers always match what you'll see
   const countFor = (t, p) =>
     chatUsers.filter((u) => tabMatch[t](u) && presenceMatch[p](u)).length;
 
@@ -703,7 +827,6 @@ const Sidebar = () => {
     .sort((a, b) => {
       const diff = timeValue(b) - timeValue(a);
       if (diff !== 0) return diff;
-      // jinse abhi koi message nahi hua unko naam se sort karo
       return (a.fullName || "").localeCompare(b.fullName || "");
     });
 
@@ -734,7 +857,6 @@ const Sidebar = () => {
     return "No contacts yet";
   };
 
-  /* ---------- calls: merge 1:1 + group, newest first ---------- */
   const allCalls = [
     ...(Array.isArray(userCalls) ? userCalls : []).map((c) =>
       normalizeCall(c, authUser?.id, false),
@@ -754,22 +876,16 @@ const Sidebar = () => {
   const isCallsBusy = isCallsLoading || isGroupCallsLoading;
   const callsInitialLoading = isCallsBusy && allCalls.length === 0;
 
-  // archived chats/groups ka unread alag "Archived" row par dikhta hai,
-  // isliye tab ke badge me sirf main list ka unread gino
   const chatUnread = allChatUsers
     .filter((u) => !u.isArchived)
     .reduce((sum, u) => sum + (u.unreadCount || 0), 0);
   const groupUnread = groups
     .filter((g) => !g.archived)
     .reduce((sum, g) => sum + (g.unreadCount || 0), 0);
-  const totalUnread = chatUnread + groupUnread;
   const onlineCount = allChatUsers.filter(
     (u) => !u.isArchived && isOnline(u),
   ).length;
 
-  // Mobile: jab koi chat/group khula ho to sidebar chhup jata hai
-  // (desktop par hamesha dikhta hai). Chat header ka back/X button chat band
-  // karta hai aur list wapas aa jati hai.
   const hasOpenChat = !!(selectedUser || selectedGroup);
 
   const changeMode = (key) => {
@@ -778,19 +894,16 @@ const Sidebar = () => {
     setMode(key);
   };
 
-  // opening a chat closes any open group
   const openChat = (user) => {
     closeGroup();
     setSelectedUser(user);
   };
 
-  // opening a group closes any open 1:1 chat
   const openGroup = (group) => {
     setSelectedUser(null);
     selectGroup(group);
   };
 
-  // call row tap -> us chat / group ko khol do
   const openFromCall = (call) => {
     if (call.isGroup) {
       const g = groups.find((x) => sameId(x.id, call.groupId));
@@ -819,15 +932,17 @@ const Sidebar = () => {
   const onSettings = pathname === "/settings";
   const onProfile = pathname === "/profile";
 
+  const plural = (n, word) => `${n} ${n === 1 ? word : `${word}s`}`;
+
   const headerTitle =
     mode === "calls"
       ? "Calls"
       : mode === "groups"
         ? showArchivedGroups
-          ? "Archived"
+          ? "Archived groups"
           : "Groups"
         : showArchived
-          ? "Archived"
+          ? "Archived chats"
           : "Messages";
   const headerSub =
     mode === "calls"
@@ -836,280 +951,118 @@ const Sidebar = () => {
         : `${allCalls.length} recent`
       : mode === "groups"
         ? showArchivedGroups
-          ? `${archivedGroups.length} ${archivedGroups.length === 1 ? "group" : "groups"}`
-          : `${groups.length - archivedGroups.length} ${
-              groups.length - archivedGroups.length === 1 ? "group" : "groups"
-            }`
+          ? plural(archivedGroups.length, "group")
+          : plural(groups.length - archivedGroups.length, "group")
         : showArchived
-          ? `${archivedUsers.length} ${archivedUsers.length === 1 ? "chat" : "chats"}`
+          ? plural(archivedUsers.length, "chat")
           : `${onlineCount} online`;
 
-  /* ---------- rows ---------- */
   const renderUser = (user, i = 0) => {
-    const online = isOnline(user);
     const favorite = isFavorite(user);
     const isSelected = !selectedGroup && sameId(selectedUser?.id, user.id);
     const unread = user.unreadCount || 0;
-    const hasUnread = unread > 0;
 
     return (
-      <motion.div
+      <Row
         key={user.id}
-        layout="position"
-        variants={rowVariants}
-        custom={i}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        className="relative group px-1.5 sm:px-2"
-      >
-        <motion.button
-          type="button"
-          whileHover={{ x: 2 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => openChat(user)}
-          className={`relative w-full min-h-[64px] rounded-xl px-2.5 sm:px-3 py-2.5 flex items-center gap-2.5 sm:gap-3 transition-colors duration-150 ${
-            isSelected ? "" : "hover:bg-base-200 active:bg-base-200"
-          }`}
-        >
-          {/* sliding selection highlight */}
-          {isSelected && (
-            <motion.span
-              layoutId="sidebar-selected"
-              transition={SPRING}
-              className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary/15 to-primary/5 ring-1 ring-primary/15 shadow-sm"
-            >
-              <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
-            </motion.span>
-          )}
-
-          {/* Avatar */}
-          <div className="relative z-10 shrink-0">
-            <img
-              src={avatarSrc(user.avatar)}
-              alt={user.fullName}
-              className={`size-11 sm:size-12 object-cover rounded-full ring-2 transition-all duration-200 group-hover:scale-105 ${
-                isSelected ? "ring-primary/50" : "ring-transparent"
-              }`}
-            />
-            <AnimatePresence>
-              {online && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  transition={POP}
-                  className="absolute bottom-0 right-0 size-3.5"
-                >
-                  <span className="absolute inset-0 rounded-full bg-success/60 animate-ping" />
-                  <span className="absolute inset-0 rounded-full bg-success ring-2 ring-base-100" />
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Name + preview */}
-          <div className="relative z-10 text-left min-w-0 flex-1">
-            <div
-              className={`truncate text-[15px] ${
-                hasUnread ? "font-semibold" : "font-medium"
-              }`}
-            >
-              {user.fullName}
-            </div>
-            <div
-              className={`text-[13px] truncate ${
-                hasUnread
-                  ? "text-base-content font-medium"
-                  : "text-base-content/50"
-              }`}
-            >
-              {getPreview(user.lastMessage, authUser?.id)}
-            </div>
-          </div>
-
-          {/* Timestamp + badge */}
-          <div className="relative z-10 flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
-            <span
-              className={`whitespace-nowrap text-[11px] ${
-                hasUnread ? "text-primary font-medium" : "text-base-content/40"
-              }`}
-            >
-              {formatListTime(user.lastMessageAt)}
-            </span>
-            <div className="pr-6 min-h-5">
-              <UnreadBadge count={unread} />
-            </div>
-          </div>
-        </motion.button>
-
-        {!hasUnread && (
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.75 }}
-            whileHover={{ scale: 1.2 }}
-            onClick={() => toggleFavorite(String(user.id), favorite)}
-            aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={favorite}
-            // bada touch area (p-1.5) taaki mobile par tap karna easy ho
-            className={`z-20 flex absolute bottom-1.5 right-3 sm:right-4 p-1.5 rounded transition-opacity focus-visible:opacity-100 ${
-              favorite
-                ? "opacity-100"
-                : // touch screens par hover nahi hota, isliye mobile par hamesha visible
-                  "opacity-60 lg:opacity-0 lg:group-hover:opacity-100"
-            }`}
-          >
-            {/* key change => star "pops" when toggled */}
-            <motion.span
-              key={String(favorite)}
-              initial={{ scale: 0.3, rotate: -50 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={POP}
-              className="inline-flex"
-            >
-              <Star
-                className={`size-4 transition-colors ${
+        index={i}
+        selected={isSelected}
+        onClick={() => openChat(user)}
+        avatar={
+          <Avatar
+            src={avatarSrc(user.avatar)}
+            name={user.fullName}
+            online={isOnline(user)}
+            selected={isSelected}
+          />
+        }
+        title={user.fullName}
+        subtitle={getPreview(user.lastMessage, authUser?.id)}
+        time={formatListTime(user.lastMessageAt)}
+        unread={unread}
+        trailing={<UnreadBadge count={unread} />}
+        actions={
+          unread === 0 && (
+            <>
+              <RowAction
+                onClick={() => setArchive(String(user.id), !user.isArchived)}
+                label={user.isArchived ? "Unarchive chat" : "Archive chat"}
+                className="hidden opacity-0 group-hover:opacity-100 lg:grid"
+              >
+                {user.isArchived ? (
+                  <ArchiveRestore className="size-4" />
+                ) : (
+                  <Archive className="size-4" />
+                )}
+              </RowAction>
+              <RowAction
+                onClick={() => toggleFavorite(String(user.id), favorite)}
+                label={favorite ? "Remove from favorites" : "Add to favorites"}
+                pressed={favorite}
+                className={
                   favorite
-                    ? "fill-warning text-warning drop-shadow-[0_0_4px_rgba(250,204,21,0.6)]"
-                    : "text-base-content/40 hover:text-warning"
-                }`}
-              />
-            </motion.span>
-          </motion.button>
-        )}
-
-        {/* Archive / Unarchive (desktop par hover me dikhta hai) */}
-        {!hasUnread && (
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.75 }}
-            whileHover={{ scale: 1.2 }}
-            onClick={() => setArchive(String(user.id), !user.isArchived)}
-            aria-label={user.isArchived ? "Unarchive chat" : "Archive chat"}
-            title={user.isArchived ? "Unarchive chat" : "Archive chat"}
-            className="z-20 hidden lg:flex absolute bottom-1.5 right-11 sm:right-12 p-1.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-          >
-            {user.isArchived ? (
-              <ArchiveRestore className="size-4 text-base-content/40 hover:text-primary" />
-            ) : (
-              <Archive className="size-4 text-base-content/40 hover:text-primary" />
-            )}
-          </motion.button>
-        )}
-      </motion.div>
+                    ? ""
+                    : "opacity-60 lg:opacity-0 lg:group-hover:opacity-100"
+                }
+              >
+                <Star
+                  className={`size-4 ${
+                    favorite
+                      ? "fill-warning text-warning"
+                      : "hover:text-warning"
+                  }`}
+                />
+              </RowAction>
+            </>
+          )
+        }
+      />
     );
   };
 
   const renderGroup = (group, i = 0) => {
     const isSelected = sameId(selectedGroup?.id, group.id);
     const unread = group.unreadCount || 0;
-    const hasUnread = unread > 0;
 
     return (
-      <motion.div
+      <Row
         key={group.id}
-        layout="position"
-        variants={rowVariants}
-        custom={i}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        className="relative group px-1.5 sm:px-2"
-      >
-        <motion.button
-          type="button"
-          whileHover={{ x: 2 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => openGroup(group)}
-          className={`relative w-full min-h-[64px] rounded-xl px-2.5 sm:px-3 py-2.5 flex items-center gap-2.5 sm:gap-3 transition-colors duration-150 ${
-            isSelected ? "" : "hover:bg-base-200 active:bg-base-200"
-          }`}
-        >
-          {isSelected && (
-            <motion.span
-              layoutId="sidebar-selected"
-              transition={SPRING}
-              className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary/15 to-primary/5 ring-1 ring-primary/15 shadow-sm"
+        index={i}
+        selected={isSelected}
+        onClick={() => openGroup(group)}
+        avatar={
+          <Avatar
+            group
+            src={group.avatar ? avatarSrc(group.avatar) : null}
+            name={group.name}
+            selected={isSelected}
+          />
+        }
+        title={group.name}
+        subtitle={getGroupPreview(group.lastMessage, authUser?.id)}
+        time={formatListTime(group.lastMessage?.createdAt)}
+        unread={unread}
+        trailing={<UnreadBadge count={unread} />}
+        actions={
+          unread === 0 && (
+            <RowAction
+              onClick={() =>
+                group.archived
+                  ? unarchiveGroup(group.id)
+                  : archiveGroup(group.id)
+              }
+              label={group.archived ? "Unarchive group" : "Archive group"}
+              className="hidden opacity-0 group-hover:opacity-100 lg:grid"
             >
-              <span className="absolute left-0 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
-            </motion.span>
-          )}
-
-          <div className="relative z-10 shrink-0">
-            {group.avatar ? (
-              <img
-                src={group.avatar}
-                alt={group.name}
-                className={`size-11 sm:size-12 object-cover rounded-full ring-2 transition-all duration-200 group-hover:scale-105 ${
-                  isSelected ? "ring-primary/50" : "ring-transparent"
-                }`}
-              />
-            ) : (
-              <div
-                className={`size-11 sm:size-12 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 text-primary flex items-center justify-center font-semibold text-lg ring-2 transition-all duration-200 group-hover:scale-105 ${
-                  isSelected ? "ring-primary/50" : "ring-transparent"
-                }`}
-              >
-                {group.name?.[0]?.toUpperCase()}
-              </div>
-            )}
-          </div>
-
-          <div className="relative z-10 text-left min-w-0 flex-1">
-            <div
-              className={`truncate text-[15px] ${
-                hasUnread ? "font-semibold" : "font-medium"
-              }`}
-            >
-              {group.name}
-            </div>
-            <div
-              className={`text-[13px] truncate ${
-                hasUnread
-                  ? "text-base-content font-medium"
-                  : "text-base-content/50"
-              }`}
-            >
-              {getGroupPreview(group.lastMessage, authUser?.id)}
-            </div>
-          </div>
-
-          <div className="relative z-10 flex flex-col items-end gap-1.5 shrink-0 self-stretch justify-between py-0.5">
-            <span
-              className={`whitespace-nowrap text-[11px] ${
-                hasUnread ? "text-primary font-medium" : "text-base-content/40"
-              }`}
-            >
-              {formatListTime(group.lastMessage?.createdAt)}
-            </span>
-            <div className="min-h-5">
-              <UnreadBadge count={unread} />
-            </div>
-          </div>
-        </motion.button>
-
-        {/* Archive / Unarchive (desktop par hover me dikhta hai).
-            Mobile par chat header ka archive button use karo. */}
-        {!hasUnread && (
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.75 }}
-            whileHover={{ scale: 1.2 }}
-            onClick={() =>
-              group.archived ? unarchiveGroup(group.id) : archiveGroup(group.id)
-            }
-            aria-label={group.archived ? "Unarchive group" : "Archive group"}
-            title={group.archived ? "Unarchive group" : "Archive group"}
-            className="z-20 hidden lg:flex absolute bottom-1.5 right-3 sm:right-4 p-1.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-          >
-            {group.archived ? (
-              <ArchiveRestore className="size-4 text-base-content/40 hover:text-primary" />
-            ) : (
-              <Archive className="size-4 text-base-content/40 hover:text-primary" />
-            )}
-          </motion.button>
-        )}
-      </motion.div>
+              {group.archived ? (
+                <ArchiveRestore className="size-4" />
+              ) : (
+                <Archive className="size-4" />
+              )}
+            </RowAction>
+          )
+        }
+      />
     );
   };
 
@@ -1123,105 +1076,86 @@ const Sidebar = () => {
     const dur = formatDuration(call.duration);
 
     return (
-      <motion.div
+      <Row
         key={call.key}
-        layout="position"
-        variants={rowVariants}
-        custom={i}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        className="group px-1.5 sm:px-2"
-      >
-        <motion.button
-          type="button"
-          whileHover={{ x: 2 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => openFromCall(call)}
-          className="relative w-full min-h-[64px] rounded-xl px-2.5 sm:px-3 py-2.5 flex items-center gap-2.5 sm:gap-3 transition-colors duration-150 hover:bg-base-200 active:bg-base-200"
-        >
-          {/* Avatar */}
-          <div className="relative z-10 shrink-0">
-            {call.isGroup && !call.avatar ? (
-              <div className="size-11 sm:size-12 rounded-full bg-gradient-to-br from-primary/20 to-secondary/20 text-primary flex items-center justify-center font-semibold text-lg transition-transform duration-200 group-hover:scale-105">
-                {call.name?.[0]?.toUpperCase() || (
-                  <UsersRound className="size-5" />
-                )}
-              </div>
-            ) : (
-              <img
-                src={avatarSrc(call.avatar)}
-                alt={call.name}
-                className="size-11 sm:size-12 object-cover rounded-full transition-transform duration-200 group-hover:scale-105"
-              />
-            )}
-            {call.isGroup && (
-              <span className="absolute -bottom-0.5 -right-0.5 grid size-[18px] place-items-center rounded-full bg-base-100 ring-2 ring-base-100">
-                <UsersRound className="size-3 text-base-content/60" />
-              </span>
-            )}
-          </div>
-
-          {/* Name + direction/duration */}
-          <div className="relative z-10 text-left min-w-0 flex-1">
-            <div
-              className={`truncate text-[15px] font-medium ${
-                call.missed ? "text-error" : ""
+        index={i}
+        onClick={() => openFromCall(call)}
+        tone={call.missed ? "danger" : "default"}
+        avatar={
+          <Avatar
+            group={call.isGroup}
+            src={call.isGroup && !call.avatar ? null : avatarSrc(call.avatar)}
+            name={call.name}
+          />
+        }
+        title={call.name}
+        subtitle={
+          <span className="flex items-center gap-1">
+            <DirIcon
+              className={`size-3.5 shrink-0 ${
+                call.missed ? "text-error" : "text-success"
               }`}
-            >
-              {call.name}
-            </div>
-            <div className="flex items-center gap-1 text-[13px] text-base-content/50">
-              <motion.span
-                className="inline-flex"
-                animate={
-                  call.missed ? { rotate: [0, -14, 14, -8, 0] } : undefined
-                }
-                transition={{
-                  duration: 0.6,
-                  delay: 0.3 + Math.min(i, 8) * 0.03,
-                }}
-              >
-                <DirIcon
-                  className={`size-3.5 shrink-0 ${
-                    call.missed ? "text-error" : "text-success"
-                  }`}
-                />
-              </motion.span>
-              <span className="truncate">
-                {call.missed
-                  ? "Missed"
-                  : call.outgoing
-                    ? "Outgoing"
-                    : "Incoming"}
-                {dur ? ` · ${dur}` : ""}
-              </span>
-            </div>
-          </div>
-
-          {/* Time + call type */}
-          <div className="relative z-10 flex flex-col items-end gap-1 shrink-0 self-stretch justify-between py-0.5">
-            <span
-              className={`whitespace-nowrap text-[11px] ${
-                call.missed ? "text-error font-medium" : "text-base-content/40"
-              }`}
-            >
-              {formatListTime(call.time)}
+            />
+            <span className="truncate">
+              {call.missed ? "Missed" : call.outgoing ? "Outgoing" : "Incoming"}
+              {dur ? ` · ${dur}` : ""}
             </span>
-            <span className="grid size-6 place-items-center rounded-full bg-primary/10 text-primary transition-all duration-200 group-hover:scale-110 group-hover:bg-primary group-hover:text-primary-content">
-              <TypeIcon className="size-3.5" />
-            </span>
-          </div>
-        </motion.button>
-      </motion.div>
+          </span>
+        }
+        time={formatListTime(call.time)}
+        trailing={
+          <TypeIcon className="size-4 text-base-content/45" aria-hidden />
+        }
+      />
     );
   };
 
   const modes = [
-    { key: "chats", label: "Chats", icon: MessageCircle, unread: chatUnread },
-    { key: "groups", label: "Groups", icon: UsersRound, unread: groupUnread },
-    { key: "calls", label: "Calls", icon: Phone, unread: missedCount },
+    {
+      key: "chats",
+      label: "Chats",
+      icon: MessageCircle,
+      count: chatUnread || null,
+      badge: true,
+    },
+    {
+      key: "groups",
+      label: "Groups",
+      icon: UsersRound,
+      count: groupUnread || null,
+      badge: true,
+    },
+    {
+      key: "calls",
+      label: "Calls",
+      icon: Phone,
+      count: missedCount || null,
+      badge: true,
+      tone: "danger",
+    },
   ];
+
+  const tabItems = TABS.map(({ key, label }) => ({
+    key,
+    label,
+    count: countFor(key, presence),
+    badge: key === "unread" && countFor(key, presence) > 0,
+  }));
+
+  const presenceItems = PRESENCE.map(({ key, label }) => ({
+    key,
+    label,
+    dot: key === "any" ? undefined : key,
+    count: key === "any" ? undefined : countFor(tab, key),
+  }));
+
+  const callFilterItems = CALL_FILTERS.map(({ key, label }) => ({
+    key,
+    label,
+    count: key === "missed" && missedCount > 0 ? missedCount : undefined,
+    badge: key === "missed" && missedCount > 0,
+    tone: "danger",
+  }));
 
   const searchPlaceholder =
     mode === "groups"
@@ -1230,439 +1164,133 @@ const Sidebar = () => {
         ? "Search calls"
         : "Search contacts";
 
-  /* ---------- render ---------- */
   return (
     <MotionConfig reducedMotion="user">
-      <motion.aside
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className={`h-full w-full min-w-0 shrink-0 border-r border-base-300 bg-base-100 flex-col transition-all duration-300 lg:w-80 xl:w-96 ${
+      <aside
+        className={`h-full w-full min-w-0 shrink-0 flex-col border-r border-base-300 bg-base-100 lg:w-80 xl:w-96 ${
           hasOpenChat ? "hidden lg:flex" : "flex"
         }`}
       >
-        {/* Header */}
-        <motion.div
-          initial="hidden"
-          animate="show"
-          variants={{ show: { transition: { staggerChildren: 0.06 } } }}
-          className="relative w-full px-4 sm:px-5 pb-3 pt-[max(1rem,env(safe-area-inset-top))]"
-        >
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/10 to-transparent" />
-          <motion.div
-            variants={headerItem}
-            className="relative flex items-center justify-between gap-2"
-          >
+        <div className="px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] sm:px-5">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-3">
-              {/* glowing logo */}
-              <motion.div
-                whileHover={{ rotate: -8, scale: 1.08 }}
-                whileTap={{ scale: 0.92 }}
-                transition={{ type: "spring", stiffness: 300, damping: 14 }}
-                className="relative size-10 shrink-0"
-              >
-                <motion.span
-                  className="absolute -inset-1 rounded-2xl bg-gradient-to-tr from-primary to-secondary blur-md"
-                  animate={{
-                    opacity: [0.25, 0.55, 0.25],
-                    scale: [0.95, 1.05, 0.95],
-                  }}
-                  transition={{
-                    duration: 3.2,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
-                />
-                <span className="relative flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-secondary text-primary-content shadow-lg shadow-primary/30">
-                  <Users className="size-5" />
-                </span>
-              </motion.div>
-
-              {/* title + subtitle swap with mode */}
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-content">
+                <Users className="size-5" />
+              </span>
               <div className="min-w-0 leading-tight">
-                <div className="relative h-6 overflow-hidden">
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={headerTitle}
-                      initial={{ y: 18, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={{ y: -18, opacity: 0 }}
-                      transition={{ duration: 0.18 }}
-                      className="block truncate text-lg font-semibold"
-                    >
-                      {headerTitle}
-                    </motion.span>
-                  </AnimatePresence>
-                </div>
-                <div className="relative h-4 overflow-hidden">
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={headerSub}
-                      initial={{ y: 10, opacity: 0 }}
-                      animate={{ y: 0, opacity: 1 }}
-                      exit={{ y: -10, opacity: 0 }}
-                      transition={{ duration: 0.16 }}
-                      className="block truncate text-[11px] text-base-content/50"
-                    >
-                      {headerSub}
-                    </motion.span>
-                  </AnimatePresence>
-                </div>
+                <h2 className="truncate text-lg font-semibold">
+                  {headerTitle}
+                </h2>
+                <p className="truncate text-xs text-base-content/55">
+                  {headerSub}
+                </p>
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <AnimatePresence>
-                {mode !== "calls" && totalUnread > 0 && (
-                  <motion.span
-                    initial={{ opacity: 0, scale: 0.7, x: 10 }}
-                    animate={{ opacity: 1, scale: 1, x: 0 }}
-                    exit={{ opacity: 0, scale: 0.7, x: 10 }}
-                    transition={POP}
-                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary/10 text-primary text-xs font-semibold px-2.5 py-1"
-                  >
-                    <AnimatedCount value={formatCount(totalUnread)} />
-                    <span>new</span>
-                  </motion.span>
-                )}
-              </AnimatePresence>
-
-              {/* Add contact */}
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.12 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: "spring", stiffness: 400, damping: 18 }}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <HeaderButton
+                icon={UserPlus}
+                label="Add contact"
                 onClick={() => setShowAddContact(true)}
-                className="btn btn-circle size-10 min-h-10 border-0 bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
-                aria-label="Add contact"
-                title="Add contact"
-              >
-                <UserPlus className="size-5" />
-              </motion.button>
-
-              {/* New group */}
-              <motion.button
-                type="button"
-                whileHover={{ rotate: 90, scale: 1.12 }}
-                whileTap={{ scale: 0.88 }}
-                transition={{ type: "spring", stiffness: 400, damping: 18 }}
+              />
+              <HeaderButton
+                icon={Plus}
+                label="New group"
                 onClick={() => setShowCreate(true)}
-                className="btn btn-circle size-10 min-h-10 border-0 bg-primary/10 text-primary hover:bg-primary hover:text-primary-content"
-                aria-label="Create group"
-                title="New group"
-              >
-                <Plus className="size-5" />
-              </motion.button>
+              />
             </div>
-          </motion.div>
-        </motion.div>
-
-        {/* Chats / Groups / Calls switch */}
-        <div className="px-3 sm:px-4 pb-3">
-          <LayoutGroup id="sidebar-modes">
-            <div
-              className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-base-200 shadow-inner"
-              role="tablist"
-            >
-              {modes.map(({ key, label, icon: Icon, unread }) => {
-                const active = mode === key;
-                return (
-                  <motion.button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    whileTap={{ scale: 0.94 }}
-                    aria-selected={active}
-                    onClick={() => changeMode(key)}
-                    aria-label={label}
-                    className={`relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl px-1 py-2 text-[13px] sm:text-xs font-medium transition-colors ${
-                      active
-                        ? "text-primary"
-                        : "text-base-content/60 hover:text-base-content"
-                    }`}
-                  >
-                    {active && (
-                      <motion.span
-                        layoutId="sidebar-mode-pill"
-                        transition={SPRING}
-                        className="absolute inset-0 rounded-xl bg-base-100 shadow-md ring-1 ring-base-300/60"
-                      />
-                    )}
-                    <motion.span
-                      className="relative z-10 inline-flex"
-                      animate={
-                        active
-                          ? { scale: [1, 1.25, 1], rotate: [0, -10, 0] }
-                          : { scale: 1, rotate: 0 }
-                      }
-                      transition={{ duration: 0.35 }}
-                      key={active ? "on" : "off"}
-                    >
-                      <Icon className="size-4 shrink-0" />
-                    </motion.span>
-                    <span className="relative z-10 truncate">{label}</span>
-                    <AnimatePresence>
-                      {unread > 0 && (
-                        <motion.span
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          exit={{ scale: 0 }}
-                          transition={POP}
-                          className={`relative z-10 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-none ${
-                            key === "calls"
-                              ? "bg-error text-error-content"
-                              : "bg-primary text-primary-content"
-                          }`}
-                        >
-                          {formatCount(unread)}
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </LayoutGroup>
+          </div>
         </div>
 
-        {/* Search + filters */}
-        <div className="px-3 sm:px-4 pb-3 space-y-2.5">
-          <motion.label
-            animate={{ scale: searchFocused ? 1.015 : 1 }}
-            transition={{ type: "spring", stiffness: 400, damping: 26 }}
-            className={`input input-bordered input-sm h-11 sm:h-10 rounded-xl flex items-center gap-2 transition-all duration-200 ${
-              searchFocused
-                ? "bg-base-100 border-primary/50 shadow-md shadow-primary/10"
-                : "bg-base-200/60"
-            }`}
-          >
-            <motion.span
-              animate={{
-                rotate: searchFocused ? -12 : 0,
-                scale: searchFocused ? 1.15 : 1,
-              }}
-              className="inline-flex"
-            >
-              <Search
-                className={`size-4 shrink-0 transition-colors ${
-                  searchFocused ? "text-primary" : "text-base-content/50"
-                }`}
-              />
-            </motion.span>
-            {/* text-base => iOS par focus karne par zoom nahi hota */}
+        <div className="px-3 pb-3 sm:px-4">
+          <Segmented
+            items={modes}
+            value={mode}
+            onChange={changeMode}
+            layoutId="sidebar-modes"
+            label="Sidebar section"
+          />
+        </div>
+
+        <div className="space-y-2 px-3 pb-3 sm:px-4">
+          <label className="input input-bordered flex h-10 items-center gap-2 rounded-lg bg-base-100 transition-colors focus-within:border-primary/60 focus-within:outline-none">
+            <Search className="size-4 shrink-0 text-base-content/50" />
             <input
               type="text"
               className="min-w-0 grow text-base sm:text-sm"
               placeholder={searchPlaceholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
             />
-            <AnimatePresence>
-              {query && (
-                <motion.button
-                  type="button"
-                  initial={{ opacity: 0, scale: 0.5, rotate: -90 }}
-                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                  exit={{ opacity: 0, scale: 0.5, rotate: 90 }}
-                  whileTap={{ scale: 0.8 }}
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="grid size-7 shrink-0 place-items-center rounded-full text-base-content/40 hover:bg-base-300/60 hover:text-base-content transition-colors"
-                >
-                  <X className="size-4" />
-                </motion.button>
-              )}
-            </AnimatePresence>
-          </motion.label>
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="grid size-6 shrink-0 place-items-center rounded-md text-base-content/40 transition-colors hover:bg-base-200 hover:text-base-content"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </label>
 
-          {/* Filters */}
-          <AnimatePresence initial={false}>
+          <AnimatePresence initial={false} mode="wait">
             {mode === "chats" && (
               <motion.div
                 key="filters"
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.22 }}
-                className="space-y-2.5 overflow-hidden"
+                transition={{ duration: 0.18 }}
+                className="space-y-2 overflow-hidden"
               >
-                {/* Segmented control: All / Unread / Favorites */}
-                <div
-                  className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-base-200"
-                  role="tablist"
-                  aria-label="Filter conversations"
-                >
-                  {TABS.map(({ key, label }) => {
-                    const active = tab === key;
-                    const count = countFor(key, presence);
-                    const highlight = key === "unread" && count > 0;
-
-                    return (
-                      <motion.button
-                        key={key}
-                        type="button"
-                        role="tab"
-                        whileTap={{ scale: 0.94 }}
-                        aria-selected={active}
-                        onClick={() => setTab(key)}
-                        className={`relative flex min-h-10 min-w-0 items-center justify-center gap-1 rounded-lg px-1 py-2 text-[12px] sm:text-xs font-medium transition-colors ${
-                          active
-                            ? "text-base-content"
-                            : "text-base-content/60 hover:text-base-content"
-                        }`}
-                      >
-                        {active && (
-                          <motion.span
-                            layoutId="sidebar-tab-pill"
-                            transition={SPRING}
-                            className="absolute inset-0 rounded-lg bg-base-100 shadow-sm"
-                          />
-                        )}
-                        {key === "favorites" && (
-                          <Star
-                            className={`relative z-10 size-3 shrink-0 transition-colors ${
-                              active ? "fill-warning text-warning" : ""
-                            }`}
-                          />
-                        )}
-                        <span className="relative z-10 truncate">{label}</span>
-                        <span
-                          className={`relative z-10 min-w-4 h-4 shrink-0 px-1 inline-flex items-center justify-center rounded-full text-[10px] font-semibold leading-none transition-colors ${
-                            highlight
-                              ? "bg-primary text-primary-content"
-                              : "text-base-content/40"
-                          }`}
-                        >
-                          <AnimatedCount value={formatCount(count)} />
-                        </span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-
-                {/* Presence toggle: Any / Online / Offline */}
-                <div
-                  className="flex items-center gap-1 overflow-x-auto no-scrollbar"
-                  role="group"
-                  aria-label="Filter by status"
-                >
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/40 mr-1 shrink-0">
-                    Status
-                  </span>
-                  {PRESENCE.map(({ key, label }) => {
-                    const active = presence === key;
-                    const count = countFor(tab, key);
-
-                    return (
-                      <motion.button
-                        key={key}
-                        type="button"
-                        whileTap={{ scale: 0.92 }}
-                        aria-pressed={active}
-                        onClick={() => setPresence(key)}
-                        className={`relative inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-colors ${
-                          active
-                            ? "text-base-content font-semibold"
-                            : "text-base-content/50 hover:text-base-content hover:bg-base-200/60"
-                        }`}
-                      >
-                        {active && (
-                          <motion.span
-                            layoutId="sidebar-presence-pill"
-                            transition={SPRING}
-                            className="absolute inset-0 rounded-full bg-base-200 ring-1 ring-base-300"
-                          />
-                        )}
-                        {key === "online" && (
-                          <span className="relative z-10 size-2 rounded-full bg-success" />
-                        )}
-                        {key === "offline" && (
-                          <span className="relative z-10 size-2 rounded-full border border-base-content/40" />
-                        )}
-                        <span className="relative z-10">{label}</span>
-                        {key !== "any" && (
-                          <AnimatedCount
-                            value={count}
-                            className="relative z-10 text-base-content/40"
-                          />
-                        )}
-                      </motion.button>
-                    );
-                  })}
-                </div>
+                <Segmented
+                  items={tabItems}
+                  value={tab}
+                  onChange={setTab}
+                  layoutId="sidebar-tabs"
+                  label="Filter conversations"
+                />
+                <Segmented
+                  items={presenceItems}
+                  value={presence}
+                  onChange={setPresence}
+                  layoutId="sidebar-presence"
+                  label="Filter by status"
+                />
               </motion.div>
             )}
 
-            {/* Calls filter: All / Missed */}
             {mode === "calls" && (
               <motion.div
                 key="call-filters"
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.22 }}
+                transition={{ duration: 0.18 }}
                 className="overflow-hidden"
               >
-                <div
-                  className="flex items-center gap-1 overflow-x-auto no-scrollbar"
-                  role="group"
-                  aria-label="Filter calls"
-                >
-                  {CALL_FILTERS.map(({ key, label }) => {
-                    const active = callFilter === key;
-                    return (
-                      <motion.button
-                        key={key}
-                        type="button"
-                        whileTap={{ scale: 0.92 }}
-                        aria-pressed={active}
-                        onClick={() => setCallFilter(key)}
-                        className={`relative inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs transition-colors ${
-                          active
-                            ? "text-base-content font-semibold"
-                            : "text-base-content/50 hover:text-base-content hover:bg-base-200/60"
-                        }`}
-                      >
-                        {active && (
-                          <motion.span
-                            layoutId="sidebar-callfilter-pill"
-                            transition={SPRING}
-                            className="absolute inset-0 rounded-full bg-base-200 ring-1 ring-base-300"
-                          />
-                        )}
-                        <span className="relative z-10">{label}</span>
-                        {key === "missed" && missedCount > 0 && (
-                          <AnimatedCount
-                            value={formatCount(missedCount)}
-                            className="relative z-10 text-error"
-                          />
-                        )}
-                      </motion.button>
-                    );
-                  })}
-                </div>
+                <Segmented
+                  items={callFilterItems}
+                  value={callFilter}
+                  onChange={setCallFilter}
+                  layoutId="sidebar-callfilter"
+                  label="Filter calls"
+                />
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* divider: gets a soft shadow once the list is scrolled */}
-        <motion.div
-          animate={{
-            boxShadow: scrolled
-              ? "0 6px 12px -6px rgba(0,0,0,0.18)"
-              : "0 0 0 0 rgba(0,0,0,0)",
-          }}
-          className="relative z-10 border-t border-base-300"
+        <div
+          className={`relative z-10 border-t border-base-300 transition-shadow ${
+            scrolled ? "shadow-[0_6px_12px_-8px_rgba(0,0,0,0.2)]" : ""
+          }`}
         />
 
-        {/* Conversation list */}
         <div
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
-          className="overflow-y-auto overscroll-contain w-full py-2 flex-1 min-h-0"
+          className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain py-2"
         >
           <AnimatePresence mode="wait" custom={dir} initial={false}>
             <motion.div
@@ -1675,7 +1303,7 @@ const Sidebar = () => {
             >
               {mode === "calls" ? (
                 callsInitialLoading ? (
-                  <CallSkeleton />
+                  <ListSkeleton />
                 ) : (
                   <>
                     <AnimatePresence initial={false}>
@@ -1693,7 +1321,7 @@ const Sidebar = () => {
                           <button
                             type="button"
                             onClick={() => setCallFilter("all")}
-                            className="btn btn-sm btn-ghost text-primary mt-1"
+                            className="btn btn-ghost btn-sm text-primary"
                           >
                             Show all calls
                           </button>
@@ -1705,16 +1333,10 @@ const Sidebar = () => {
               ) : mode === "groups" ? (
                 <>
                   {showArchivedGroups ? (
-                    <div className="px-1.5 sm:px-2 pb-1">
-                      <button
-                        type="button"
-                        onClick={() => setShowArchivedGroups(false)}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:bg-base-200"
-                      >
-                        <ArrowLeft className="size-4" />
-                        Archived groups
-                      </button>
-                    </div>
+                    <BackBar
+                      label="Archived groups"
+                      onClick={() => setShowArchivedGroups(false)}
+                    />
                   ) : (
                     !q &&
                     archivedGroups.length > 0 && (
@@ -1742,7 +1364,7 @@ const Sidebar = () => {
                         <button
                           type="button"
                           onClick={() => setShowArchivedGroups(false)}
-                          className="btn btn-sm btn-ghost text-primary mt-1"
+                          className="btn btn-ghost btn-sm text-primary"
                         >
                           Back to groups
                         </button>
@@ -1751,7 +1373,7 @@ const Sidebar = () => {
                         <button
                           type="button"
                           onClick={() => setShowCreate(true)}
-                          className="btn btn-sm btn-primary mt-1"
+                          className="btn btn-primary btn-sm"
                         >
                           Create a group
                         </button>
@@ -1762,16 +1384,10 @@ const Sidebar = () => {
               ) : (
                 <>
                   {showArchived ? (
-                    <div className="px-1.5 sm:px-2 pb-1">
-                      <button
-                        type="button"
-                        onClick={() => setShowArchived(false)}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:bg-base-200"
-                      >
-                        <ArrowLeft className="size-4" />
-                        Archived chats
-                      </button>
-                    </div>
+                    <BackBar
+                      label="Archived chats"
+                      onClick={() => setShowArchived(false)}
+                    />
                   ) : (
                     !q &&
                     archivedUsers.length > 0 && (
@@ -1807,7 +1423,7 @@ const Sidebar = () => {
                         <button
                           type="button"
                           onClick={clearFilters}
-                          className="btn btn-sm btn-ghost text-primary mt-1"
+                          className="btn btn-ghost btn-sm text-primary"
                         >
                           Clear filters
                         </button>
@@ -1817,7 +1433,7 @@ const Sidebar = () => {
                           <button
                             type="button"
                             onClick={() => setShowArchived(false)}
-                            className="btn btn-sm btn-ghost text-primary mt-1"
+                            className="btn btn-ghost btn-sm text-primary"
                           >
                             Back to chats
                           </button>
@@ -1825,7 +1441,7 @@ const Sidebar = () => {
                           <button
                             type="button"
                             onClick={() => setShowAddContact(true)}
-                            className="btn btn-sm btn-primary mt-1 gap-1"
+                            className="btn btn-primary btn-sm gap-1"
                           >
                             <UserPlus className="size-4" />
                             {q ? "Find people to add" : "Add contacts"}
@@ -1839,84 +1455,56 @@ const Sidebar = () => {
           </AnimatePresence>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...SPRING, delay: 0.15 }}
-          className="relative border-t border-base-300 bg-base-100/80 p-2.5 sm:p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur"
-        >
-          <div className="pointer-events-none absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
-
-          <LayoutGroup id="sidebar-footer">
-            <motion.div
-              whileHover={{ y: -1 }}
-              className="flex flex-row items-center gap-1.5 sm:gap-2 rounded-2xl border border-base-300 bg-base-200/50 p-1.5 shadow-sm"
+        <div className="border-t border-base-300 bg-base-100 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:p-3">
+          <div className="flex items-center gap-1.5 rounded-xl border border-base-300 bg-base-200/50 p-1.5">
+            <button
+              type="button"
+              onClick={() => navigate("/profile")}
+              aria-label="Open my profile"
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 pr-2 text-left transition-colors hover:bg-base-100"
             >
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.97 }}
-                onClick={() => navigate("/profile")}
-                className="group flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 rounded-xl p-1 pr-2 transition-colors hover:bg-base-100"
-                aria-label="Open my profile"
-              >
-                <div className="relative shrink-0">
-                  <img
-                    src={avatarSrc(authUser?.avatar)}
-                    alt={authUser?.fullName || "Me"}
-                    className={`size-10 rounded-full object-cover ring-2 transition-all duration-200 group-hover:scale-105 ${
-                      onProfile ? "ring-primary" : "ring-primary/20"
-                    }`}
-                  />
-                  <AnimatePresence>
-                    {meOnline && (
-                      <motion.span
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        exit={{ scale: 0 }}
-                        transition={POP}
-                        className="absolute bottom-0 right-0 size-3 rounded-full bg-success ring-2 ring-base-100"
-                      />
-                    )}
-                  </AnimatePresence>
-                </div>
-                <div className="min-w-0 text-left">
-                  <p className="truncate text-sm font-semibold leading-tight">
-                    {authUser?.fullName}
-                  </p>
-                  <p
-                    className={`truncate text-xs ${
-                      meOnline ? "text-success" : "text-base-content/50"
-                    }`}
-                  >
-                    {meOnline ? "Online" : authUser?.email}
-                  </p>
-                </div>
-              </motion.button>
-
-              <div className="flex flex-row items-center gap-0.5 shrink-0">
-                <FooterAction
-                  icon={UserRound}
-                  label="My profile"
-                  active={onProfile}
-                  onClick={() => navigate("/profile")}
+              <div className="relative shrink-0">
+                <img
+                  src={avatarSrc(authUser?.avatar)}
+                  alt={authUser?.fullName || "Me"}
+                  className={`size-10 rounded-full object-cover ring-2 transition-colors ${
+                    onProfile ? "ring-primary" : "ring-transparent"
+                  }`}
                 />
-                <FooterAction
-                  icon={Settings}
-                  label="Settings"
-                  active={onSettings}
-                  spin
-                  onClick={() => navigate("/settings")}
-                />
-                <FooterAction
-                  icon={LogOut}
-                  label="Log out"
-                  danger
-                  onClick={() => setConfirmLogout(true)}
-                />
+                {meOnline && (
+                  <span className="absolute bottom-0 right-0 size-3 rounded-full bg-success ring-2 ring-base-100" />
+                )}
               </div>
-            </motion.div>
-          </LayoutGroup>
-        </motion.div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold leading-tight">
+                  {authUser?.fullName}
+                </p>
+                <p
+                  className={`truncate text-xs ${
+                    meOnline ? "text-success" : "text-base-content/55"
+                  }`}
+                >
+                  {meOnline ? "Online" : authUser?.email}
+                </p>
+              </div>
+            </button>
+
+            <div className="flex shrink-0 items-center gap-0.5">
+              <FooterAction
+                icon={Settings}
+                label="Settings"
+                active={onSettings}
+                onClick={() => navigate("/settings")}
+              />
+              <FooterAction
+                icon={LogOut}
+                label="Log out"
+                danger
+                onClick={() => setConfirmLogout(true)}
+              />
+            </div>
+          </div>
+        </div>
 
         <CreateGroupModal
           open={showCreate}
@@ -1934,7 +1522,7 @@ const Sidebar = () => {
           onCancel={() => setConfirmLogout(false)}
           onConfirm={handleLogout}
         />
-      </motion.aside>
+      </aside>
     </MotionConfig>
   );
 };
