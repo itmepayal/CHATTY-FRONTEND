@@ -1,0 +1,237 @@
+import { STORAGE_CONFIG } from "./e2ee.constants.js";
+
+const isIndexedDBSupported = () =>
+  typeof window !== "undefined" && "indexedDB" in window;
+
+let dbInstancePromise = null;
+
+const getDatabase = () => {
+  if (!isIndexedDBSupported()) {
+    return Promise.reject(
+      new Error("IndexedDB is not supported in this environment."),
+    );
+  }
+
+  if (dbInstancePromise) return dbInstancePromise;
+
+  dbInstancePromise = new Promise((resolve, reject) => {
+    try {
+      const request = indexedDB.open(STORAGE_CONFIG.DB_NAME, 1);
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(STORAGE_CONFIG.STORE_NAME)) {
+          db.createObjectStore(STORAGE_CONFIG.STORE_NAME);
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => {
+        dbInstancePromise = null;
+        reject(request.error);
+      };
+      request.onblocked = () => {
+        console.warn("[E2EE KeyStore] IndexedDB open blocked by other tab.");
+      };
+    } catch (e) {
+      dbInstancePromise = null;
+      reject(e);
+    }
+  });
+
+  return dbInstancePromise;
+};
+
+/**
+ * Retrieves a user's cryptographic record from IndexedDB.
+ * @param {string} userId - Authenticated user ID.
+ * @returns {Promise<{ privateKey: CryptoKey, publicJwk: object, version?: number, updatedAt?: string } | null>}
+ */
+export const getKeyRecord = async (userId) => {
+  if (!userId) return null;
+  const uid = String(userId);
+
+  try {
+    const db = await getDatabase();
+    const record = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readonly");
+      const store = tx.objectStore(STORAGE_CONFIG.STORE_NAME);
+      const req = store.get(uid);
+
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+
+    if (record) return record;
+
+    // Check legacy store as fallback if not present in v2
+    return await getLegacyKeyRecord(uid);
+  } catch (err) {
+    console.error(`[E2EE KeyStore] Error getting keys for user ${uid}:`, err);
+    return null;
+  }
+};
+
+/**
+ * Persists a user's identity record into IndexedDB.
+ * Requires privateKey to be a CryptoKey (preferably extractable: false).
+ * @param {string} userId - Authenticated user ID.
+ * @param {{ privateKey: CryptoKey, publicJwk: object, version?: number }} record
+ */
+export const saveKeyRecord = async (
+  userId,
+  { privateKey, publicJwk, version = 1 },
+) => {
+  if (!userId) throw new Error("userId is required to persist keys.");
+  if (!privateKey) throw new Error("privateKey CryptoKey is required.");
+  if (!publicJwk || !publicJwk.x || !publicJwk.y) {
+    throw new Error("Valid publicJwk is required.");
+  }
+
+  const uid = String(userId);
+  const db = await getDatabase();
+
+  const recordToStore = {
+    userId: uid,
+    privateKey,
+    publicJwk: {
+      kty: "EC",
+      crv: "P-256",
+      x: publicJwk.x,
+      y: publicJwk.y,
+    },
+    version,
+    updatedAt: new Date().toISOString(),
+  };
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORAGE_CONFIG.STORE_NAME);
+    store.put(recordToStore, uid);
+
+    tx.oncomplete = () => resolve(recordToStore);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(new Error("IndexedDB transaction was aborted."));
+  });
+};
+
+/**
+ * Checks if a key record exists locally for the given user.
+ * @param {string} userId - Authenticated user ID.
+ * @returns {Promise<boolean>}
+ */
+export const hasKeyRecord = async (userId) => {
+  if (!userId) return false;
+  const record = await getKeyRecord(userId);
+  return Boolean(record?.privateKey && record?.publicJwk);
+};
+
+/**
+ * Deletes a user's key record from local storage.
+ * @param {string} userId - Authenticated user ID.
+ */
+export const deleteKeyRecord = async (userId) => {
+  if (!userId) return;
+  const uid = String(userId);
+
+  try {
+    const db = await getDatabase();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readwrite");
+      tx.objectStore(STORAGE_CONFIG.STORE_NAME).delete(uid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+
+    // Also delete from legacy store if present
+    await deleteLegacyKeyRecord(uid);
+  } catch (err) {
+    console.warn(`[E2EE KeyStore] Failed to delete keys for user ${uid}:`, err);
+  }
+};
+
+/**
+ * Clears all key records across all accounts.
+ */
+export const clearAllKeys = async () => {
+  try {
+    const db = await getDatabase();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readwrite");
+      tx.objectStore(STORAGE_CONFIG.STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("[E2EE KeyStore] Failed to clear all keys:", err);
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/*  Legacy Database Compatibility Helpers (chatty-e2ee store)          */
+/* ------------------------------------------------------------------ */
+
+const getLegacyKeyRecord = async (uid) => {
+  if (!isIndexedDBSupported()) return null;
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(STORAGE_CONFIG.LEGACY_DB_NAME, 1);
+      req.onupgradeneeded = () =>
+        req.result.createObjectStore(STORAGE_CONFIG.LEGACY_STORE_NAME);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORAGE_CONFIG.LEGACY_STORE_NAME)) {
+          db.close();
+          return resolve(null);
+        }
+        const tx = db.transaction(STORAGE_CONFIG.LEGACY_STORE_NAME, "readonly");
+        const getReq = tx
+          .objectStore(STORAGE_CONFIG.LEGACY_STORE_NAME)
+          .get(uid);
+        getReq.onsuccess = () => {
+          db.close();
+          resolve(getReq.result || null);
+        };
+        getReq.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
+const deleteLegacyKeyRecord = async (uid) => {
+  if (!isIndexedDBSupported()) return;
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(STORAGE_CONFIG.LEGACY_DB_NAME, 1);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORAGE_CONFIG.LEGACY_STORE_NAME)) {
+          db.close();
+          return resolve();
+        }
+        const tx = db.transaction(
+          STORAGE_CONFIG.LEGACY_STORE_NAME,
+          "readwrite",
+        );
+        tx.objectStore(STORAGE_CONFIG.LEGACY_STORE_NAME).delete(uid);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      };
+      req.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+};

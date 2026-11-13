@@ -146,6 +146,7 @@ const isFile = (m) =>
   !!(m.file || m.fileUrl || m.type === "file" || m.messageType === "file");
 
 const getBody = (m) => {
+  if (m.decryptFailed || (m.encrypted && !m.decrypted)) return "🔒 Encrypted message";
   if (m.text) return m.text;
   if (isLocation(m)) return "📍 Location";
   if (isVideo(m)) return "🎥 Video";

@@ -320,7 +320,11 @@ const getFlags = (m, mine, canDM, canDA) => {
   return {
     isDeleted,
     // E2EE: nothing to copy when the text could not be decrypted
-    hasText: !isDeleted && !m.decryptFailed && Boolean(m.text),
+    hasText:
+      !isDeleted &&
+      !m.decryptFailed &&
+      !(m.encrypted && !m.decrypted) &&
+      Boolean(m.text),
     hasImage: !isDeleted && Boolean(m.image?.url),
     hasFile: !isDeleted && Boolean(m.file?.name),
     hasFileUrl: !isDeleted && Boolean(m.file?.url),
@@ -805,7 +809,9 @@ const MessageRow = memo(function MessageRow({
   const isDeleted = Boolean(m.isDeleted);
   // E2EE: a message whose text could not be decrypted still gets a bubble
   // (with a lock placeholder) instead of an empty one.
-  const decryptFailed = !isDeleted && Boolean(m.decryptFailed);
+  const decryptFailed =
+    !isDeleted &&
+    (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted));
   const hasText = !isDeleted && (Boolean(m.text) || decryptFailed);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
@@ -1391,7 +1397,12 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
   /* ---- E2EE: how many messages are still locked ---- */
   const undecryptedCount = useMemo(
-    () => list.filter((m) => m.decryptFailed && !m.isDeleted).length,
+    () =>
+      list.filter(
+        (m) =>
+          !m.isDeleted &&
+          (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted)),
+      ).length,
     [list],
   );
 

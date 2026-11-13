@@ -211,6 +211,9 @@ export const useChatStore = create((set, get) => {
         formData.append("text", enc.text);
         formData.append("iv", enc.iv);
         formData.append("encrypted", "true");
+        if (Array.isArray(enc.keyEnvelopes) && enc.keyEnvelopes.length > 0) {
+          formData.append("keyEnvelopes", JSON.stringify(enc.keyEnvelopes));
+        }
       } else {
         formData.append("text", "");
       }
@@ -349,7 +352,9 @@ export const useChatStore = create((set, get) => {
       const peer = get().selectedUser?.id;
       const next = await Promise.all(
         get().messages.map((m) =>
-          m.decryptFailed ? decryptDmMessage(m, me, peer) : m,
+          m.decryptFailed || (m.encrypted && !m.decrypted)
+            ? decryptDmMessage(m, me, peer)
+            : m,
         ),
       );
       set({ messages: next });
@@ -517,7 +522,7 @@ export const useChatStore = create((set, get) => {
         }));
       };
 
-      // payload: { messageId, text(cipher), iv, encrypted, isEdited, editedAt }
+      // payload: { messageId, text(cipher), iv, encrypted, isEdited, editedAt, keyEnvelopes }
       const onEdited = async ({
         messageId,
         text,
@@ -525,25 +530,32 @@ export const useChatStore = create((set, get) => {
         encrypted,
         isEdited,
         editedAt,
+        keyEnvelopes,
       }) => {
         const target = get().messages.find((m) => sameId(m.id, messageId));
         if (!target) return;
         let plain = text;
+        let decryptFailed = false;
         if (encrypted && iv) {
           try {
             await whenE2EEReady();
-            plain = await decryptFrom(dmPeerOf(target, myId()), text, iv);
+            plain = await decryptFrom(dmPeerOf(target, myId()), text, iv, {
+              ...target,
+              keyEnvelopes: keyEnvelopes || target.keyEnvelopes,
+            });
           } catch {
             plain = "";
+            decryptFailed = true;
           }
         }
         patchById(messageId, {
-          text: plain,
+          text: decryptFailed ? "" : plain,
           isEdited,
           editedAt,
           linkPreview: null,
-          decrypted: true,
-          decryptFailed: false,
+          decrypted: !decryptFailed,
+          decryptFailed,
+          ...(keyEnvelopes ? { keyEnvelopes } : {}),
         });
       };
 
@@ -793,6 +805,7 @@ export const useChatStore = create((set, get) => {
           text: enc.text,
           iv: enc.iv,
           encrypted: true,
+          keyEnvelopes: enc.keyEnvelopes,
         });
         const p = res.data.data;
         // server sends { messageId, isEdited, editedAt, ... } (or just { messageId } if no change)
@@ -910,6 +923,7 @@ export const useChatStore = create((set, get) => {
           iv: enc.iv,
           encrypted: true,
           scheduledFor,
+          keyEnvelopes: enc.keyEnvelopes,
         });
         toast.success("Message scheduled");
         get().getScheduled(receiverId);

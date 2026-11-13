@@ -598,7 +598,10 @@ const CallLogRow = ({ item, prev, s, onCallBack, disabled }) => {
 const messageFlags = (message, isMine) => {
   const isDeleted = Boolean(message.isDeleted);
   // E2EE: nothing to copy / edit / forward when the text could not be decrypted
-  const decryptFailed = !isDeleted && Boolean(message.decryptFailed);
+  const decryptFailed =
+    !isDeleted &&
+    (Boolean(message.decryptFailed) ||
+      (Boolean(message.encrypted) && !message.decrypted));
   const hasText = !isDeleted && !decryptFailed && Boolean(message.text);
   const hasAudio = !isDeleted && Boolean(message.audio?.url);
   const hasVideo = !isDeleted && Boolean(message.video?.url);
@@ -1943,7 +1946,9 @@ const MessageRow = memo(function MessageRow({
   const isDeleted = Boolean(m.isDeleted);
   // E2EE: a message whose text could not be decrypted still gets a bubble
   // (with a lock placeholder) instead of an empty one.
-  const decryptFailed = !isDeleted && Boolean(m.decryptFailed);
+  const decryptFailed =
+    !isDeleted &&
+    (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted));
   const hasText = !isDeleted && (Boolean(m.text) || decryptFailed);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
@@ -2359,7 +2364,12 @@ const ChatContainer = () => {
 
   /* ---- E2EE: how many messages are still locked ---- */
   const undecryptedCount = useMemo(
-    () => list.filter((m) => m.decryptFailed && !m.isDeleted).length,
+    () =>
+      list.filter(
+        (m) =>
+          !m.isDeleted &&
+          (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted)),
+      ).length,
     [list],
   );
 

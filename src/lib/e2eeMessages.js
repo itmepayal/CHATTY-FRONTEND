@@ -42,8 +42,13 @@ const decryptWith = async (m, fn) => {
 };
 
 export const FAILED_TEXT = "🔒 Encrypted message";
-export const displayText = (m, fallback = FAILED_TEXT) =>
-  m?.decryptFailed ? fallback : (m?.text ?? "");
+export const displayText = (m, fallback = FAILED_TEXT) => {
+  if (!m) return "";
+  if (m.decryptFailed || (m.encrypted && !m.decrypted)) {
+    return fallback;
+  }
+  return m.text ?? "";
+};
 
 export const dmPeerOf = (m, meId) =>
   String(sameId(m.senderId, meId) ? m.receiverId : m.senderId);
@@ -56,11 +61,16 @@ export const decryptDmMessage = async (m, meId, fallbackPeer) => {
       : String(fallbackPeer);
   const fn = async (cipher, iv) => {
     await whenE2EEReady();
-    return decryptFrom(peer, cipher, iv);
+    return decryptFrom(peer, cipher, iv, m);
   };
   let out = await decryptWith(m, fn);
-  if (out.replyTo)
-    out = { ...out, replyTo: await decryptWith(out.replyTo, fn) };
+  if (out.replyTo) {
+    const replyFn = async (cipher, iv) => {
+      await whenE2EEReady();
+      return decryptFrom(peer, cipher, iv, out.replyTo);
+    };
+    out = { ...out, replyTo: await decryptWith(out.replyTo, replyFn) };
+  }
   return out;
 };
 
@@ -71,7 +81,7 @@ export const decryptDmPreview = (lm, peerId) =>
   lm && typeof lm === "object"
     ? decryptWith(lm, async (cipher, iv) => {
         await whenE2EEReady();
-        return decryptFrom(peerId, cipher, iv);
+        return decryptFrom(peerId, cipher, iv, lm);
       })
     : lm;
 

@@ -1,0 +1,332 @@
+import { useState } from "react";
+import {
+  ShieldCheck,
+  ShieldAlert,
+  KeyRound,
+  RotateCcw,
+  Lock,
+  CheckCircle2,
+  RefreshCw,
+  AlertTriangle,
+  FileKey,
+  Shield,
+  Key,
+} from "lucide-react";
+import { useE2EE } from "../../hooks/useE2EE.js";
+import { E2EE_STATUS } from "../../lib/e2ee/e2ee.constants.js";
+import { E2EESetupModal } from "./E2EESetupModal.jsx";
+import { E2EERestoreModal } from "./E2EERestoreModal.jsx";
+import { E2EEChangePassphraseModal } from "./E2EEChangePassphraseModal.jsx";
+import { E2EEResetModal } from "./E2EEResetModal.jsx";
+
+export function E2EESettingsSection() {
+  const {
+    status,
+    isReady,
+    isRestoreRequired,
+    isNotConfigured,
+    serverStatus,
+    refresh,
+  } = useE2EE();
+
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
+  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [changePassModalOpen, setChangePassModalOpen] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const getStatusBadge = () => {
+    switch (status) {
+      case E2EE_STATUS.READY:
+        return (
+          <span className="badge badge-success gap-1.5 font-semibold">
+            <CheckCircle2 className="size-3.5" />
+            Active & Verified
+          </span>
+        );
+      case E2EE_STATUS.RESTORE_REQUIRED:
+        return (
+          <span className="badge badge-warning gap-1.5 font-semibold">
+            <KeyRound className="size-3.5" />
+            Restore Required
+          </span>
+        );
+      case E2EE_STATUS.NOT_CONFIGURED:
+        return (
+          <span className="badge badge-neutral gap-1.5 font-semibold">
+            Not Enabled
+          </span>
+        );
+      case E2EE_STATUS.BACKUP_MISSING:
+        return (
+          <span className="badge badge-error gap-1.5 font-semibold">
+            Backup Missing
+          </span>
+        );
+      case E2EE_STATUS.IDENTITY_MISMATCH:
+        return (
+          <span className="badge badge-error gap-1.5 font-semibold">
+            Identity Mismatch
+          </span>
+        );
+      case E2EE_STATUS.LOADING:
+      case E2EE_STATUS.SETTING_UP:
+      case E2EE_STATUS.RESTORING:
+        return (
+          <span className="badge badge-info gap-1.5 font-semibold">
+            <span className="size-2 rounded-full bg-info animate-ping" />
+            Syncing...
+          </span>
+        );
+      default:
+        return <span className="badge badge-ghost capitalize">{status}</span>;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* 1. Status Overview Card */}
+      <div className="rounded-2xl border border-base-300 bg-base-100 p-4 sm:p-5">
+        <div className="flex items-center justify-between pb-3 border-b border-base-content/10">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <ShieldCheck className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Encryption Status</h3>
+              <p className="text-xs text-base-content/60">
+                End-to-end encryption identity on this device
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {getStatusBadge()}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-base-content"
+              title="Refresh E2EE status"
+            >
+              <RefreshCw
+                className={`size-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="rounded-xl bg-base-200/50 p-3">
+            <span className="text-base-content/60 block mb-0.5">
+              Cryptographic Suite
+            </span>
+            <span className="font-semibold text-base-content font-mono">
+              ECDH P-256 + AES-GCM-256
+            </span>
+          </div>
+          <div className="rounded-xl bg-base-200/50 p-3">
+            <span className="text-base-content/60 block mb-0.5">
+              Key Storage
+            </span>
+            <span className="font-semibold text-base-content">
+              IndexedDB (Non-extractable)
+            </span>
+          </div>
+          <div className="rounded-xl bg-base-200/50 p-3">
+            <span className="text-base-content/60 block mb-0.5">
+              Public Key Registered
+            </span>
+            <span className="font-semibold text-base-content">
+              {serverStatus?.publicKeyUpdatedAt
+                ? new Date(serverStatus.publicKeyUpdatedAt).toLocaleDateString(
+                    undefined,
+                    {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    },
+                  )
+                : serverStatus?.hasPublicKey || serverStatus?.hasKey
+                  ? "Registered"
+                  : "Not registered"}
+            </span>
+          </div>
+          <div className="rounded-xl bg-base-200/50 p-3">
+            <span className="text-base-content/60 block mb-0.5">
+              Multi-Device Backup
+            </span>
+            <span className="font-semibold text-base-content">
+              {serverStatus?.hasBackup
+                ? `Version ${serverStatus.backupVersion || 1} (PBKDF2-SHA256)`
+                : "No backup"}
+            </span>
+          </div>
+        </div>
+
+        {/* Action prompts if not ready */}
+        {isRestoreRequired && (
+          <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <KeyRound className="size-4 shrink-0" />
+              <span>
+                Enter your recovery passphrase to decrypt messages on this
+                device.
+              </span>
+            </div>
+            <button
+              onClick={() => setRestoreModalOpen(true)}
+              className="btn btn-warning btn-xs shrink-0 font-semibold"
+            >
+              Restore Now
+            </button>
+          </div>
+        )}
+
+        {isNotConfigured && (
+          <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 p-3.5 text-xs text-primary flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Lock className="size-4 shrink-0" />
+              <span>
+                Enable End-to-End Encryption to protect your messages with
+                zero-knowledge keys.
+              </span>
+            </div>
+            <button
+              onClick={() => setSetupModalOpen(true)}
+              className="btn btn-primary btn-xs shrink-0 font-semibold"
+            >
+              Enable E2EE
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 2. Key Backup & Rotation Card */}
+      <div className="rounded-2xl border border-base-300 bg-base-100 p-4 sm:p-5">
+        <div className="flex items-center gap-3 pb-3 border-b border-base-content/10">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
+            <FileKey className="size-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">Multi-Device Key Backup</h3>
+            <p className="text-xs text-base-content/60">
+              Passphrase-protected backup for restoring your identity on new
+              devices
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <p className="text-xs leading-relaxed text-base-content/70">
+            Your private encryption key is client-encrypted using{" "}
+            <strong>PBKDF2-SHA256 (600,000 iterations)</strong> and stored in
+            encrypted form on the server. Only someone with your recovery
+            passphrase can decrypt it.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            {isReady && (
+              <button
+                onClick={() => setChangePassModalOpen(true)}
+                className="btn btn-outline btn-sm rounded-xl gap-2 text-xs font-semibold"
+              >
+                <Key className="size-3.5" />
+                Change Recovery Passphrase
+              </button>
+            )}
+
+            {isRestoreRequired && (
+              <button
+                onClick={() => setRestoreModalOpen(true)}
+                className="btn btn-warning btn-sm rounded-xl gap-2 text-xs font-semibold"
+              >
+                <KeyRound className="size-3.5" />
+                Restore from Backup
+              </button>
+            )}
+
+            {isNotConfigured && (
+              <button
+                onClick={() => setSetupModalOpen(true)}
+                className="btn btn-primary btn-sm rounded-xl gap-2 text-xs font-semibold"
+              >
+                <Lock className="size-3.5" />
+                Create Key & Backup
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Danger Zone / Reset Identity Card */}
+      <div className="rounded-2xl border border-error/20 bg-base-100 p-4 sm:p-5">
+        <div className="flex items-center gap-3 pb-3 border-b border-base-content/10">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-error/10 text-error">
+            <AlertTriangle className="size-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-error">
+              Danger Zone: Reset Identity
+            </h3>
+            <p className="text-xs text-base-content/60">
+              Permanently revoke cryptographic keys and start fresh
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <p className="text-xs leading-relaxed text-base-content/70">
+            If you permanently lost your recovery passphrase or suspect your key
+            was compromised, you can reset your encryption identity. This will
+            delete your keys from the server.
+            <span className="font-semibold text-error block mt-1">
+              Warning: Historical encrypted messages cannot be recovered once
+              reset.
+            </span>
+          </p>
+
+          <div className="pt-2">
+            <button
+              onClick={() => setResetModalOpen(true)}
+              className="btn btn-error btn-outline btn-sm rounded-xl gap-2 text-xs font-semibold"
+            >
+              <RotateCcw className="size-3.5" />
+              Reset Encryption Identity
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modals */}
+      <E2EESetupModal
+        isOpen={setupModalOpen}
+        onClose={() => setSetupModalOpen(false)}
+      />
+      <E2EERestoreModal
+        isOpen={restoreModalOpen}
+        onClose={() => setRestoreModalOpen(false)}
+        onOpenReset={() => setResetModalOpen(true)}
+      />
+      <E2EEChangePassphraseModal
+        isOpen={changePassModalOpen}
+        onClose={() => setChangePassModalOpen(false)}
+      />
+      <E2EEResetModal
+        isOpen={resetModalOpen}
+        onClose={() => setResetModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+export default E2EESettingsSection;

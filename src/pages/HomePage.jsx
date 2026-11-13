@@ -8,6 +8,7 @@ import NoChatSelected from "../components/Chat/NoChatSelected";
 import UserInfoPanel from "../components/Chat/UserInfoPanel";
 import GroupInfoPanel from "../components/group/GroupInfoPanel";
 import GroupInfoModal from "../components/modal/GroupInfoModel";
+import E2EEStatusBanner from "../components/e2ee/E2EEStatusBanner";
 
 const HomePage = () => {
   const { selectedUser } = useChatStore();
@@ -27,8 +28,9 @@ const HomePage = () => {
   return (
     <div className="h-screen bg-base-200 flex items-center justify-center p-2 sm:p-4">
       <div className="container mx-auto h-full max-h-[900px]">
-        <div className="bg-base-100 rounded-2xl shadow-xl border border-base-300 w-full h-full">
-          <div className="flex h-full rounded-2xl overflow-hidden">
+        <div className="bg-base-100 rounded-2xl shadow-xl border border-base-300 w-full h-full flex flex-col overflow-hidden">
+          <E2EEStatusBanner />
+          <div className="flex flex-1 min-h-0 rounded-2xl overflow-hidden">
             <Sidebar />
             {content}
 

@@ -14,6 +14,7 @@ import {
   CheckCheck,
   Download,
   Loader2,
+  Lock,
   MessageSquare,
   MoreVertical,
   Paperclip,
@@ -31,6 +32,7 @@ import { usePrivacyStore } from "../store/usePrivacyStore";
 import { useChatPrefsStore } from "../store/useChatPrefsStore";
 import { AI_TONES } from "../store/useAiStore";
 import { THEME, PREVIEW_MESSAGE } from "../constants";
+import { E2EESettingsSection } from "../components/e2ee/E2EESettingsSection.jsx";
 
 const VISIBILITY_OPTIONS = [
   { value: "everyone", label: "Everyone" },
@@ -38,9 +40,6 @@ const VISIBILITY_OPTIONS = [
   { value: "nobody", label: "Nobody" },
 ];
 
-/* ------------------------------------------------------------------ */
-/*  Motion presets (sirf framer-motion, koi CSS animation nahi)        */
-/* ------------------------------------------------------------------ */
 const SPRING = { type: "spring", stiffness: 420, damping: 32 };
 const SOFT = { type: "spring", stiffness: 260, damping: 28 };
 
@@ -57,7 +56,6 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: SOFT },
 };
 
-// short = chhoti screen par dikhne wala naam
 const SECTIONS = [
   {
     id: "appearance",
@@ -86,6 +84,13 @@ const SECTIONS = [
     short: "AI",
     icon: Sparkles,
     desc: "Rewrite and grammar tools in the message box.",
+  },
+  {
+    id: "e2ee",
+    label: "Encryption",
+    short: "E2EE",
+    icon: Lock,
+    desc: "End-to-End Encryption, recovery backup and key management.",
   },
 ];
 
@@ -974,6 +979,9 @@ const SettingsPage = () => {
           </Card>
         );
 
+      case "e2ee":
+        return <E2EESettingsSection />;
+
       default:
         return null;
     }
@@ -1079,7 +1087,7 @@ const SettingsPage = () => {
                 <div
                   role="tablist"
                   aria-label="Settings sections"
-                  className="mb-5 grid grid-cols-4 gap-1 rounded-2xl border border-base-300 bg-base-100/70 p-1.5 backdrop-blur sm:mb-6 sm:flex"
+                  className="mb-5 grid grid-cols-5 gap-1 rounded-2xl border border-base-300 bg-base-100/70 p-1.5 backdrop-blur sm:mb-6 sm:flex"
                 >
                   {SECTIONS.map(({ id, label, short, icon: Icon }) => {
                     const active = section === id;

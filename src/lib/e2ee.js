@@ -1,9 +1,20 @@
 import { axiosInstance } from "./axios.js";
+import { e2eeManager } from "./e2ee/e2eeManager.js";
+import { getUserPublicKeyApi } from "./e2ee/e2ee.api.js";
+import { CRYPTO_PARAMS, E2EE_STATUS } from "./e2ee/e2ee.constants.js";
+import {
+  getDeviceId,
+  fetchActiveDevicesForUsers,
+  clearDeviceCache,
+} from "./e2ee/e2eeDevice.js";
 
 const subtle = globalThis.crypto?.subtle;
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-const ECDH = { name: "ECDH", namedCurve: "P-256" };
+const ECDH = {
+  name: CRYPTO_PARAMS.ECDH_NAME,
+  namedCurve: CRYPTO_PARAMS.ECDH_CURVE,
+};
 
 export const b64 = (buf) => {
   const bytes = new Uint8Array(buf);
@@ -13,54 +24,12 @@ export const b64 = (buf) => {
   }
   return btoa(s);
 };
+
 export const unb64 = (str) =>
   Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
 
-const randomIv = () => crypto.getRandomValues(new Uint8Array(12));
-
-const DB = "chatty-e2ee";
-const STORE = "keys";
-
-const openDb = () =>
-  new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-
-const idbGet = async (key) => {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const r = db.transaction(STORE).objectStore(STORE).get(key);
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-};
-
-const idbSet = async (key, value) => {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-};
-
-const idbDelete = async (key) => {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-};
-
-let me = null;
-let status = "idle";
-let readyPromise = Promise.resolve("idle");
+const randomIv = () =>
+  crypto.getRandomValues(new Uint8Array(CRYPTO_PARAMS.AES_GCM_IV_BYTES));
 
 const peerCache = new Map();
 const sharedCache = new Map();
@@ -69,13 +38,12 @@ const groupLatest = new Map();
 const loading = new Map();
 const lastLoad = new Map();
 
-export const getE2EEStatus = () => status;
-export const whenE2EEReady = () => readyPromise;
+export const getE2EEStatus = () => e2eeManager.getStatus();
+export const whenE2EEReady = () => e2eeManager.whenReady();
 
 export const clearE2EECache = () => {
-  me = null;
-  status = "idle";
-  readyPromise = Promise.resolve("idle");
+  e2eeManager.clear();
+  clearDeviceCache();
   peerCache.clear();
   sharedCache.clear();
   groupKeyCache.clear();
@@ -85,6 +53,7 @@ export const clearE2EECache = () => {
 };
 
 const clearDerived = () => {
+  clearDeviceCache();
   peerCache.clear();
   sharedCache.clear();
   groupKeyCache.clear();
@@ -93,100 +62,22 @@ const clearDerived = () => {
   lastLoad.clear();
 };
 
-const putPublicKey = (publicKey, extra = {}) =>
-  axiosInstance.put(
-    "/users/me/public-key",
-    { publicKey, ...extra },
-    { withCredentials: true },
-  );
-
-const generateIdentity = async () => {
-  const pair = await subtle.generateKey(ECDH, false, ["deriveBits"]);
-  const jwk = await subtle.exportKey("jwk", pair.publicKey);
-  return {
-    privateKey: pair.privateKey,
-    publicJwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y },
-  };
-};
+export { getDeviceId };
 
 export const initE2EE = (userId) => {
-  const uid = String(userId);
-
-  // Guard: if already initializing for the same user, return the in-flight promise
-  if (status === "pending" && me?.userId === uid) {
-    console.log("[E2EE] initE2EE: already pending for user", uid);
-    return readyPromise;
-  }
-
-  status = "pending";
-  readyPromise = (async () => {
-    if (!subtle) {
-      console.warn("[E2EE] initE2EE: WebCrypto not available (unsupported browser)");
-      return (status = "unsupported");
-    }
-    clearDerived();
-    me = null;
-    console.log("[E2EE] initE2EE: started for user", uid);
-    try {
-      const rec = await idbGet(uid);
-
-      if (rec) {
-        console.log("[E2EE] initE2EE: existing key pair found in IndexedDB");
-        try {
-          await putPublicKey(rec.publicJwk);
-          console.log("[E2EE] initE2EE: public key registration succeeded (existing key)");
-        } catch (e) {
-          if (e?.response?.status === 409) {
-            console.warn("[E2EE] initE2EE: server returned 409 CONFLICT — key locked (different key already registered)");
-            return (status = "locked");
-          }
-          console.warn("[E2EE] initE2EE: public key registration failed (non-fatal, will retry on next init):", e?.message);
-        }
-        me = { userId: uid, ...rec };
-        console.log("[E2EE] initE2EE: ready (existing key pair)");
-        return (status = "ready");
-      }
-
-      console.log("[E2EE] initE2EE: no existing key — generating new ECDH P-256 key pair");
-      const id = await generateIdentity();
-      console.log("[E2EE] initE2EE: key generation complete — registering public key with server");
-      try {
-        await putPublicKey(id.publicJwk);
-        console.log("[E2EE] initE2EE: public key registration succeeded (new key)");
-      } catch (e) {
-        if (e?.response?.status === 409) {
-          console.warn("[E2EE] initE2EE: server returned 409 CONFLICT on new key — key locked");
-          return (status = "locked");
-        }
-        throw e;
-      }
-      await idbSet(uid, id);
-      me = { userId: uid, ...id };
-      console.log("[E2EE] initE2EE: ready (new key pair generated and saved)");
-      return (status = "ready");
-    } catch (e) {
-      console.error("[E2EE] initE2EE: initialization failed:", e?.message || e);
-      return (status = "error");
-    }
-  })();
-  return readyPromise;
+  clearDerived();
+  return e2eeManager.init(userId);
 };
 
 export const resetE2EEKeys = async (userId, password) => {
-  if (!subtle) throw new Error("Encryption isn't supported in this browser.");
-  const uid = String(userId);
-  const id = await generateIdentity();
-  await putPublicKey(id.publicJwk, { replace: true, password });
-  await idbSet(uid, id);
   clearDerived();
-  me = { userId: uid, ...id };
-  status = "ready";
-  readyPromise = Promise.resolve("ready");
-  return status;
+  return e2eeManager.resetIdentity(password);
 };
 
-export const wipeLocalKeys = (userId) =>
-  idbDelete(String(userId)).catch(() => {});
+export const wipeLocalKeys = () => {
+  clearDerived();
+  return e2eeManager.clear();
+};
 
 const importPublic = (jwk) =>
   subtle.importKey(
@@ -202,26 +93,19 @@ const fetchPeer = (userId) => {
   if (peerCache.has(id)) return peerCache.get(id);
 
   const p = (async () => {
+    const me = e2eeManager.me;
     if (me && id === me.userId) {
       return { jwk: me.publicJwk, key: await importPublic(me.publicJwk) };
     }
     try {
-      const res = await axiosInstance.get(`/users/${id}/public-key`, {
-        withCredentials: true,
-      });
-      const jwk = res.data?.data?.publicKey;
+      const data = await getUserPublicKeyApi(id);
+      const jwk = data?.publicKey;
       if (jwk) {
-        console.log("[E2EE] fetchPeer: public key fetched for peer", id);
         return { jwk, key: await importPublic(jwk) };
       }
-      console.warn("[E2EE] fetchPeer: server returned no publicKey field for peer", id);
       return null;
     } catch (e) {
-      if (e?.response?.status === 404) {
-        console.warn("[E2EE] fetchPeer: peer has no public key registered (404):", id);
-        return null;
-      }
-      console.error("[E2EE] fetchPeer: request failed for peer", id, e?.message);
+      if (e?.response?.status === 404) return null;
       throw e;
     }
   })();
@@ -242,8 +126,8 @@ const deriveShared = async (privateKey, publicKey) => {
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: new Uint8Array(32),
-      info: enc.encode("chatty-e2ee-v1"),
+      salt: new Uint8Array(CRYPTO_PARAMS.HKDF_SALT_LENGTH),
+      info: enc.encode(CRYPTO_PARAMS.HKDF_INFO_STRING),
     },
     hk,
     { name: "AES-GCM", length: 256 },
@@ -255,35 +139,169 @@ const deriveShared = async (privateKey, publicKey) => {
 const pairKey = (userId) => {
   const id = String(userId);
   if (sharedCache.has(id)) return sharedCache.get(id);
+
   const p = (async () => {
-    // Wait for initialization to complete before checking `me`
-    await readyPromise;
-    if (!me) throw new Error("e2ee-not-ready");
+    await e2eeManager.whenReady();
+    const me = e2eeManager.me;
+    if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
+      throw new Error("e2ee-not-ready");
+    }
     const peer = await fetchPeer(id);
     if (!peer) {
-      console.warn("[E2EE] pairKey: no public key found for peer", id);
       throw new Error("peer-has-no-key");
     }
     return deriveShared(me.privateKey, peer.key);
   })();
+
   sharedCache.set(id, p);
   p.catch(() => sharedCache.delete(id));
   return p;
 };
 
 export const encryptFor = async (peerId, plaintext) => {
-  const key = await pairKey(peerId);
-  const iv = randomIv();
+  await e2eeManager.whenReady();
+  const me = e2eeManager.me;
+  if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
+    throw new Error("e2ee-not-ready");
+  }
+
+  // 1. Generate random 256-bit AES message key
+  const msgKeyRaw = crypto.getRandomValues(new Uint8Array(32));
+  const msgKey = await subtle.importKey("raw", msgKeyRaw, "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
+
+  // 2. Encrypt plaintext with random message key and 12-byte IV
+  const msgIv = randomIv();
   const ct = await subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
+    { name: "AES-GCM", iv: msgIv },
+    msgKey,
     enc.encode(plaintext),
   );
-  return { text: b64(ct), iv: b64(iv) };
+
+  // 3. Query all active devices of recipient and sender
+  const destDevices = await fetchActiveDevicesForUsers([peerId, me.userId]);
+
+  // Ensure recipient has at least one device entry
+  const hasPeerDevice = destDevices.some(
+    (d) => String(d.userId) === String(peerId),
+  );
+  if (!hasPeerDevice) {
+    const peer = await fetchPeer(peerId);
+    if (!peer) {
+      throw new Error("peer-has-no-key");
+    }
+    destDevices.push({
+      userId: String(peerId),
+      deviceId: "default",
+      publicKey: peer.jwk,
+    });
+  }
+
+  // Ensure sender's current device has an envelope
+  const myDeviceId = getDeviceId();
+  const hasMyDevice = destDevices.some(
+    (d) => String(d.userId) === String(me.userId) && d.deviceId === myDeviceId,
+  );
+  if (!hasMyDevice && me.publicJwk) {
+    destDevices.push({
+      userId: String(me.userId),
+      deviceId: myDeviceId,
+      publicKey: me.publicJwk,
+    });
+  }
+
+  // 4. Wrap message key separately for each destination device
+  const keyEnvelopes = [];
+  for (const dev of destDevices) {
+    try {
+      const devPubKey = await importPublic(dev.publicKey);
+      const wrapKey = await deriveShared(me.privateKey, devPubKey);
+      const wrapIv = randomIv();
+      const wrapped = await subtle.encrypt(
+        { name: "AES-GCM", iv: wrapIv },
+        wrapKey,
+        msgKeyRaw,
+      );
+      keyEnvelopes.push({
+        deviceId: String(dev.deviceId),
+        userId: String(dev.userId),
+        wrappedKey: b64(wrapped),
+        iv: b64(wrapIv),
+      });
+    } catch {
+      // Continue wrapping for remaining devices if one fails
+    }
+  }
+
+  return {
+    text: b64(ct),
+    iv: b64(msgIv),
+    keyEnvelopes,
+  };
 };
 
-export const decryptFrom = async (peerId, cipherB64, ivB64) => {
-  const run = async () => {
+export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
+  await e2eeManager.whenReady();
+  const me = e2eeManager.me;
+  if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
+    throw new Error("e2ee-not-ready");
+  }
+
+  const myDeviceId = getDeviceId();
+  const envelopes = message?.keyEnvelopes || [];
+
+  // Attempt multi-device envelope unwrapping if envelopes are available
+  if (Array.isArray(envelopes) && envelopes.length > 0) {
+    let env = envelopes.find((e) => e.deviceId === myDeviceId);
+    if (!env) {
+      env = envelopes.find(
+        (e) =>
+          e.deviceId === "default" && String(e.userId) === String(me.userId),
+      );
+    }
+    if (!env) {
+      env = envelopes.find((e) => String(e.userId) === String(me.userId));
+    }
+
+    if (env) {
+      try {
+        const isMyOwnMessage =
+          message?.senderId != null &&
+          String(message.senderId) === String(me.userId);
+        const senderUserId = isMyOwnMessage ? me.userId : peerId;
+        const senderPeer = await fetchPeer(senderUserId);
+
+        if (senderPeer?.key) {
+          const wrapKey = await deriveShared(me.privateKey, senderPeer.key);
+          const rawMsgKey = await subtle.decrypt(
+            { name: "AES-GCM", iv: unb64(env.iv) },
+            wrapKey,
+            unb64(env.wrappedKey),
+          );
+          const msgKey = await subtle.importKey(
+            "raw",
+            rawMsgKey,
+            "AES-GCM",
+            false,
+            ["decrypt"],
+          );
+          const pt = await subtle.decrypt(
+            { name: "AES-GCM", iv: unb64(ivB64) },
+            msgKey,
+            unb64(cipherB64),
+          );
+          return dec.decode(pt);
+        }
+      } catch {
+        // Fallback to pairwise on envelope failure
+      }
+    }
+  }
+
+  // Fallback to legacy pairwise decrypt
+  const runPairwise = async () => {
     const key = await pairKey(peerId);
     const pt = await subtle.decrypt(
       { name: "AES-GCM", iv: unb64(ivB64) },
@@ -292,13 +310,13 @@ export const decryptFrom = async (peerId, cipherB64, ivB64) => {
     );
     return dec.decode(pt);
   };
+
   try {
-    return await run();
+    return await runPairwise();
   } catch {
-    // peer may have replaced their key: drop caches and retry once
     peerCache.delete(String(peerId));
     sharedCache.delete(String(peerId));
-    return run();
+    return runPairwise();
   }
 };
 
@@ -343,8 +361,10 @@ export const loadGroupKeys = (groupId, { force = false } = {}) => {
   }
 
   const p = (async () => {
-    await readyPromise;
-    if (!me) return 0;
+    await e2eeManager.whenReady();
+    const me = e2eeManager.me;
+    if (!me?.privateKey) return 0;
+
     const res = await axiosInstance.get(`/groups/${id}/keys`, {
       withCredentials: true,
     });
@@ -365,7 +385,9 @@ export const loadGroupKeys = (groupId, { force = false } = {}) => {
           unb64(k.wrappedKey),
         );
         groupKeyCache.set(ck, await importGroupKey(raw));
-      } catch {}
+      } catch {
+        void 0;
+      }
     }
     return latestVersion;
   })().finally(() => {
@@ -395,17 +417,15 @@ export const exportGroupKeyRaw = async (groupId, version) => {
 };
 
 export const encryptGroupText = async (groupId, plaintext) => {
-  await readyPromise;
+  await e2eeManager.whenReady();
   const id = String(groupId);
   let version = groupLatest.get(id);
   if (version == null) version = await loadGroupKeys(id);
   if (!version) {
-    console.warn("[E2EE] encryptGroupText: group has no encryption key yet for group", id);
     throw new Error("group-not-encrypted");
   }
   const key = await getGroupKey(id, version);
   if (!key) {
-    console.warn("[E2EE] encryptGroupText: local group key missing for group", id, "version", version);
     throw new Error("no-group-key");
   }
 
@@ -419,7 +439,7 @@ export const encryptGroupText = async (groupId, plaintext) => {
 };
 
 export const decryptGroupText = async (groupId, version, cipherB64, ivB64) => {
-  await readyPromise;
+  await e2eeManager.whenReady();
   const key = await getGroupKey(String(groupId), Number(version));
   if (!key) throw new Error("no-group-key");
   const pt = await subtle.decrypt(
