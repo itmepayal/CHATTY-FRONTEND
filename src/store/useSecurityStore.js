@@ -1,32 +1,46 @@
-/**
- * useSecurityStore.js
- *
- * Manages:
- *  - Session list (fetch, revoke, revoke-others)
- *  - Login alerts toggle
- *  - 2FA setup state (QR code, recovery codes, modal phases)
- *
- * Keeps security concerns isolated from useAuthStore.
- */
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import { toast } from "react-hot-toast";
 
+const getErrorMessage = (err, fallback) => {
+  if (err?.response?.status === 429) {
+    return (
+      err?.response?.data?.message ||
+      "Too many attempts. Please wait a moment and try again."
+    );
+  }
+  return err?.response?.data?.message || fallback;
+};
+
+const getSessionId = (s) => String(s?.id ?? s?._id ?? "");
+
+const TWO_FA_INITIAL = {
+  twoFaPhase: "idle",
+  twoFaQrCode: null,
+  twoFaManualKey: null,
+  twoFaRecoveryCodes: [],
+  twoFaLoading: false,
+  twoFaError: null,
+};
+
 export const useSecurityStore = create((set, get) => ({
-  // ── sessions ──────────────────────────────────────────────────────────────
-  sessions:         [],
-  sessionsLoading:  false,
-  sessionsError:    null,
-  revokingId:       null, // sessionId currently being revoked
+  sessions: [],
+  sessionsLoading: false,
+  sessionsError: null,
+  revokingId: null,
   isRevokingOthers: false,
 
   fetchSessions: async () => {
+    if (get().sessionsLoading) return;
     set({ sessionsLoading: true, sessionsError: null });
     try {
-      const res = await axiosInstance.get("/auth/sessions", { withCredentials: true });
-      set({ sessions: res.data?.data?.sessions ?? [] });
+      const res = await axiosInstance.get("/auth/sessions", {
+        withCredentials: true,
+      });
+      const list = res.data?.data?.sessions;
+      set({ sessions: Array.isArray(list) ? list : [] });
     } catch (err) {
-      const msg = err?.response?.data?.message || "Failed to load sessions.";
+      const msg = getErrorMessage(err, "Failed to load sessions.");
       set({ sessionsError: msg });
       toast.error(msg);
     } finally {
@@ -35,37 +49,66 @@ export const useSecurityStore = create((set, get) => ({
   },
 
   revokeSession: async (sessionId) => {
+    if (!sessionId) return false;
+    if (get().revokingId || get().isRevokingOthers) return false;
+
+    const target = get().sessions.find(
+      (x) => getSessionId(x) === String(sessionId),
+    );
+    if (target?.current) {
+      toast.error("Use Logout to sign out of this device.");
+      return false;
+    }
+
     set({ revokingId: sessionId });
     try {
-      await axiosInstance.delete(`/auth/sessions/${sessionId}`, { withCredentials: true });
-      set((s) => ({ sessions: s.sessions.filter((x) => String(x.id) !== String(sessionId)) }));
+      await axiosInstance.delete(`/auth/sessions/${sessionId}`, {
+        withCredentials: true,
+      });
+      set((s) => ({
+        sessions: s.sessions.filter(
+          (x) => getSessionId(x) !== String(sessionId),
+        ),
+      }));
       toast.success("Device signed out.");
+      return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to revoke session.");
+      toast.error(getErrorMessage(err, "Failed to revoke session."));
+      return false;
     } finally {
       set({ revokingId: null });
     }
   },
 
   revokeOtherSessions: async () => {
+    if (get().isRevokingOthers || get().revokingId) return false;
     set({ isRevokingOthers: true });
     try {
-      const res = await axiosInstance.post("/auth/sessions/revoke-others", {}, { withCredentials: true });
+      const res = await axiosInstance.post(
+        "/auth/sessions/revoke-others",
+        {},
+        { withCredentials: true },
+      );
       const count = res.data?.data?.revokedCount ?? 0;
-      // Keep only the current session in the list
       set((s) => ({ sessions: s.sessions.filter((x) => x.current) }));
-      toast.success(`Signed out of ${count} other device${count !== 1 ? "s" : ""}.`);
+      toast.success(
+        count === 0
+          ? "No other devices were signed in."
+          : `Signed out of ${count} other device${count !== 1 ? "s" : ""}.`,
+      );
+      return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to sign out other devices.");
+      toast.error(getErrorMessage(err, "Failed to sign out other devices."));
+      return false;
     } finally {
       set({ isRevokingOthers: false });
     }
   },
 
-  // ── login alerts ──────────────────────────────────────────────────────────
   loginAlertsLoading: false,
 
   updateLoginAlerts: async (enabled) => {
+    if (get().loginAlertsLoading) return false;
     set({ loginAlertsLoading: true });
     try {
       await axiosInstance.patch(
@@ -76,46 +119,73 @@ export const useSecurityStore = create((set, get) => ({
       toast.success(`Login alerts ${enabled ? "enabled" : "disabled"}.`);
       return true;
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to update login alerts.");
-      return false; // caller should revert toggle
+      toast.error(getErrorMessage(err, "Failed to update login alerts."));
+      return false;
     } finally {
       set({ loginAlertsLoading: false });
     }
   },
 
-  // ── 2FA ───────────────────────────────────────────────────────────────────
-  twoFaPhase:       "idle",   // idle | setup | verify | codes | disable
-  twoFaQrCode:      null,
-  twoFaManualKey:   null,
-  twoFaRecoveryCodes: [],
-  twoFaLoading:     false,
-  twoFaError:       null,
+  ...TWO_FA_INITIAL,
+
+  openTwoFaDisable: () => set({ twoFaPhase: "disable", twoFaError: null }),
+
+  clearTwoFaError: () => set({ twoFaError: null }),
 
   startTwoFaSetup: async () => {
+    if (get().twoFaLoading) return false;
     set({ twoFaLoading: true, twoFaError: null, twoFaPhase: "setup" });
     try {
-      const res = await axiosInstance.post("/auth/2fa/setup", {}, { withCredentials: true });
+      const res = await axiosInstance.post(
+        "/auth/2fa/setup",
+        {},
+        { withCredentials: true },
+      );
       const { qrCodeUrl, manualKey } = res.data?.data || {};
-      set({ twoFaQrCode: qrCodeUrl, twoFaManualKey: manualKey, twoFaPhase: "verify" });
+      if (!qrCodeUrl || !manualKey) {
+        throw new Error("Invalid 2FA setup response.");
+      }
+      set({
+        twoFaQrCode: qrCodeUrl,
+        twoFaManualKey: manualKey,
+        twoFaPhase: "verify",
+      });
+      return true;
     } catch (err) {
-      const msg = err?.response?.data?.message || "Failed to start 2FA setup.";
-      set({ twoFaError: msg, twoFaPhase: "idle" });
+      const msg = getErrorMessage(err, "Failed to start 2FA setup.");
+      set({
+        twoFaError: msg,
+        twoFaPhase: "idle",
+        twoFaQrCode: null,
+        twoFaManualKey: null,
+      });
       toast.error(msg);
+      return false;
     } finally {
       set({ twoFaLoading: false });
     }
   },
 
   enableTwoFa: async (code) => {
+    if (get().twoFaLoading) return false;
     set({ twoFaLoading: true, twoFaError: null });
     try {
-      const res = await axiosInstance.post("/auth/2fa/enable", { code }, { withCredentials: true });
+      const res = await axiosInstance.post(
+        "/auth/2fa/enable",
+        { code },
+        { withCredentials: true },
+      );
       const codes = res.data?.data?.recoveryCodes ?? [];
-      set({ twoFaRecoveryCodes: codes, twoFaPhase: "codes" });
+      set({
+        twoFaRecoveryCodes: codes,
+        twoFaPhase: "codes",
+        twoFaQrCode: null,
+        twoFaManualKey: null,
+      });
+      toast.success("Two-step verification enabled.");
       return true;
     } catch (err) {
-      const msg = err?.response?.data?.message || "Invalid code. Try again.";
-      set({ twoFaError: msg });
+      set({ twoFaError: getErrorMessage(err, "Invalid code. Try again.") });
       return false;
     } finally {
       set({ twoFaLoading: false });
@@ -123,15 +193,19 @@ export const useSecurityStore = create((set, get) => ({
   },
 
   disableTwoFa: async (code) => {
+    if (get().twoFaLoading) return false;
     set({ twoFaLoading: true, twoFaError: null });
     try {
-      await axiosInstance.post("/auth/2fa/disable", { code }, { withCredentials: true });
-      set({ twoFaPhase: "idle", twoFaQrCode: null, twoFaManualKey: null });
+      await axiosInstance.post(
+        "/auth/2fa/disable",
+        { code },
+        { withCredentials: true },
+      );
+      set({ ...TWO_FA_INITIAL });
       toast.success("Two-step verification disabled.");
       return true;
     } catch (err) {
-      const msg = err?.response?.data?.message || "Invalid code. Try again.";
-      set({ twoFaError: msg });
+      set({ twoFaError: getErrorMessage(err, "Invalid code. Try again.") });
       return false;
     } finally {
       set({ twoFaLoading: false });
@@ -139,29 +213,27 @@ export const useSecurityStore = create((set, get) => ({
   },
 
   regenerateRecoveryCodes: async (code) => {
+    if (get().twoFaLoading) return false;
     set({ twoFaLoading: true, twoFaError: null });
     try {
-      const res = await axiosInstance.post("/auth/2fa/recovery-codes/regenerate", { code }, { withCredentials: true });
+      const res = await axiosInstance.post(
+        "/auth/2fa/recovery-codes/regenerate",
+        { code },
+        { withCredentials: true },
+      );
       const codes = res.data?.data?.recoveryCodes ?? [];
       set({ twoFaRecoveryCodes: codes, twoFaPhase: "codes" });
       toast.success("Recovery codes regenerated.");
       return true;
     } catch (err) {
-      const msg = err?.response?.data?.message || "Failed to regenerate codes.";
-      set({ twoFaError: msg });
+      set({
+        twoFaError: getErrorMessage(err, "Failed to regenerate codes."),
+      });
       return false;
     } finally {
       set({ twoFaLoading: false });
     }
   },
 
-  resetTwoFaState: () =>
-    set({
-      twoFaPhase: "idle",
-      twoFaQrCode: null,
-      twoFaManualKey: null,
-      twoFaRecoveryCodes: [],
-      twoFaLoading: false,
-      twoFaError: null,
-    }),
+  resetTwoFaState: () => set({ ...TWO_FA_INITIAL }),
 }));

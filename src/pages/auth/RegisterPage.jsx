@@ -20,6 +20,7 @@ import {
   X,
   ArrowRight,
   Check,
+  AtSign,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -41,12 +42,14 @@ const MAX_SIZE_MB = 2;
 const PASSWORD_MIN = 4;
 const PASSWORD_MAX = 12;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[a-z0-9_.]{3,20}$/;
 
 const FOCUS =
   "outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100";
 
 const InputField = memo(BaseInputField);
 const USER_ICON = <User className="size-5" />;
+const AT_ICON = <AtSign className="size-5" />;
 const MAIL_ICON = <Mail className="size-5" />;
 const LOCK_ICON = <Lock className="size-5" />;
 
@@ -266,6 +269,7 @@ const RegisterForm = () => {
 
   const [formData, setFormData] = useState({
     fullName: "",
+    username: "",
     email: "",
     password: "",
   });
@@ -285,24 +289,34 @@ const RegisterForm = () => {
   };
 
   const handleChange = useCallback((e) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    let { value } = e.target;
+
+    if (name === "username") value = value.toLowerCase().replace(/\s/g, "");
+
     setFormData((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => (prev[name] ? { ...prev, [name]: undefined } : prev));
   }, []);
 
   const clearForm = () => {
-    setFormData({ fullName: "", email: "", password: "" });
+    setFormData({ fullName: "", username: "", email: "", password: "" });
     setAvatar(null);
     setErrors({});
   };
 
   const validateForm = () => {
-    const { fullName, email, password } = formData;
+    const { fullName, username, email, password } = formData;
     const next = {};
 
     if (!fullName.trim()) next.fullName = "Enter your full name.";
+
+    if (!username.trim()) next.username = "Choose a username.";
+    else if (!USERNAME_RE.test(username))
+      next.username = "3 to 20 characters: letters, numbers, _ or . only.";
+
     if (!email.trim()) next.email = "Enter your email address.";
     else if (!EMAIL_RE.test(email)) next.email = "Enter a valid email address.";
+
     if (!password.trim()) next.password = "Enter a password.";
     else if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX)
       next.password = `Use ${PASSWORD_MIN} to ${PASSWORD_MAX} characters.`;
@@ -330,7 +344,8 @@ const RegisterForm = () => {
       console.error(error);
       shakeForm();
       toast.error(
-        "Couldn't create your account. Check your details and try again.",
+        error?.response?.data?.message ||
+          "Couldn't create your account. Check your details and try again.",
       );
     }
   };
@@ -355,6 +370,19 @@ const RegisterForm = () => {
         value={formData.fullName}
         onChange={handleChange}
         error={errors.fullName}
+      />
+
+      <InputField
+        label="Username"
+        name="username"
+        type="text"
+        autoComplete="username"
+        icon={AT_ICON}
+        placeholder="john_doe"
+        maxLength={20}
+        value={formData.username}
+        onChange={handleChange}
+        error={errors.username}
       />
 
       <InputField

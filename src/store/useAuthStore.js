@@ -59,7 +59,9 @@ export const useAuthStore = create((set, get) => ({
         console.log("[E2EE] checkAuth: initializing encryption for user", uid);
         initE2EE(uid)
           .then((s) => console.log("[E2EE] checkAuth: status ->", s))
-          .catch((e) => console.error("[E2EE] checkAuth: init error:", e?.message));
+          .catch((e) =>
+            console.error("[E2EE] checkAuth: init error:", e?.message),
+          );
       }
     } catch (error) {
       console.log(error);
@@ -101,7 +103,9 @@ export const useAuthStore = create((set, get) => ({
         console.log("[E2EE] register: initializing encryption for user", uid);
         initE2EE(uid)
           .then((s) => console.log("[E2EE] register: status ->", s))
-          .catch((e) => console.error("[E2EE] register: init error:", e?.message));
+          .catch((e) =>
+            console.error("[E2EE] register: init error:", e?.message),
+          );
       }
     } catch (error) {
       console.error(error);
@@ -185,7 +189,9 @@ export const useAuthStore = create((set, get) => ({
         console.log("[E2EE] 2FA login: initializing encryption for user", uid);
         initE2EE(uid)
           .then((s) => console.log("[E2EE] 2FA login: status ->", s))
-          .catch((e) => console.error("[E2EE] 2FA login: init error:", e?.message));
+          .catch((e) =>
+            console.error("[E2EE] 2FA login: init error:", e?.message),
+          );
       }
     } catch (error) {
       const message =
@@ -322,13 +328,13 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = isFavorite
         ? await axiosInstance.delete(`/users/${id}/favorite`, {
-          withCredentials: true,
-        })
+            withCredentials: true,
+          })
         : await axiosInstance.post(
-          `/users/${id}/favorite`,
-          {},
-          { withCredentials: true },
-        );
+            `/users/${id}/favorite`,
+            {},
+            { withCredentials: true },
+          );
       set({ authUser: extractUser(res) });
     } catch (error) {
       toast.error(

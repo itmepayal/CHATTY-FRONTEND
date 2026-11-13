@@ -185,13 +185,9 @@ const getGroupPreview = (message, myId) => {
 const timeValue = (u) =>
   u.lastMessageAt ? new Date(u.lastMessageAt).getTime() : 0;
 
-// kya is user se pehle koi baat-cheet hui hai?
 const hasConversation = (u) =>
   !!(u.lastMessage || u.lastMessageAt || (u.unreadCount || 0) > 0);
 
-/* ---------- call helpers ----------
-   NOTE: backend ke call record ke field names alag ho to sirf
-   normalizeCall badalna padega, baaki UI same rahegi. */
 const idOf = (x) => (x && typeof x === "object" ? (x._id ?? x.id) : x);
 
 const formatDuration = (sec) => {
@@ -263,9 +259,6 @@ const normalizeCall = (c, myId, isGroup) => {
 
 const callTime = (c) => (c.time ? new Date(c.time).getTime() : 0);
 
-/* ---------- small UI pieces ---------- */
-
-// number that rolls when it changes
 const AnimatedCount = ({ value, className = "" }) => (
   <span className={`relative inline-flex overflow-hidden ${className}`}>
     <AnimatePresence mode="popLayout" initial={false}>
@@ -301,7 +294,6 @@ const UnreadBadge = ({ count }) => (
   </AnimatePresence>
 );
 
-// "Archived (N)" row jo list ke top par dikhti hai (chats aur groups dono me)
 const ArchivedRow = ({ count, unread, onClick, noun = "chat" }) => (
   <div className="px-1.5 sm:px-2">
     <motion.button
@@ -1712,7 +1704,6 @@ const Sidebar = () => {
                 )
               ) : mode === "groups" ? (
                 <>
-                  {/* Archived header (archived view) ya "Archived (N)" row (main view) */}
                   {showArchivedGroups ? (
                     <div className="px-1.5 sm:px-2 pb-1">
                       <button
@@ -1770,7 +1761,6 @@ const Sidebar = () => {
                 </>
               ) : (
                 <>
-                  {/* Archived header (archived view) ya "Archived (N)" row (main view) */}
                   {showArchived ? (
                     <div className="px-1.5 sm:px-2 pb-1">
                       <button
@@ -1849,7 +1839,6 @@ const Sidebar = () => {
           </AnimatePresence>
         </div>
 
-        {/* ---------- Footer: account card + Profile / Settings / Logout ---------- */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1863,7 +1852,6 @@ const Sidebar = () => {
               whileHover={{ y: -1 }}
               className="flex flex-row items-center gap-1.5 sm:gap-2 rounded-2xl border border-base-300 bg-base-200/50 p-1.5 shadow-sm"
             >
-              {/* my avatar + name -> profile */}
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.97 }}
@@ -1905,7 +1893,6 @@ const Sidebar = () => {
                 </div>
               </motion.button>
 
-              {/* actions */}
               <div className="flex flex-row items-center gap-0.5 shrink-0">
                 <FooterAction
                   icon={UserRound}

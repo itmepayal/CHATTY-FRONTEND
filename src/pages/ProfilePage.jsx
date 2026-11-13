@@ -5,7 +5,6 @@ import {
   LayoutGroup,
   MotionConfig,
   motion,
-  useReducedMotion,
 } from "framer-motion";
 import { useAuthStore } from "../store/useAuthStore";
 import { useSecurityStore } from "../store/useSecurityStore";
@@ -18,9 +17,12 @@ import {
   Calendar,
   Camera,
   Check,
+  ChevronDown,
+  Copy,
   Eye,
   EyeOff,
   FileText,
+  Fingerprint,
   Globe,
   KeyRound,
   Laptop,
@@ -32,10 +34,12 @@ import {
   Monitor,
   Pencil,
   Phone,
+  Plus,
   RefreshCw,
   ShieldCheck,
   ShieldOff,
   Smartphone,
+  Sparkles,
   Trash2,
   TriangleAlert,
   User,
@@ -44,18 +48,15 @@ import {
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
-/* ------------------------------------------------------------------ */
-/*  Motion presets (Settings page jaise hi)                            */
-/* ------------------------------------------------------------------ */
 const SPRING = { type: "spring", stiffness: 420, damping: 32 };
 const SOFT = { type: "spring", stiffness: 260, damping: 28 };
 
 const listVariants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.06, delayChildren: 0.02 } },
+  show: { transition: { staggerChildren: 0.05, delayChildren: 0.02 } },
 };
 const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { opacity: 0, y: 8 },
   show: { opacity: 1, y: 0, transition: SOFT },
 };
 const overlayVariants = {
@@ -64,14 +65,11 @@ const overlayVariants = {
   exit: { opacity: 0, transition: { duration: 0.15 } },
 };
 const dialogVariants = {
-  hidden: { opacity: 0, scale: 0.92, y: 16 },
+  hidden: { opacity: 0, scale: 0.94, y: 16 },
   show: { opacity: 1, scale: 1, y: 0, transition: SPRING },
-  exit: { opacity: 0, scale: 0.95, y: 8, transition: { duration: 0.15 } },
+  exit: { opacity: 0, scale: 0.97, y: 8, transition: { duration: 0.15 } },
 };
 
-/* ------------------------------------------------------------------ */
-/*  Config                                                             */
-/* ------------------------------------------------------------------ */
 const FIELDS = [
   {
     name: "fullName",
@@ -80,6 +78,7 @@ const FIELDS = [
     type: "text",
     placeholder: "Your full name",
     required: true,
+    autoComplete: "name",
   },
   {
     name: "username",
@@ -87,14 +86,24 @@ const FIELDS = [
     icon: AtSign,
     type: "text",
     placeholder: "username",
+    autoComplete: "username",
+    copyable: true,
   },
-  { name: "email", label: "Email", icon: Mail, type: "email", readOnly: true },
+  {
+    name: "email",
+    label: "Email",
+    icon: Mail,
+    type: "email",
+    readOnly: true,
+    copyable: true,
+  },
   {
     name: "phone",
     label: "Phone",
     icon: Phone,
     type: "tel",
     placeholder: "+91 98765 43210",
+    autoComplete: "tel",
   },
   {
     name: "gender",
@@ -117,6 +126,7 @@ const FIELDS = [
     icon: Globe,
     type: "url",
     placeholder: "https://yoursite.com",
+    autoComplete: "url",
   },
 ];
 
@@ -168,6 +178,8 @@ const TABS = [
 ];
 
 const BIO_MAX = 160;
+const PW_MIN = 8;
+const PW_MAX = 15;
 
 const validators = {
   fullName: (v) =>
@@ -197,9 +209,49 @@ const buildInitialForm = (user) => ({
   bio: user?.bio || "",
 });
 
-// Backend allows 6-15 characters; the meter only helps users pick a good one.
+// Backend may return `id` or `_id` for a session
+const sessionIdOf = (s) => String(s?.id ?? s?._id ?? "");
+
+// The backend may name / nest the flags differently. Read the first boolean found.
+const pickBool = (obj, paths) => {
+  if (!obj || typeof obj !== "object") return undefined;
+  for (const path of paths) {
+    const v = path.split(".").reduce((o, k) => o?.[k], obj);
+    if (typeof v === "boolean") return v;
+  }
+  return undefined;
+};
+const TWO_FA_PATHS = [
+  "twoFactorEnabled",
+  "twoFactor.enabled",
+  "isTwoFactorEnabled",
+  "twoFAEnabled",
+  "twoFaEnabled",
+  "is2FAEnabled",
+  "twoFactorAuthEnabled",
+  "mfaEnabled",
+  "twoFactorAuth.enabled",
+  "twoFA.enabled",
+  "security.twoFactorEnabled",
+  "security.twoFactor.enabled",
+];
+const LOGIN_ALERT_PATHS = [
+  "loginAlerts",
+  "loginAlertsEnabled",
+  "security.loginAlerts",
+  "notifications.loginAlerts",
+];
+
+// Returns true/false if a flag is found, otherwise undefined (never a fake false)
+const readTwoFactor = (u) => pickBool(u, TWO_FA_PATHS);
+const readLoginAlerts = (u) => pickBool(u, LOGIN_ALERT_PATHS);
+
 const PASSWORD_RULES = [
-  { id: "len", label: "At least 8 characters", test: (v) => v.length >= 8 },
+  {
+    id: "len",
+    label: `${PW_MIN} to ${PW_MAX} characters`,
+    test: (v) => v.length >= PW_MIN && v.length <= PW_MAX,
+  },
   {
     id: "case",
     label: "Upper and lower case letters",
@@ -229,50 +281,85 @@ const STRENGTH_TEXT = [
   "text-success",
 ];
 
-/* ------------------------------------------------------------------ */
-/*  Small building blocks                                              */
-/* ------------------------------------------------------------------ */
+const formatDob = (v) => {
+  if (!v) return "";
+  const d = new Date(`${v}T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? v
+    : d.toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+};
+
+const CARD =
+  "rounded-3xl bg-base-300/90 shadow-2xl shadow-black/10 ring-1 ring-base-content/10 backdrop-blur";
+const TILE =
+  "rounded-2xl border border-base-content/10 bg-base-100/60 transition-all duration-200";
+
+const controlClass = (error) =>
+  `w-full rounded-xl border bg-base-100 pl-10 pr-3 py-3 text-sm shadow-sm outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
+    error
+      ? "border-error focus:ring-4 focus:ring-error/15"
+      : "border-base-content/15 hover:border-base-content/40 focus:border-primary focus:ring-4 focus:ring-primary/15"
+  }`;
+
 const InfoRow = ({ icon: Icon, children }) => (
   <motion.li
     variants={itemVariants}
     className="flex min-w-0 items-center gap-3 text-sm"
   >
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-base-100">
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 ring-1 ring-primary/15">
       <Icon className="h-4 w-4 text-primary" />
     </span>
-    <span className="truncate">{children}</span>
+    <span className="min-w-0 truncate">{children}</span>
   </motion.li>
 );
 
-const SectionTitle = ({ icon: Icon, title, hint, tone = "primary" }) => (
-  <div className="mb-4 flex items-start gap-3">
-    <motion.span
-      initial={{ scale: 0.6, rotate: -12, opacity: 0 }}
-      animate={{ scale: 1, rotate: 0, opacity: 1 }}
-      transition={SPRING}
-      className={`grid size-9 shrink-0 place-items-center rounded-xl ${
-        tone === "error" ? "bg-error/15" : "bg-primary/15"
+const StatTile = ({ icon: Icon, value, label, tone }) => (
+  <div className="group min-w-0 rounded-2xl bg-base-100/70 px-2 py-3 text-center ring-1 ring-base-content/10 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:ring-primary/30">
+    <Icon className="mx-auto mb-1.5 h-4 w-4 text-base-content/40 transition-colors group-hover:text-primary" />
+    <p
+      className={`text-lg font-bold leading-none tabular-nums sm:text-xl ${
+        tone || ""
       }`}
     >
-      <Icon
-        className={`h-4 w-4 ${tone === "error" ? "text-error" : "text-primary"}`}
-      />
-    </motion.span>
-    <div>
-      <h3 className="text-base font-semibold leading-tight">{title}</h3>
-      {hint && <p className="mt-0.5 text-xs text-base-content/60">{hint}</p>}
-    </div>
+      {value}
+    </p>
+    <p className="mt-1.5 truncate text-[11px] text-base-content/60">{label}</p>
   </div>
 );
 
-// Panel stagger me aate hain (parent par variants=listVariants chahiye)
+const SectionTitle = ({ icon: Icon, title, hint, tone = "primary", aside }) => (
+  <div className="mb-5 flex items-start gap-3">
+    <span
+      className={`grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br shadow-sm ring-1 ${
+        tone === "error"
+          ? "from-error/20 to-error/5 ring-error/25"
+          : "from-primary/25 to-primary/5 ring-primary/25"
+      }`}
+    >
+      <Icon
+        className={`h-[18px] w-[18px] ${
+          tone === "error" ? "text-error" : "text-primary"
+        }`}
+      />
+    </span>
+    <div className="min-w-0 flex-1">
+      <h3 className="text-base font-semibold leading-tight">{title}</h3>
+      {hint && <p className="mt-1 text-xs text-base-content/60">{hint}</p>}
+    </div>
+    {aside}
+  </div>
+);
+
 const Panel = ({ children }) => (
-  <motion.section variants={itemVariants} className="px-6 py-6 sm:px-8">
+  <motion.section variants={itemVariants} className="px-4 py-6 sm:px-8 sm:py-8">
     {children}
   </motion.section>
 );
 
-// Custom switch (Settings page wala) - knob layout animation se slide hota hai
 const Toggle = ({ checked, onChange, label, disabled }) => (
   <motion.button
     type="button"
@@ -301,22 +388,13 @@ const Toggle = ({ checked, onChange, label, disabled }) => (
   </motion.button>
 );
 
-const ToggleRow = ({
-  title,
-  desc,
-  checked,
-  onChange,
-  icon: Icon,
-  disabled,
-}) => (
-  <motion.div
-    whileHover={{ y: -1 }}
-    transition={SOFT}
-    className="flex items-center justify-between gap-4 rounded-xl border border-base-content/10 bg-base-100/70 p-4"
+const SettingRow = ({ icon: Icon, title, desc, children }) => (
+  <div
+    className={`${TILE} flex flex-col gap-3 p-4 hover:border-primary/30 hover:shadow-md sm:flex-row sm:items-center sm:justify-between sm:gap-4`}
   >
     <div className="flex min-w-0 items-start gap-3">
       {Icon && (
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-base-200">
+        <span className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/20">
           <Icon className="h-4 w-4 text-primary" />
         </span>
       )}
@@ -325,32 +403,18 @@ const ToggleRow = ({
         <p className="mt-1 text-xs leading-snug text-base-content/60">{desc}</p>
       </div>
     </div>
-    <Toggle
-      checked={checked}
-      onChange={onChange}
-      label={title}
-      disabled={disabled}
-    />
-  </motion.div>
+    <div className="flex shrink-0 items-center justify-end gap-2">
+      {children}
+    </div>
+  </div>
 );
-
-/* shared input look: readable in view mode, clear border in edit mode */
-const controlClass = (error, editable) =>
-  `w-full rounded-xl pl-10 pr-3 py-3 text-sm border outline-none transition-colors
-   disabled:text-base-content disabled:opacity-100 disabled:cursor-default
-   ${
-     error
-       ? "border-error bg-base-100"
-       : editable
-         ? "bg-base-100 border-base-content/20 hover:border-base-content/40 focus:border-primary focus:ring-2 focus:ring-primary/20"
-         : "bg-base-100/70 border-base-content/10"
-   }`;
 
 const FieldError = ({ children }) => (
   <AnimatePresence initial={false}>
     {children && (
       <motion.p
         key="err"
+        role="alert"
         initial={{ opacity: 0, height: 0, y: -4 }}
         animate={{ opacity: 1, height: "auto", y: 0 }}
         exit={{ opacity: 0, height: 0 }}
@@ -362,6 +426,109 @@ const FieldError = ({ children }) => (
     )}
   </AnimatePresence>
 );
+
+const Chip = ({ icon: Icon, tone = "neutral", children }) => {
+  const tones = {
+    success: "bg-success/10 text-success ring-success/25",
+    warning: "bg-warning/10 text-warning ring-warning/25",
+    neutral: "bg-base-100 text-base-content/70 ring-base-content/10",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${tones[tone]}`}
+    >
+      <Icon className="h-3 w-3" />
+      {children}
+    </span>
+  );
+};
+
+const AvatarRing = ({ value, dragging, children }) => {
+  const r = 66;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="relative size-32 sm:size-40">
+      <div
+        aria-hidden
+        className="absolute inset-3 rounded-full bg-primary/30 blur-2xl"
+      />
+      <svg
+        viewBox="0 0 144 144"
+        className="absolute inset-0 size-full -rotate-90"
+        aria-hidden
+      >
+        <circle
+          cx="72"
+          cy="72"
+          r={r}
+          fill="none"
+          strokeWidth="5"
+          className="stroke-base-content/10"
+        />
+        <motion.circle
+          cx="72"
+          cy="72"
+          r={r}
+          fill="none"
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          initial={false}
+          animate={{ strokeDashoffset: c * (1 - value / 100) }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className={dragging ? "stroke-accent" : "stroke-primary"}
+        />
+      </svg>
+      <div className="absolute inset-[10px] sm:inset-3">{children}</div>
+    </div>
+  );
+};
+
+const ScoreGauge = ({ value, stroke, text }) => {
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="relative size-36 shrink-0">
+      <svg
+        viewBox="0 0 120 120"
+        className="absolute inset-0 size-full -rotate-90"
+        aria-hidden
+      >
+        <circle
+          cx="60"
+          cy="60"
+          r={r}
+          fill="none"
+          strokeWidth="9"
+          className="stroke-base-content/10"
+        />
+        <motion.circle
+          cx="60"
+          cy="60"
+          r={r}
+          fill="none"
+          strokeWidth="9"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          initial={false}
+          animate={{ strokeDashoffset: c * (1 - value / 100) }}
+          transition={{ duration: 0.9, ease: "easeOut" }}
+          className={stroke}
+        />
+      </svg>
+      <div className="absolute inset-0 grid place-items-center text-center">
+        <div>
+          <p className={`text-3xl font-bold leading-none tabular-nums ${text}`}>
+            {value}
+          </p>
+          <p className="mt-1 text-[11px] font-medium text-base-content/50">
+            out of 100
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const PasswordInput = ({
   id,
@@ -378,8 +545,8 @@ const PasswordInput = ({
     <label htmlFor={id} className="text-sm font-medium text-base-content/80">
       {label}
     </label>
-    <div className="relative">
-      <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40" />
+    <div className="group relative">
+      <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40 transition-colors group-focus-within:text-primary" />
       <input
         id={id}
         type={show ? "text" : "password"}
@@ -387,15 +554,16 @@ const PasswordInput = ({
         onChange={onChange}
         autoComplete={autoComplete}
         placeholder={placeholder}
-        maxLength={15}
-        className={`${controlClass(error, true)} pr-11`}
+        maxLength={PW_MAX}
+        aria-invalid={!!error}
+        className={`${controlClass(error)} pr-11`}
       />
       <motion.button
         type="button"
         onClick={onToggle}
         whileTap={{ scale: 0.88 }}
         aria-label={show ? "Hide password" : "Show password"}
-        className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-base-content/50 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary"
+        className="absolute right-1.5 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-lg text-base-content/50 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary"
       >
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
@@ -419,7 +587,6 @@ const PasswordInput = ({
   </div>
 );
 
-// Confirm dialog (revoke session etc.) - animated, page level par render hota hai
 const ConfirmDialog = ({
   open,
   title,
@@ -427,56 +594,85 @@ const ConfirmDialog = ({
   onCancel,
   onConfirm,
   confirmLabel,
+  cancelLabel = "Cancel",
+  tone = "error",
   busy,
-}) => (
-  <AnimatePresence>
-    {open && (
-      <motion.div
-        key="overlay"
-        variants={overlayVariants}
-        initial="hidden"
-        animate="show"
-        exit="exit"
-        onClick={onCancel}
-        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      >
-        <motion.div
-          variants={dialogVariants}
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          className="w-full max-w-sm rounded-2xl border border-base-content/10 bg-base-200 p-6 shadow-2xl"
-        >
-          <h3 className="mb-2 text-base font-bold">{title}</h3>
-          <p className="mb-5 text-sm text-base-content/60">{text}</p>
-          <div className="flex gap-2">
-            <motion.button
-              whileTap={{ scale: 0.96 }}
-              onClick={onCancel}
-              className="btn btn-ghost flex-1"
-            >
-              Cancel
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.96 }}
-              onClick={onConfirm}
-              disabled={busy}
-              className="btn btn-error flex-1"
-            >
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {confirmLabel}
-            </motion.button>
-          </div>
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
-);
+}) => {
+  const cancelRef = useRef(null);
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!open) return;
+    cancelRef.current?.focus();
+    const onKey = (e) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="overlay"
+          variants={overlayVariants}
+          initial="hidden"
+          animate="show"
+          exit="exit"
+          onClick={onCancel}
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center"
+        >
+          <motion.div
+            variants={dialogVariants}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            className="w-full max-w-sm rounded-3xl border border-base-content/10 bg-base-200 p-5 shadow-2xl sm:p-6"
+          >
+            <span
+              className={`mb-3 grid size-12 place-items-center rounded-2xl ring-1 ${
+                tone === "error"
+                  ? "bg-error/10 text-error ring-error/20"
+                  : "bg-primary/10 text-primary ring-primary/20"
+              }`}
+            >
+              <TriangleAlert className="h-5 w-5" />
+            </span>
+            <h3 className="mb-1.5 text-base font-bold">{title}</h3>
+            <p className="mb-5 text-sm leading-relaxed text-base-content/60">
+              {text}
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <motion.button
+                ref={cancelRef}
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={onCancel}
+                className="btn btn-ghost flex-1"
+              >
+                {cancelLabel}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={onConfirm}
+                disabled={busy}
+                className={`btn flex-1 ${
+                  tone === "error" ? "btn-error" : "btn-primary"
+                }`}
+              >
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {confirmLabel}
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 const ProfilePage = () => {
   const {
     authUser,
@@ -494,22 +690,22 @@ const ProfilePage = () => {
     socket,
   } = useAuthStore();
   const fileInputRef = useRef(null);
+  const formRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const prefersReduced = useReducedMotion();
 
   const [tab, setTab] = useState("profile");
 
-  /* avatar state */
   const [selectedImg, setSelectedImg] = useState(null);
   const [file, setFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
 
-  /* form state */
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState(() => buildInitialForm(authUser));
   const [errors, setErrors] = useState({});
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  /* password state */
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [pwShow, setPwShow] = useState({
     current: false,
@@ -518,7 +714,6 @@ const ProfilePage = () => {
   });
   const [pwErrors, setPwErrors] = useState({});
 
-  // ── 2FA / security ────────────────────────────────────────────────────────
   const [twoFAModal, setTwoFAModal] = useState({ open: false, mode: "setup" });
   const [confirmRevoke, setConfirmRevoke] = useState({
     open: false,
@@ -537,47 +732,39 @@ const ProfilePage = () => {
     revokeOtherSessions,
     loginAlertsLoading,
     updateLoginAlerts,
+    resetTwoFaState,
+    startTwoFaSetup,
+    openTwoFaDisable,
   } = useSecurityStore();
 
-  // IMPORTANT: twoFactorEnabled / loginAlerts are returned by /auth/check,
-  // but NOT by /users/me. fetchCurrentUser() replaces authUser with the
-  // /users/me response, which wiped these flags and made the "Enable" button
-  // show even when 2FA was already on. So we keep them in local state and
-  // refresh them straight from /auth/check.
-  const [twoFA, setTwoFA] = useState(authUser?.twoFactorEnabled ?? false);
-  const [loginAlerts, setLoginAlerts] = useState(authUser?.loginAlerts ?? true);
+  const [loginAlerts, setLoginAlerts] = useState(
+    readLoginAlerts(authUser) ?? true,
+  );
 
+  // GET /auth/check -> latest twoFactorEnabled + loginAlerts flags
   const refreshSecurityFlags = useCallback(async () => {
     try {
       const res = await axiosInstance.get("/auth/check", {
         withCredentials: true,
       });
-      const data = res?.data?.data?.user ?? res?.data?.data;
-      if (typeof data?.twoFactorEnabled === "boolean") {
-        setTwoFA(data.twoFactorEnabled);
-      }
-      if (typeof data?.loginAlerts === "boolean") {
-        setLoginAlerts(data.loginAlerts);
-      }
+      const root = res?.data?.data ?? res?.data;
+      const data = root?.user ?? root;
+      const la = readLoginAlerts(data) ?? readLoginAlerts(root);
+      if (typeof la === "boolean") setLoginAlerts(la);
     } catch (err) {
       console.error("Refresh security flags error:", err);
     }
   }, []);
 
-  // Only adopt values from authUser when they are actually present
-  useEffect(() => {
-    if (typeof authUser?.twoFactorEnabled === "boolean") {
-      setTwoFA(authUser.twoFactorEnabled);
-    }
-  }, [authUser?.twoFactorEnabled]);
+  const authLoginAlerts = readLoginAlerts(authUser);
+
+  // authUser is the single source of truth for 2FA. No separate state to go stale.
+  const twoFA = readTwoFactor(authUser) ?? false;
 
   useEffect(() => {
-    if (typeof authUser?.loginAlerts === "boolean") {
-      setLoginAlerts(authUser.loginAlerts);
-    }
-  }, [authUser?.loginAlerts]);
+    if (typeof authLoginAlerts === "boolean") setLoginAlerts(authLoginAlerts);
+  }, [authLoginAlerts]);
 
-  /* account state */
   const [deleteText, setDeleteText] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteCode, setDeleteCode] = useState("");
@@ -590,13 +777,14 @@ const ProfilePage = () => {
     [form, initialForm],
   );
 
-  // Load full profile + real security flags on mount
+  // First load: user + flags + sessions
   useEffect(() => {
     fetchCurrentUser();
     refreshSecurityFlags();
-  }, [fetchCurrentUser, refreshSecurityFlags]);
+    fetchSessions();
+  }, [fetchCurrentUser, refreshSecurityFlags, fetchSessions]);
 
-  // Fetch real sessions + fresh security flags when the security tab opens
+  // Re-sync whenever the Security tab is opened
   useEffect(() => {
     if (tab === "security") {
       fetchSessions();
@@ -604,7 +792,7 @@ const ProfilePage = () => {
     }
   }, [tab, fetchSessions, refreshSecurityFlags]);
 
-  // Listen for server-side session events (from another device)
+  // Sessions changed elsewhere (socket / other tab)
   useEffect(() => {
     const handler = () => fetchSessions();
     window.addEventListener("chatty:session-revoked", handler);
@@ -615,7 +803,6 @@ const ProfilePage = () => {
     };
   }, [fetchSessions]);
 
-  // Handle server-pushed account:deleted (e.g., deletion confirmed via socket)
   useEffect(() => {
     if (!socket) return;
     const handleAccountDeleted = () => {
@@ -625,11 +812,13 @@ const ProfilePage = () => {
     return () => socket.off("account:deleted", handleAccountDeleted);
   }, [socket, navigate]);
 
+  // Make sure 2FA secrets / recovery codes never outlive this page
+  useEffect(() => () => resetTwoFaState(), [resetTwoFaState]);
+
   useEffect(() => {
     if (!isEditing) setForm(initialForm);
   }, [initialForm, isEditing]);
 
-  // Page khula hai to peeche wali app scroll na ho (Settings jaisa)
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -638,25 +827,55 @@ const ProfilePage = () => {
     };
   }, []);
 
-  // Back: pehli entry ho to home par, warna history back
+  useEffect(
+    () => () => {
+      if (selectedImg) URL.revokeObjectURL(selectedImg);
+    },
+    [selectedImg],
+  );
+
   const goBack = useCallback(() => {
     if (location.key !== "default") navigate(-1);
     else navigate("/");
   }, [location.key, navigate]);
 
-  // Esc dabane par wapas (input/modal khula ho to nahi)
+  const requestBack = useCallback(() => {
+    if (isEditing && isDirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    goBack();
+  }, [isEditing, isDirty, goBack]);
+
   const anyDialogOpen =
-    twoFAModal.open || confirmRevoke.open || confirmRevokeOthers;
+    twoFAModal.open ||
+    confirmRevoke.open ||
+    confirmRevokeOthers ||
+    confirmDiscard ||
+    confirmRemovePhoto;
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "Escape" || anyDialogOpen) return;
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      goBack();
+      requestBack();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goBack, anyDialogOpen]);
+  }, [requestBack, anyDialogOpen]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        if (tab === "profile" && isEditing && !anyDialogOpen) {
+          e.preventDefault();
+          formRef.current?.requestSubmit();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, isEditing, anyDialogOpen]);
 
   const completion = useMemo(() => {
     const keys = [...FIELDS.map((f) => f.name), "bio"];
@@ -670,9 +889,9 @@ const ProfilePage = () => {
   const missing = useMemo(() => {
     const list = FIELDS.filter(
       (f) => !(initialForm[f.name] || "").toString().trim(),
-    ).map((f) => f.label);
-    if (!initialForm.bio.trim()) list.push("Bio");
-    if (!authUser?.avatar) list.push("Photo");
+    ).map((f) => ({ id: f.name, label: f.label }));
+    if (!initialForm.bio.trim()) list.push({ id: "bio", label: "Bio" });
+    if (!authUser?.avatar) list.push({ id: "photo", label: "Photo" });
     return list;
   }, [initialForm, authUser]);
 
@@ -685,13 +904,62 @@ const ProfilePage = () => {
 
   const currentTab = TABS.find((t) => t.id === tab);
 
-  /* password strength */
   const passedRules = PASSWORD_RULES.filter((r) => r.test(pw.next));
   const strength = pw.next ? passedRules.length : 0;
 
-  /* ---------------------------- avatar ---------------------------- */
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
+  const securityChecks = useMemo(
+    () => [
+      {
+        id: "2fa",
+        label: "Two-step verification is on",
+        points: 50,
+        ok: twoFA,
+        fix: "Turn on two-step verification (recommended)",
+      },
+      {
+        id: "alerts",
+        label: "Login alerts",
+        points: 25,
+        ok: loginAlerts,
+        fix: "Turn on login alerts",
+      },
+      {
+        id: "sessions",
+        label: "Few active devices",
+        points: 25,
+        ok: sessions.length <= 2,
+        fix: "Sign out devices you don't use",
+      },
+    ],
+    [twoFA, loginAlerts, sessions.length],
+  );
+  const securityScore = securityChecks.reduce(
+    (sum, c) => sum + (c.ok ? c.points : 0),
+    0,
+  );
+  const securityLevel =
+    securityScore >= 90
+      ? {
+          label: "Excellent",
+          text: "text-success",
+          bar: "bg-success",
+          stroke: "stroke-success",
+        }
+      : securityScore >= 60
+        ? {
+            label: "Good",
+            text: "text-info",
+            bar: "bg-info",
+            stroke: "stroke-info",
+          }
+        : {
+            label: "Needs attention",
+            text: "text-warning",
+            bar: "bg-warning",
+            stroke: "stroke-warning",
+          };
+
+  const processFile = (selectedFile) => {
     if (!selectedFile) return;
 
     const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
@@ -706,13 +974,20 @@ const ProfilePage = () => {
       return;
     }
 
-    if (selectedImg) URL.revokeObjectURL(selectedImg);
     setFile(selectedFile);
     setSelectedImg(URL.createObjectURL(selectedFile));
   };
 
+  const handleFileChange = (e) => processFile(e.target.files[0]);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (isUpdatingAvatar) return;
+    processFile(e.dataTransfer.files?.[0]);
+  };
+
   const cancelAvatar = () => {
-    if (selectedImg) URL.revokeObjectURL(selectedImg);
     setSelectedImg(null);
     setFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -732,7 +1007,16 @@ const ProfilePage = () => {
     }
   };
 
-  /* ------------------------- form handlers ------------------------- */
+  const handleRemovePhoto = async () => {
+    try {
+      await deleteAvatar();
+    } catch (err) {
+      console.error("Delete avatar error:", err);
+    } finally {
+      setConfirmRemovePhoto(false);
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((p) => ({ ...p, [name]: value }));
@@ -769,7 +1053,24 @@ const ProfilePage = () => {
     }
   };
 
-  /* ----------------------- security handlers ----------------------- */
+  const handleMissingClick = (id) => {
+    if (id === "photo") {
+      fileInputRef.current?.click();
+      return;
+    }
+    setTab("profile");
+    setIsEditing(true);
+  };
+
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error("Couldn't copy to clipboard");
+    }
+  };
+
   const setPwField = (key) => (e) => {
     setPw((p) => ({ ...p, [key]: e.target.value }));
     if (pwErrors[key]) setPwErrors((p) => ({ ...p, [key]: "" }));
@@ -778,15 +1079,17 @@ const ProfilePage = () => {
   const togglePwShow = (key) => () =>
     setPwShow((p) => ({ ...p, [key]: !p[key] }));
 
+  // PATCH /auth/change-password (via useAuthStore.changePassword)
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
 
-    // Client-side validation (mirrors backend rules)
     const next = {};
     if (!pw.current) next.current = "Enter your current password";
     if (!pw.next) next.next = "Enter a new password";
-    else if (pw.next.length < 6) next.next = "Use at least 6 characters";
-    else if (pw.next.length > 15) next.next = "Maximum 15 characters";
+    else if (pw.next.length < PW_MIN)
+      next.next = `Use at least ${PW_MIN} characters`;
+    else if (pw.next.length > PW_MAX)
+      next.next = `Maximum ${PW_MAX} characters`;
     else if (pw.next === pw.current)
       next.next = "New password must be different from the current one";
     else if (strength < 3) next.next = "Make it a bit stronger";
@@ -803,13 +1106,12 @@ const ProfilePage = () => {
         newPassword: pw.next,
         confirmPassword: pw.confirm,
       });
-      // Only clear form after confirmed backend success
       setPw({ current: "", next: "", confirm: "" });
       setPwShow({ current: false, next: false, confirm: false });
       setPwErrors({});
+      // Password change can invalidate other sessions on the server
+      fetchSessions();
     } catch (err) {
-      // Store already toasted the error. Surface server-specific messages
-      // inline when the field can be inferred from the error text.
       const msg = err?.response?.data?.message ?? "";
       if (/current password/i.test(msg)) {
         setPwErrors((p) => ({ ...p, current: msg }));
@@ -818,43 +1120,62 @@ const ProfilePage = () => {
       } else if (/different|same/i.test(msg)) {
         setPwErrors((p) => ({ ...p, next: msg }));
       }
-      // Do NOT clear the form — preserve input so the user can correct it
     }
   };
 
+  // PATCH /auth/security/login-alerts
   const handleLoginAlertsToggle = async (enabled) => {
-    // Optimistic UI
-    setLoginAlerts(enabled);
+    setLoginAlerts(enabled); // optimistic
     const ok = await updateLoginAlerts(enabled);
-    if (!ok) {
-      // Revert on failure
-      setLoginAlerts(!enabled);
-    }
+    if (!ok) setLoginAlerts(!enabled); // revert on failure
   };
 
+  // DELETE /auth/sessions/:sessionId
   const handleRevokeSession = async (sessionId) => {
     setConfirmRevoke({ open: false, sessionId: null });
-    await revokeSession(sessionId);
+    if (!sessionId) return;
+    const ok = await revokeSession(sessionId);
+    if (!ok) fetchSessions(); // resync list if it failed
   };
 
+  // POST /auth/sessions/revoke-others
   const handleRevokeOthers = async () => {
     setConfirmRevokeOthers(false);
-    await revokeOtherSessions();
+    const ok = await revokeOtherSessions();
+    if (!ok) fetchSessions();
   };
 
-  // When the 2FA modal closes (after enable OR disable), re-read the real
-  // twoFactorEnabled value from the server so the button flips correctly.
+  // Opens the 2FA modal AND starts the right store flow
+  const openTwoFA = async (mode) => {
+    setTwoFAModal({ open: true, mode });
+    if (mode === "disable") {
+      openTwoFaDisable();
+      return;
+    }
+    const ok = await startTwoFaSetup(); // POST /auth/2fa/setup
+    if (!ok) {
+      // Server says it is already on -> fix the UI instead of showing "off"
+      const msg = useSecurityStore.getState().twoFaError || "";
+      if (/already/i.test(msg)) {
+        fetchCurrentUser(); // authUser will now report twoFA = true
+        setTwoFAModal({ open: false, mode: "setup" });
+        resetTwoFaState();
+      }
+    }
+  };
+
+  // POST /auth/2fa/* lives in the modal + store; here we just resync
   const handleTwoFAModalClose = useCallback(() => {
     setTwoFAModal({ open: false, mode: "setup" });
+    resetTwoFaState();
     refreshSecurityFlags();
     fetchCurrentUser();
-  }, [refreshSecurityFlags, fetchCurrentUser]);
+  }, [resetTwoFaState, refreshSecurityFlags, fetchCurrentUser]);
 
+  // DELETE /auth/account
   const handleDeleteAccount = async () => {
-    // Prevent duplicate submissions
     if (isDeletingAccount) return;
 
-    // Client-side guard: button should already be disabled, but double-check
     if (deleteText.trim() !== "DELETE") {
       setDeleteError("Type DELETE exactly to confirm.");
       return;
@@ -863,80 +1184,131 @@ const ProfilePage = () => {
       setDeleteError("Password is required.");
       return;
     }
+    if (twoFA) {
+      const code = deleteCode.trim();
+      if (!code) {
+        setDeleteError(
+          deleteUseRecovery
+            ? "Enter one of your recovery codes."
+            : "Enter the 6-digit code from your authenticator app.",
+        );
+        return;
+      }
+      if (!deleteUseRecovery && !/^\d{6}$/.test(code)) {
+        setDeleteError("The code must be exactly 6 digits.");
+        return;
+      }
+    }
     setDeleteError("");
 
     try {
       await deleteAccount({
         password: deletePassword,
-        // twoFA (local, always fresh) use kiya; authUser flag /users/me se wipe ho jaata hai
         ...(twoFA && deleteCode
           ? { code: deleteCode.trim(), useRecoveryCode: deleteUseRecovery }
           : {}),
       });
-      // On success, authUser becomes null → App.jsx redirects to /login automatically
     } catch (err) {
-      // Store already toasted the error; display it inline as well
       const msg =
         err?.response?.data?.message || "Deletion failed. Please try again.";
       setDeleteError(msg);
-      // Preserve deletePassword so user can retry without re-entering (do NOT log it)
     }
   };
 
-  /* ---------------------------- UI pieces ---------------------------- */
   const renderField = (name) => {
     const f = FIELD_MAP[name];
     const Icon = f.icon;
-    const disabled = !isEditing || f.readOnly || isUpdateProfile;
     const error = errors[f.name];
-    const editable = !disabled;
+
+    if (!isEditing || f.readOnly) {
+      const raw = form[f.name];
+      const shown = f.type === "date" ? formatDob(raw) : raw;
+      return (
+        <div
+          key={f.name}
+          className={`${TILE} group flex min-w-0 items-start gap-3 p-3.5 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md`}
+        >
+          <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/20">
+            <Icon className="h-4 w-4 text-primary" />
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+              {f.label}
+              {f.readOnly && (
+                <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-success">
+                  <ShieldCheck className="h-3 w-3" />
+                  Verified
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <p className="min-w-0 flex-1 break-words text-sm font-medium">
+                {shown ? (
+                  f.type === "url" ? (
+                    <a
+                      href={raw}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="link link-hover"
+                    >
+                      {raw.replace(/^https?:\/\//, "")}
+                    </a>
+                  ) : (
+                    shown
+                  )
+                ) : (
+                  <span className="font-normal text-base-content/40">
+                    Not added
+                  </span>
+                )}
+              </p>
+              {f.copyable && shown && (
+                <button
+                  type="button"
+                  onClick={() => copyText(shown, f.label)}
+                  aria-label={`Copy ${f.label.toLowerCase()}`}
+                  className="grid size-7 shrink-0 place-items-center rounded-lg text-base-content/40 opacity-100 transition hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div key={f.name} className="min-w-0 space-y-1.5">
         <label
           htmlFor={f.name}
-          className="flex items-center gap-1.5 text-sm font-medium text-base-content/80"
+          className="flex items-center gap-1 text-sm font-medium text-base-content/80"
         >
           {f.label}
-          <AnimatePresence initial={false}>
-            {f.required && isEditing && (
-              <motion.span
-                key="req"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
-                transition={SPRING}
-                className="text-error"
-              >
-                *
-              </motion.span>
-            )}
-          </AnimatePresence>
-          {f.readOnly && (
-            <span title="Verified" className="inline-flex">
-              <ShieldCheck className="h-3.5 w-3.5 text-success" />
-            </span>
-          )}
+          {f.required && <span className="text-error">*</span>}
         </label>
 
-        <div className="relative">
-          <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40" />
+        <div className="group relative">
+          <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40 transition-colors group-focus-within:text-primary" />
           {f.type === "select" ? (
-            <select
-              id={f.name}
-              name={f.name}
-              value={form[f.name]}
-              onChange={handleChange}
-              disabled={disabled}
-              className={controlClass(error, editable)}
-            >
-              <option value="">Select</option>
-              {f.options.map((o) => (
-                <option key={o} value={o}>
-                  {o}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                id={f.name}
+                name={f.name}
+                value={form[f.name]}
+                onChange={handleChange}
+                disabled={isUpdateProfile}
+                className={`${controlClass(error)} appearance-none pr-10`}
+              >
+                <option value="">Select</option>
+                {f.options.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40" />
+            </>
           ) : (
             <input
               id={f.name}
@@ -944,16 +1316,19 @@ const ProfilePage = () => {
               type={f.type}
               value={form[f.name]}
               onChange={handleChange}
-              disabled={disabled}
-              placeholder={
-                disabled && !form[f.name] ? "Not added" : f.placeholder
-              }
+              disabled={isUpdateProfile}
+              placeholder={f.placeholder}
+              autoComplete={f.autoComplete}
+              aria-invalid={!!error}
               max={
                 f.type === "date"
                   ? new Date().toISOString().slice(0, 10)
                   : undefined
               }
-              className={controlClass(error, editable)}
+              style={
+                f.type === "date" ? { colorScheme: "light dark" } : undefined
+              }
+              className={controlClass(error)}
             />
           )}
         </div>
@@ -963,9 +1338,13 @@ const ProfilePage = () => {
     );
   };
 
-  /* ---------------------------- tab contents ---------------------------- */
   const profileTab = (
-    <form onSubmit={handleSave} className="flex flex-1 flex-col">
+    <form
+      ref={formRef}
+      onSubmit={handleSave}
+      noValidate
+      className="flex flex-1 flex-col"
+    >
       <motion.div
         variants={listVariants}
         initial="hidden"
@@ -975,7 +1354,11 @@ const ProfilePage = () => {
         {GROUPS.map((g) => (
           <Panel key={g.title}>
             <SectionTitle icon={g.icon} title={g.title} hint={g.hint} />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 ${
+                isEditing ? "gap-4" : "gap-3"
+              }`}
+            >
               {g.fields.map(renderField)}
             </div>
           </Panel>
@@ -987,56 +1370,67 @@ const ProfilePage = () => {
             title="About"
             hint="A short line about you, shown on your profile."
           />
-          <div className="space-y-1.5">
-            <label
-              htmlFor="bio"
-              className="text-sm font-medium text-base-content/80"
-            >
-              Bio
-            </label>
-            <textarea
-              id="bio"
-              name="bio"
-              rows={3}
-              value={form.bio}
-              onChange={handleChange}
-              disabled={!isEditing || isUpdateProfile}
-              placeholder={
-                !isEditing && !form.bio
-                  ? "Not added"
-                  : "Tell people something about you..."
-              }
-              className={`w-full resize-none rounded-xl border px-4 py-3 text-sm outline-none transition-colors
-                disabled:cursor-default disabled:text-base-content disabled:opacity-100
-                ${
+          {isEditing ? (
+            <div className="space-y-1.5">
+              <label
+                htmlFor="bio"
+                className="text-sm font-medium text-base-content/80"
+              >
+                Bio
+              </label>
+              <textarea
+                id="bio"
+                name="bio"
+                rows={3}
+                value={form.bio}
+                onChange={handleChange}
+                disabled={isUpdateProfile}
+                aria-invalid={!!errors.bio}
+                placeholder="Tell people something about you..."
+                className={`w-full resize-none rounded-xl border bg-base-100 px-4 py-3 text-sm shadow-sm outline-none transition-all disabled:opacity-60 ${
                   errors.bio
-                    ? "border-error bg-base-100"
-                    : isEditing
-                      ? "border-base-content/20 bg-base-100 hover:border-base-content/40 focus:border-primary focus:ring-2 focus:ring-primary/20"
-                      : "border-base-content/10 bg-base-100/70"
+                    ? "border-error focus:ring-4 focus:ring-error/15"
+                    : "border-base-content/15 hover:border-base-content/40 focus:border-primary focus:ring-4 focus:ring-primary/15"
                 }`}
-            />
-            <div className="flex justify-between text-xs">
-              <span className="text-error">{errors.bio}</span>
-              <AnimatePresence initial={false}>
-                {isEditing && (
-                  <motion.span
-                    key="count"
-                    initial={{ opacity: 0, x: 6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 6 }}
-                    className={
-                      form.bio.length > BIO_MAX
-                        ? "text-error"
-                        : "text-base-content/50"
-                    }
-                  >
-                    {form.bio.length}/{BIO_MAX}
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              />
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span role="alert" className="text-error">
+                  {errors.bio}
+                </span>
+                <span
+                  className={`tabular-nums ${
+                    form.bio.length > BIO_MAX
+                      ? "text-error"
+                      : "text-base-content/50"
+                  }`}
+                >
+                  {form.bio.length}/{BIO_MAX}
+                </span>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-base-content/10">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    form.bio.length > BIO_MAX * 0.9 ? "bg-error" : "bg-primary"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, (form.bio.length / BIO_MAX) * 100)}%`,
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className={`${TILE} relative p-5`}>
+              <span
+                aria-hidden
+                className="absolute left-0 top-4 h-[calc(100%-2rem)] w-1 rounded-r-full bg-primary/60"
+              />
+              <p className="max-w-prose whitespace-pre-wrap break-words pl-2 text-sm leading-relaxed">
+                {form.bio || (
+                  <span className="text-base-content/40">Not added</span>
+                )}
+              </p>
+            </div>
+          )}
         </Panel>
       </motion.div>
 
@@ -1048,26 +1442,24 @@ const ProfilePage = () => {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
             transition={SPRING}
-            className="sticky bottom-0 z-10 flex items-center justify-between gap-3 rounded-b-2xl border-t border-base-content/10 bg-base-300/95 px-6 py-4 backdrop-blur sm:px-8"
+            className="sticky bottom-3 z-10 mx-3 mb-3 flex items-center justify-between gap-3 rounded-2xl border border-base-content/10 bg-base-100/90 px-4 py-3 shadow-2xl shadow-black/20 backdrop-blur-xl sm:mx-6 sm:mb-5 sm:px-5"
           >
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.p
-                key={isDirty ? "dirty" : "clean"}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.15 }}
-                className="text-xs text-base-content/60"
-              >
-                {isDirty ? "You have unsaved changes." : "No changes yet."}
-              </motion.p>
-            </AnimatePresence>
-            <div className="flex gap-3">
+            <p className="hidden items-center gap-2 text-xs text-base-content/60 sm:flex">
+              <span
+                className={`size-2 rounded-full ${
+                  isDirty ? "animate-pulse bg-warning" : "bg-base-content/20"
+                }`}
+              />
+              {isDirty
+                ? "Unsaved changes · Press Ctrl/⌘ + S to save"
+                : "No changes yet"}
+            </p>
+            <div className="flex w-full gap-2 sm:w-auto sm:gap-3">
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 onClick={handleCancel}
-                className="btn btn-ghost btn-sm"
+                className="btn btn-ghost btn-sm flex-1 sm:flex-none"
                 disabled={isUpdateProfile}
               >
                 Cancel
@@ -1075,7 +1467,7 @@ const ProfilePage = () => {
               <motion.button
                 type="submit"
                 whileTap={{ scale: 0.95 }}
-                className="btn btn-primary btn-sm gap-2"
+                className="btn btn-primary btn-sm flex-1 gap-2 shadow-lg shadow-primary/30 sm:flex-none"
                 disabled={isUpdateProfile || !isDirty}
               >
                 {isUpdateProfile ? (
@@ -1099,7 +1491,60 @@ const ProfilePage = () => {
       animate="show"
       className="flex-1 divide-y divide-base-content/10"
     >
-      {/* change password */}
+      <Panel>
+        <SectionTitle
+          icon={Fingerprint}
+          title="Security checkup"
+          hint="Based on your current settings."
+          aside={
+            <span
+              className={`rounded-full bg-base-100 px-3 py-1 text-xs font-semibold ring-1 ring-base-content/10 ${securityLevel.text}`}
+            >
+              {securityLevel.label}
+            </span>
+          }
+        />
+        <div
+          className={`${TILE} flex flex-col items-center gap-5 p-5 sm:flex-row sm:gap-7`}
+        >
+          <ScoreGauge
+            value={securityScore}
+            stroke={securityLevel.stroke}
+            text={securityLevel.text}
+          />
+          <ul className="grid w-full flex-1 gap-2">
+            {securityChecks.map((c) => (
+              <li
+                key={c.id}
+                className={`flex items-center gap-3 rounded-xl p-3 text-sm ${
+                  c.ok ? "bg-success/10" : "bg-warning/10"
+                }`}
+              >
+                <span
+                  className={`grid size-6 shrink-0 place-items-center rounded-full ${
+                    c.ok
+                      ? "bg-success text-success-content"
+                      : "bg-warning text-warning-content"
+                  }`}
+                >
+                  {c.ok ? (
+                    <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                  ) : (
+                    <span className="text-xs font-bold leading-none">!</span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 leading-snug text-base-content/80">
+                  {c.ok ? c.label : c.fix}
+                </span>
+                <span className="text-xs font-semibold tabular-nums text-base-content/50">
+                  {c.ok ? `+${c.points}` : `${c.points} pts`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </Panel>
+
       <Panel>
         <SectionTitle
           icon={KeyRound}
@@ -1130,6 +1575,7 @@ const ProfilePage = () => {
               onToggle={togglePwShow("next")}
               error={pwErrors.next}
               autoComplete="new-password"
+              placeholder={`${PW_MIN} to ${PW_MAX} characters`}
             />
             <PasswordInput
               id="confirm-password"
@@ -1143,8 +1589,7 @@ const ProfilePage = () => {
             />
           </div>
 
-          {/* strength meter */}
-          <div className="rounded-xl border border-base-content/10 bg-base-100/70 p-4">
+          <div className={`${TILE} p-4`}>
             <div className="mb-2 flex items-center justify-between text-xs">
               <span className="font-medium text-base-content/70">
                 Password strength
@@ -1156,6 +1601,7 @@ const ProfilePage = () => {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.12 }}
+                  aria-live="polite"
                   className={`font-semibold ${
                     pw.next ? STRENGTH_TEXT[strength] : "text-base-content/40"
                   }`}
@@ -1217,7 +1663,7 @@ const ProfilePage = () => {
             <motion.button
               type="submit"
               whileTap={{ scale: 0.95 }}
-              className="btn btn-primary btn-sm gap-2"
+              className="btn btn-primary btn-sm w-full gap-2 shadow-lg shadow-primary/25 sm:w-auto"
               disabled={isChangingPassword}
             >
               {isChangingPassword ? (
@@ -1231,7 +1677,6 @@ const ProfilePage = () => {
         </form>
       </Panel>
 
-      {/* extra protection */}
       <Panel>
         <SectionTitle
           icon={ShieldCheck}
@@ -1239,95 +1684,113 @@ const ProfilePage = () => {
           hint="Add more layers so only you can get in."
         />
         <div className="space-y-3">
-          {/* Two-step verification — reflects the real server-side state */}
-          <motion.div
-            whileHover={{ y: -1 }}
-            transition={SOFT}
-            className="flex items-center justify-between gap-4 rounded-xl border border-base-content/10 bg-base-100/70 p-4"
+          <SettingRow
+            icon={Smartphone}
+            title="Two-step verification"
+            desc={
+              twoFA
+                ? "On. We ask for a 6-digit code from your authenticator app every time you sign in."
+                : "Add a second step at sign-in using a code from your authenticator app. Recommended."
+            }
           >
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-base-200">
-                <Smartphone className="h-4 w-4 text-primary" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium leading-tight">
-                  Two-step verification
-                </p>
-                <p className="mt-1 text-xs leading-snug text-base-content/60">
-                  Ask for a code from your authenticator app when you sign in.
-                </p>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <AnimatePresence mode="wait" initial={false}>
-                {twoFA ? (
-                  <motion.div
-                    key="on"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ duration: 0.15 }}
-                    className="flex items-center gap-2"
-                  >
-                    <span className="badge badge-success badge-sm hidden sm:inline-flex">
-                      Enabled
-                    </span>
-                    <motion.button
-                      type="button"
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() =>
-                        setTwoFAModal({ open: true, mode: "disable" })
-                      }
-                      className="btn btn-ghost btn-sm gap-1 text-error"
-                    >
-                      <ShieldOff className="h-3.5 w-3.5" />
-                      Disable
-                    </motion.button>
-                  </motion.div>
-                ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              {twoFA ? (
+                <motion.div
+                  key="on"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center gap-2"
+                >
+                  <Chip icon={Check} tone="success">
+                    Enabled
+                  </Chip>
                   <motion.button
-                    key="off"
                     type="button"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ duration: 0.15 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setTwoFAModal({ open: true, mode: "setup" })}
-                    className="btn btn-primary btn-sm gap-1.5"
+                    onClick={() => openTwoFA("disable")}
+                    className="btn btn-ghost btn-sm gap-1 text-error"
                   >
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    Enable
+                    <ShieldOff className="h-3.5 w-3.5" />
+                    Disable
                   </motion.button>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
+                </motion.div>
+              ) : (
+                <motion.button
+                  key="off"
+                  type="button"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => openTwoFA("setup")}
+                  className="btn btn-primary btn-sm w-full gap-1.5 shadow-lg shadow-primary/25 sm:w-auto"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Enable
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </SettingRow>
 
-          {/* Login alerts toggle — persisted to backend */}
-          <ToggleRow
+          <AnimatePresence initial={false}>
+            {twoFA && (
+              <motion.div
+                key="twofa-note"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={SOFT}
+                className="overflow-hidden"
+              >
+                <div className="flex items-start gap-3 rounded-2xl border border-success/25 bg-success/10 p-4">
+                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-success text-success-content">
+                    <ShieldCheck className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium leading-tight">
+                      Your account is protected
+                    </p>
+                    <p className="text-xs leading-relaxed text-base-content/70">
+                      Even if someone gets your password, they can't sign in
+                      without your authenticator app. Lost your phone? Use one
+                      of your recovery codes. Each code works only once, so keep
+                      them somewhere safe.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <SettingRow
             icon={Bell}
             title="Login alerts"
             desc="Email me when someone signs in from a new device."
-            checked={loginAlerts}
-            onChange={handleLoginAlertsToggle}
-            disabled={loginAlertsLoading}
-          />
+          >
+            <Toggle
+              checked={loginAlerts}
+              onChange={handleLoginAlertsToggle}
+              label="Login alerts"
+              disabled={loginAlertsLoading}
+            />
+          </SettingRow>
         </div>
       </Panel>
 
-      {/* sessions */}
       <Panel>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/15">
-              <Monitor className="h-4 w-4 text-primary" />
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/25 to-primary/5 shadow-sm ring-1 ring-primary/25">
+              <Monitor className="h-[18px] w-[18px] text-primary" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-base font-semibold leading-tight">
                 Where you're signed in
               </h3>
-              <p className="mt-0.5 text-xs text-base-content/60">
+              <p className="mt-1 text-xs text-base-content/60">
                 Sign out of any device you don't recognise.
               </p>
             </div>
@@ -1343,8 +1806,8 @@ const ProfilePage = () => {
                 transition={SPRING}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setConfirmRevokeOthers(true)}
-                disabled={isRevokingOthers}
-                className="btn btn-outline btn-sm gap-1.5"
+                disabled={isRevokingOthers || !!revokingId}
+                className="btn btn-outline btn-sm w-full gap-1.5 sm:w-auto"
               >
                 <LogOut className="h-4 w-4" />
                 Sign out all others
@@ -1353,15 +1816,14 @@ const ProfilePage = () => {
           </AnimatePresence>
         </div>
 
-        {/* Loading skeleton */}
-        {sessionsLoading && (
+        {sessionsLoading && sessions.length === 0 && (
           <ul className="space-y-2.5">
             {[1, 2].map((i) => (
               <li
                 key={i}
-                className="flex animate-pulse items-center gap-3 rounded-xl border border-base-content/10 bg-base-100/70 p-3.5"
+                className={`${TILE} flex animate-pulse items-center gap-3 p-3.5`}
               >
-                <span className="size-10 shrink-0 rounded-xl bg-base-300" />
+                <span className="size-11 shrink-0 rounded-xl bg-base-300" />
                 <div className="flex-1 space-y-2">
                   <div className="h-3 w-36 rounded bg-base-300" />
                   <div className="h-2.5 w-24 rounded bg-base-300" />
@@ -1371,13 +1833,12 @@ const ProfilePage = () => {
           </ul>
         )}
 
-        {/* Error state */}
         {sessionsError && !sessionsLoading && (
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={SOFT}
-            className="flex flex-col items-center gap-3 rounded-xl border border-error/30 bg-error/5 p-6 text-center"
+            className="flex flex-col items-center gap-3 rounded-2xl border border-error/30 bg-error/5 p-6 text-center"
           >
             <TriangleAlert className="h-6 w-6 text-error" />
             <p className="text-sm text-base-content/60">{sessionsError}</p>
@@ -1393,13 +1854,12 @@ const ProfilePage = () => {
           </motion.div>
         )}
 
-        {/* Empty state */}
         {!sessionsLoading && !sessionsError && sessions.length === 0 && (
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={SOFT}
-            className="rounded-xl border border-base-content/10 bg-base-100/50 p-6 text-center"
+            className="rounded-2xl border border-dashed border-base-content/15 bg-base-100/40 p-6 text-center"
           >
             <Monitor className="mx-auto mb-2 h-8 w-8 text-base-content/30" />
             <p className="text-sm text-base-content/60">
@@ -1408,22 +1868,22 @@ const ProfilePage = () => {
           </motion.div>
         )}
 
-        {/* Real sessions list */}
-        {!sessionsLoading && !sessionsError && sessions.length > 0 && (
-          <motion.ul layout className="space-y-2.5">
+        {!sessionsError && sessions.length > 0 && (
+          <motion.ul layout className="relative space-y-2.5">
             <AnimatePresence initial={false} mode="popLayout">
               {sessions.map((x, idx) => {
+                const sid = sessionIdOf(x);
                 const DeviceIcon =
                   x.deviceType === "mobile"
                     ? Smartphone
                     : x.deviceType === "tablet"
                       ? Laptop
                       : Monitor;
-                const isRevoking = revokingId === String(x.id);
+                const isRevoking = revokingId === sid;
 
                 return (
                   <motion.li
-                    key={x.id}
+                    key={sid || idx}
                     layout
                     initial={{ opacity: 0, y: 12 }}
                     animate={{
@@ -1432,23 +1892,38 @@ const ProfilePage = () => {
                       transition: { ...SOFT, delay: idx * 0.05 },
                     }}
                     exit={{ opacity: 0, x: 40, transition: { duration: 0.2 } }}
-                    whileHover={{ y: -1 }}
-                    className="flex items-center gap-3 rounded-xl border border-base-content/10 bg-base-100/70 p-3.5"
+                    className={`flex items-center gap-3 rounded-2xl border p-3 transition-shadow hover:shadow-md sm:p-3.5 ${
+                      x.current
+                        ? "border-success/30 bg-gradient-to-r from-success/10 to-success/0"
+                        : "border-base-content/10 bg-base-100/60"
+                    }`}
                   >
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-base-200">
+                    <span className="relative grid size-11 shrink-0 place-items-center rounded-xl bg-base-200 ring-1 ring-base-content/5">
                       <DeviceIcon className="h-5 w-5 text-primary" />
+                      {x.current && (
+                        <span
+                          aria-hidden
+                          className="absolute -right-0.5 -top-0.5 size-3 animate-pulse rounded-full bg-success ring-2 ring-base-300"
+                        />
+                      )}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="flex flex-wrap items-center gap-2 text-sm font-medium leading-tight">
-                        <span className="truncate">{x.device}</span>
+                      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium leading-tight">
+                        <span className="min-w-0 truncate">
+                          {x.device || "Unknown device"}
+                        </span>
                         {x.current && (
-                          <span className="badge badge-success badge-sm">
+                          <Chip icon={Check} tone="success">
                             This device
-                          </span>
+                          </Chip>
                         )}
                       </p>
-                      <p className="mt-1 truncate text-xs text-base-content/60">
-                        {x.location} · {x.lastActiveLabel}
+                      <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-base-content/60">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          {x.location || "Unknown location"}
+                          {x.lastActiveLabel ? ` · ${x.lastActiveLabel}` : ""}
+                        </span>
                       </p>
                     </div>
                     {!x.current && (
@@ -1456,18 +1931,19 @@ const ProfilePage = () => {
                         type="button"
                         whileTap={{ scale: 0.94 }}
                         onClick={() =>
-                          setConfirmRevoke({
-                            open: true,
-                            sessionId: String(x.id),
-                          })
+                          setConfirmRevoke({ open: true, sessionId: sid })
                         }
-                        disabled={isRevoking}
-                        className="btn btn-ghost btn-sm text-error"
+                        disabled={isRevoking || isRevokingOthers}
+                        aria-label={`Sign out ${x.device || "device"}`}
+                        className="btn btn-ghost btn-sm shrink-0 text-error"
                       >
                         {isRevoking ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          "Sign out"
+                          <>
+                            <LogOut className="h-4 w-4 sm:hidden" />
+                            <span className="hidden sm:inline">Sign out</span>
+                          </>
                         )}
                       </motion.button>
                     )}
@@ -1486,7 +1962,7 @@ const ProfilePage = () => {
       variants={listVariants}
       initial="hidden"
       animate="show"
-      className="flex-1 divide-y divide-base-content/10"
+      className="flex-1"
     >
       <Panel>
         <SectionTitle
@@ -1495,14 +1971,36 @@ const ProfilePage = () => {
           title="Delete account"
           hint="This removes your profile, messages and photos for good."
         />
-        <div className="rounded-xl border border-error/30 bg-error/5 p-4">
-          <p className="text-sm leading-relaxed text-base-content/80">
+        <div className="relative overflow-hidden rounded-2xl border border-error/30 bg-error/5 p-4 sm:p-6">
+          <div
+            aria-hidden
+            className="absolute inset-x-0 top-0 h-1.5 opacity-70"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(135deg, currentColor 0 8px, transparent 8px 16px)",
+              color: "var(--color-error, #ef4444)",
+            }}
+          />
+          <p className="mt-2 text-sm leading-relaxed text-base-content/80">
             Once you delete your account, you can't get it back. Your chats will
             be removed from other people's lists too.
           </p>
 
-          <div className="mt-4 max-w-sm space-y-3">
-            {/* Step 1: type DELETE */}
+          <ul className="mt-3 grid gap-1.5 text-xs text-base-content/70 sm:grid-cols-3">
+            {["Profile & photo", "Messages & chats", "Active sessions"].map(
+              (t) => (
+                <li
+                  key={t}
+                  className="flex items-center gap-1.5 rounded-lg bg-error/10 px-2.5 py-1.5"
+                >
+                  <X className="h-3.5 w-3.5 text-error" />
+                  {t}
+                </li>
+              ),
+            )}
+          </ul>
+
+          <div className="mt-5 w-full max-w-sm space-y-3">
             <div className="space-y-1.5">
               <label
                 htmlFor="delete-confirm"
@@ -1522,11 +2020,10 @@ const ProfilePage = () => {
                 placeholder="DELETE"
                 autoComplete="off"
                 disabled={isDeletingAccount}
-                className="w-full rounded-xl border border-base-content/20 bg-base-100 px-4 py-3 text-sm outline-none transition-colors hover:border-base-content/40 focus:border-error focus:ring-2 focus:ring-error/20 disabled:opacity-50"
+                className="w-full rounded-xl border border-base-content/15 bg-base-100 px-4 py-3 text-sm shadow-sm outline-none transition-all hover:border-base-content/40 focus:border-error focus:ring-4 focus:ring-error/15 disabled:opacity-50"
               />
             </div>
 
-            {/* Step 2: current password */}
             <div className="space-y-1.5">
               <label
                 htmlFor="delete-password"
@@ -1534,8 +2031,8 @@ const ProfilePage = () => {
               >
                 Your password
               </label>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40" />
+              <div className="group relative">
+                <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-base-content/40 transition-colors group-focus-within:text-error" />
                 <input
                   id="delete-password"
                   type="password"
@@ -1547,12 +2044,11 @@ const ProfilePage = () => {
                   placeholder="Enter your password"
                   autoComplete="current-password"
                   disabled={isDeletingAccount}
-                  className="w-full rounded-xl border border-base-content/20 bg-base-100 py-3 pl-10 pr-4 text-sm outline-none transition-colors hover:border-base-content/40 focus:border-error focus:ring-2 focus:ring-error/20 disabled:opacity-50"
+                  className="w-full rounded-xl border border-base-content/15 bg-base-100 py-3 pl-10 pr-4 text-sm shadow-sm outline-none transition-all hover:border-base-content/40 focus:border-error focus:ring-4 focus:ring-error/15 disabled:opacity-50"
                 />
               </div>
             </div>
 
-            {/* Step 3: 2FA (only shown when twoFactorEnabled) */}
             <AnimatePresence initial={false}>
               {twoFA && (
                 <motion.div
@@ -1563,34 +2059,45 @@ const ProfilePage = () => {
                   transition={SOFT}
                   className="overflow-hidden"
                 >
-                  <div className="space-y-2 rounded-xl border border-base-content/10 bg-base-100/70 p-3">
-                    <p className="text-xs font-medium text-base-content/70">
-                      Two-step verification required
+                  <div className={`${TILE} space-y-2 p-3`}>
+                    <p className="text-xs font-medium text-base-content/80">
+                      Confirm it's really you
+                    </p>
+                    <p className="text-xs leading-relaxed text-base-content/60">
+                      {deleteUseRecovery
+                        ? "Enter one of your unused recovery codes. Each code works only once."
+                        : "Two-step verification is on. Enter the 6-digit code from your authenticator app."}
                     </p>
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode={deleteUseRecovery ? "text" : "numeric"}
                       value={deleteCode}
                       onChange={(e) => {
-                        setDeleteCode(e.target.value);
+                        const v = e.target.value;
+                        setDeleteCode(
+                          deleteUseRecovery ? v : v.replace(/\D/g, ""),
+                        );
                         setDeleteError("");
                       }}
                       placeholder={
                         deleteUseRecovery
-                          ? "Recovery code"
-                          : "6-digit authenticator code"
+                          ? "Enter a recovery code"
+                          : "Enter 6-digit code"
                       }
                       autoComplete="one-time-code"
                       disabled={isDeletingAccount}
                       maxLength={deleteUseRecovery ? 12 : 6}
-                      className="w-full rounded-xl border border-base-content/20 bg-base-100 px-4 py-2.5 text-sm outline-none transition-colors focus:border-error focus:ring-2 focus:ring-error/20 disabled:opacity-50"
+                      className="w-full rounded-xl border border-base-content/15 bg-base-100 px-4 py-2.5 text-sm tabular-nums outline-none transition-all focus:border-error focus:ring-4 focus:ring-error/15 disabled:opacity-50"
                     />
                     <label className="flex cursor-pointer items-center gap-2 text-xs text-base-content/60">
                       <input
                         type="checkbox"
                         className="checkbox checkbox-xs"
                         checked={deleteUseRecovery}
-                        onChange={(e) => setDeleteUseRecovery(e.target.checked)}
+                        onChange={(e) => {
+                          setDeleteUseRecovery(e.target.checked);
+                          setDeleteCode("");
+                        }}
                         disabled={isDeletingAccount}
                       />
                       Use a recovery code instead
@@ -1600,7 +2107,6 @@ const ProfilePage = () => {
               )}
             </AnimatePresence>
 
-            {/* Inline error */}
             <FieldError>{deleteError}</FieldError>
           </div>
 
@@ -1614,7 +2120,7 @@ const ProfilePage = () => {
               isDeletingAccount ||
               (twoFA && !deleteCode.trim())
             }
-            className="btn btn-error btn-sm mt-4 gap-2"
+            className="btn btn-error btn-sm mt-5 w-full gap-2 sm:w-auto"
           >
             {isDeletingAccount ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1628,52 +2134,52 @@ const ProfilePage = () => {
     </motion.div>
   );
 
-  /* ------------------------------ page ----------------------------- */
+  const onTabKeyDown = (e, index) => {
+    let next = null;
+    if (e.key === "ArrowRight") next = (index + 1) % TABS.length;
+    if (e.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    if (e.key === "Home") next = 0;
+    if (e.key === "End") next = TABS.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    document.getElementById(`tab-${TABS[next].id}`)?.focus();
+  };
+
+  const hasSavedAvatar = !!authUser?.avatar && !selectedImg;
+
   return (
     <MotionConfig reducedMotion="user">
-      {/* Full-screen layer: global Navbar ke upar aata hai, isliye navbar nahi dikhta.
-          layoutRoot + layoutScroll: fixed + scroll container ke andar layout
-          animations (tab pill) sahi jagah par chalte hain. */}
       <motion.div
         layoutRoot
         layoutScroll
         className="fixed inset-0 z-[60] overflow-y-auto overflow-x-hidden overscroll-contain bg-base-200"
       >
-        {/* floating colour blobs (slow loop) */}
-        <div className="pointer-events-none fixed inset-0 overflow-hidden">
-          <motion.div
-            className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-primary/15 blur-3xl"
-            animate={
-              prefersReduced ? undefined : { x: [0, 60, 0], y: [0, 40, 0] }
-            }
-            transition={{ repeat: Infinity, duration: 18, ease: "easeInOut" }}
-          />
-          <motion.div
-            className="absolute -right-24 bottom-10 h-80 w-80 rounded-full bg-accent/15 blur-3xl"
-            animate={
-              prefersReduced ? undefined : { x: [0, -50, 0], y: [0, -40, 0] }
-            }
-            transition={{ repeat: Infinity, duration: 22, ease: "easeInOut" }}
-          />
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 overflow-hidden"
+        >
+          <div className="absolute -left-40 -top-40 size-[34rem] rounded-full bg-primary/15 blur-3xl" />
+          <div className="absolute -right-32 top-1/3 size-[30rem] rounded-full bg-secondary/15 blur-3xl" />
+          <div className="absolute -bottom-40 left-1/3 size-[28rem] rounded-full bg-accent/10 blur-3xl" />
         </div>
 
-        {/* Header: Back button (Settings wala) + title (notch-safe) */}
         <motion.header
           initial={{ y: -64, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={SOFT}
-          className="sticky top-0 z-20 border-b border-base-300 bg-base-100/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl"
+          className="sticky top-0 z-20 border-b border-base-content/10 bg-base-100/70 pt-[env(safe-area-inset-top)] backdrop-blur-xl"
         >
-          <div className="container mx-auto flex h-16 items-center gap-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
+          <div className="container mx-auto flex h-14 items-center gap-3 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:h-16">
             <motion.button
               type="button"
-              onClick={goBack}
+              onClick={requestBack}
               initial="rest"
               whileHover="hover"
               whileTap={{ scale: 0.92 }}
               aria-label="Go back"
               title="Back (Esc)"
-              className="flex size-11 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-100 shadow-sm hover:border-primary hover:text-primary focus-visible:outline focus-visible:outline-primary sm:size-10"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full border border-base-content/10 bg-base-100 shadow-sm hover:border-primary hover:text-primary focus-visible:outline focus-visible:outline-primary sm:size-10"
             >
               <motion.span
                 variants={{ rest: { x: 0 }, hover: { x: -3 } }}
@@ -1685,35 +2191,74 @@ const ProfilePage = () => {
             </motion.button>
 
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-bold leading-tight tracking-tight sm:text-2xl">
-                My profile
+              <h1 className="truncate text-lg font-bold leading-tight tracking-tight sm:text-xl">
+                Account settings
               </h1>
               <p className="hidden truncate text-xs text-base-content/60 sm:block">
                 Manage your details, security and account
               </p>
             </div>
+
+            <kbd className="kbd kbd-sm hidden text-base-content/50 md:inline-flex">
+              Esc
+            </kbd>
+
+            <AnimatePresence initial={false}>
+              {tab === "profile" && !isEditing && (
+                <motion.button
+                  key="edit-mobile"
+                  type="button"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={SPRING}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={() => setIsEditing(true)}
+                  disabled={isFetchingUser}
+                  aria-label="Edit profile"
+                  className="btn btn-primary btn-sm gap-2 sm:hidden"
+                >
+                  {isFetchingUser ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Pencil className="h-4 w-4" />
+                  )}
+                  Edit
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
         </motion.header>
 
-        <main className="container relative mx-auto pb-[max(3rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-5 sm:pt-6">
-          <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-            {/* ============================ LEFT ============================ */}
+        <main className="container relative z-10 mx-auto pb-[max(2rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-4 sm:px-4 sm:pt-6">
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
             <motion.aside
-              initial={{ opacity: 0, x: -24 }}
-              animate={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={SOFT}
-              className="flex flex-col self-start overflow-hidden rounded-2xl bg-base-300 shadow-lg lg:sticky lg:top-24"
+              className={`${CARD} flex flex-col self-start overflow-hidden lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto`}
             >
-              {/* banner */}
-              <div className="relative h-28 overflow-hidden bg-gradient-to-br from-primary/40 via-secondary/25 to-accent/30">
-                <motion.div
-                  className="absolute -right-8 -top-10 h-32 w-32 rounded-full bg-primary/30 blur-2xl"
-                  animate={prefersReduced ? undefined : { scale: [1, 1.25, 1] }}
-                  transition={{
-                    repeat: Infinity,
-                    duration: 7,
-                    ease: "easeInOut",
+              <div className="relative h-28 shrink-0 overflow-hidden bg-gradient-to-br from-primary/70 via-secondary/45 to-accent/45 sm:h-36">
+                <div
+                  aria-hidden
+                  className="absolute inset-0 opacity-30"
+                  style={{
+                    backgroundImage:
+                      "radial-gradient(currentColor 1px, transparent 1px)",
+                    backgroundSize: "16px 16px",
                   }}
+                />
+                <div
+                  aria-hidden
+                  className="absolute -right-10 -top-12 size-44 rounded-full bg-base-100/25 blur-2xl"
+                />
+                <div
+                  aria-hidden
+                  className="absolute -bottom-16 -left-10 size-44 rounded-full bg-accent/40 blur-2xl"
+                />
+                <div
+                  aria-hidden
+                  className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-base-300 to-transparent"
                 />
               </div>
 
@@ -1721,30 +2266,68 @@ const ProfilePage = () => {
                 variants={listVariants}
                 initial="hidden"
                 animate="show"
-                className="flex flex-1 flex-col px-6 pb-6"
+                className="flex flex-1 flex-col px-4 pb-5 sm:px-6 sm:pb-6"
               >
-                {/* avatar */}
                 <motion.div
                   variants={itemVariants}
-                  className="-mt-16 flex justify-center"
+                  className="-mt-16 flex justify-center sm:-mt-20"
                 >
-                  <div className="relative">
-                    <motion.img
-                      key={selectedImg || authUser?.avatar || "default"}
-                      initial={{ scale: 0.85, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={SPRING}
-                      whileHover={{ scale: 1.03 }}
-                      src={selectedImg || authUser?.avatar || "/avatar.png"}
-                      alt="Profile"
-                      className="size-32 rounded-full bg-base-200 object-cover ring-4 ring-base-300"
-                    />
+                  <div
+                    className="relative"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={handleDrop}
+                  >
+                    <AvatarRing value={completion} dragging={isDragging}>
+                      <motion.img
+                        key={selectedImg || authUser?.avatar || "default"}
+                        initial={{ scale: 0.9, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={SPRING}
+                        src={selectedImg || authUser?.avatar || "/avatar.png"}
+                        alt="Profile"
+                        className="size-full rounded-full bg-base-200 object-cover shadow-xl ring-4 ring-base-300"
+                      />
+                    </AvatarRing>
+
+                    <span
+                      className="absolute bottom-1 left-0 rounded-full bg-base-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary shadow-md ring-1 ring-base-content/10"
+                      title="Profile completion"
+                    >
+                      {completion}%
+                    </span>
+
+                    <AnimatePresence initial={false}>
+                      {hasSavedAvatar && (
+                        <motion.button
+                          key="delete-photo"
+                          type="button"
+                          initial={{ opacity: 0, scale: 0.6 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.6 }}
+                          transition={SPRING}
+                          whileHover={{ scale: 1.08 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => setConfirmRemovePhoto(true)}
+                          disabled={isUpdatingAvatar}
+                          aria-label="Remove photo"
+                          title="Remove photo"
+                          className="absolute right-1 top-1 grid size-10 place-items-center rounded-full bg-error text-error-content shadow-lg ring-4 ring-base-300 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-error disabled:opacity-60 sm:size-9"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+
                     <motion.label
                       htmlFor="avatar-upload"
-                      whileHover={{ scale: 1.12, rotate: 8 }}
                       whileTap={{ scale: 0.9 }}
+                      whileHover={{ scale: 1.08 }}
                       transition={SPRING}
-                      className={`absolute bottom-1 right-1 cursor-pointer rounded-full bg-primary p-2 text-primary-content shadow-md ${
+                      className={`absolute bottom-1 right-1 grid size-10 cursor-pointer place-items-center rounded-full bg-primary text-primary-content shadow-lg shadow-primary/40 ring-4 ring-base-300 focus-within:outline focus-within:outline-offset-2 focus-within:outline-primary sm:size-9 ${
                         isUpdatingAvatar
                           ? "pointer-events-none animate-pulse"
                           : ""
@@ -1755,37 +2338,59 @@ const ProfilePage = () => {
                       <input
                         type="file"
                         id="avatar-upload"
-                        className="hidden"
+                        className="sr-only"
                         accept="image/jpeg,image/png,image/webp"
                         onChange={handleFileChange}
                         disabled={isUpdatingAvatar}
                         ref={fileInputRef}
+                        aria-label="Change profile photo"
                       />
                     </motion.label>
                   </div>
                 </motion.div>
 
-                {/* identity */}
                 <motion.div
                   variants={itemVariants}
-                  className="mt-4 text-center"
+                  className="mt-3 text-center sm:mt-4"
                 >
-                  <h2 className="text-2xl font-semibold leading-tight">
+                  <h2 className="break-words text-xl font-semibold leading-tight tracking-tight sm:text-2xl">
                     {initialForm.fullName || "Your name"}
                   </h2>
-                  <p className="mt-0.5 text-sm text-base-content/60">
+                  <p className="mt-0.5 flex items-center justify-center gap-1.5 text-sm text-base-content/60">
                     {initialForm.username
                       ? `@${initialForm.username}`
                       : "No username yet"}
+                    {initialForm.username && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copyText(initialForm.username, "Username")
+                        }
+                        aria-label="Copy username"
+                        className="grid size-6 place-items-center rounded-md text-base-content/40 transition-colors hover:bg-base-200 hover:text-primary focus-visible:outline focus-visible:outline-primary"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    )}
                   </p>
+                  <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+                    <Chip icon={ShieldCheck} tone="success">
+                      Email verified
+                    </Chip>
+                    <Chip
+                      icon={twoFA ? Lock : ShieldOff}
+                      tone={twoFA ? "success" : "warning"}
+                    >
+                      {twoFA ? "2-step protected" : "2-step off"}
+                    </Chip>
+                  </div>
                   {initialForm.bio && (
-                    <p className="mt-3 text-sm leading-relaxed text-base-content/80">
+                    <p className="mx-auto mt-4 max-w-prose break-words text-sm leading-relaxed text-base-content/75">
                       {initialForm.bio}
                     </p>
                   )}
                 </motion.div>
 
-                {/* avatar confirm */}
                 <AnimatePresence initial={false}>
                   {selectedImg && (
                     <motion.div
@@ -1796,12 +2401,13 @@ const ProfilePage = () => {
                       transition={SOFT}
                       className="overflow-hidden"
                     >
-                      <div className="mt-5 rounded-xl border border-base-content/10 bg-base-100 p-3">
+                      <div className={`${TILE} mt-5 p-3`}>
                         <p className="mb-2.5 text-center text-sm text-base-content/70">
                           Use this as your profile photo?
                         </p>
                         <div className="flex gap-2">
                           <motion.button
+                            type="button"
                             whileTap={{ scale: 0.95 }}
                             onClick={cancelAvatar}
                             className="btn btn-ghost btn-sm flex-1"
@@ -1810,6 +2416,7 @@ const ProfilePage = () => {
                             <X className="h-4 w-4" /> Cancel
                           </motion.button>
                           <motion.button
+                            type="button"
                             whileTap={{ scale: 0.95 }}
                             onClick={handleImageUpload}
                             className="btn btn-primary btn-sm flex-1"
@@ -1828,89 +2435,109 @@ const ProfilePage = () => {
                   )}
                 </AnimatePresence>
 
-                {/* remove photo */}
-                <AnimatePresence initial={false}>
-                  {!selectedImg && authUser?.avatar && (
-                    <motion.button
-                      key="remove-photo"
-                      type="button"
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={deleteAvatar}
-                      disabled={isUpdatingAvatar}
-                      className="btn btn-ghost btn-sm mx-auto mt-4 gap-2 text-error"
-                    >
-                      <Trash2 className="h-4 w-4" /> Remove photo
-                    </motion.button>
-                  )}
-                </AnimatePresence>
-
-                {/* quick facts */}
-                <motion.ul variants={listVariants} className="mt-6 space-y-3">
-                  <InfoRow icon={Mail}>{initialForm.email || "—"}</InfoRow>
-                  {initialForm.location && (
-                    <InfoRow icon={MapPin}>{initialForm.location}</InfoRow>
-                  )}
-                  {initialForm.website && (
-                    <InfoRow icon={Globe}>
-                      <a
-                        href={initialForm.website}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="link link-hover"
-                      >
-                        {initialForm.website.replace(/^https?:\/\//, "")}
-                      </a>
-                    </InfoRow>
-                  )}
-                  <InfoRow icon={Calendar}>Joined {memberSince}</InfoRow>
-                </motion.ul>
-
-                {/* completion */}
                 <motion.div
                   variants={itemVariants}
-                  className="mt-6 flex items-center gap-4 rounded-xl bg-base-100 p-4"
+                  className="mt-5 grid grid-cols-3 gap-2"
                 >
-                  <div
-                    className="radial-progress shrink-0 text-sm font-semibold text-primary"
-                    style={{
-                      "--value": completion,
-                      "--size": "3.75rem",
-                      "--thickness": "5px",
-                    }}
-                    role="progressbar"
-                    aria-valuenow={completion}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label="Profile completion"
-                  >
-                    {completion}%
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium leading-tight">
-                      Profile completion
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-base-content/60">
-                      {missing.length
-                        ? `Still to add: ${missing.join(", ")}.`
-                        : "Your profile is complete."}
-                    </p>
-                  </div>
+                  <StatTile
+                    icon={Sparkles}
+                    value={`${completion}%`}
+                    label="Profile"
+                    tone="text-primary"
+                  />
+                  <StatTile
+                    icon={ShieldCheck}
+                    value={securityScore}
+                    label="Security"
+                    tone={securityLevel.text}
+                  />
+                  <StatTile
+                    icon={Monitor}
+                    value={sessions.length}
+                    label="Devices"
+                  />
                 </motion.div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 sm:items-start lg:grid-cols-1">
+                  <motion.ul
+                    variants={listVariants}
+                    className={`${TILE} space-y-3 p-4`}
+                  >
+                    <InfoRow icon={Mail}>{initialForm.email || "—"}</InfoRow>
+                    {initialForm.location && (
+                      <InfoRow icon={MapPin}>{initialForm.location}</InfoRow>
+                    )}
+                    {initialForm.website && (
+                      <InfoRow icon={Globe}>
+                        <a
+                          href={initialForm.website}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="link link-hover"
+                        >
+                          {initialForm.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      </InfoRow>
+                    )}
+                    <InfoRow icon={Calendar}>Joined {memberSince}</InfoRow>
+                  </motion.ul>
+
+                  <motion.div
+                    variants={itemVariants}
+                    className="rounded-2xl bg-base-100 p-4 ring-1 ring-base-content/10"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="flex items-center gap-2 text-sm font-medium leading-tight">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        {missing.length
+                          ? `${missing.length} to go`
+                          : "Profile complete"}
+                      </p>
+                      <span className="text-xs font-semibold tabular-nums text-primary">
+                        {completion}%
+                      </span>
+                    </div>
+                    <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-base-content/10">
+                      <motion.div
+                        initial={false}
+                        animate={{ width: `${completion}%` }}
+                        transition={{ duration: 0.7, ease: "easeOut" }}
+                        className="h-full rounded-full bg-gradient-to-r from-primary to-secondary"
+                      />
+                    </div>
+                    <p className="mt-2.5 text-xs leading-relaxed text-base-content/60">
+                      {missing.length
+                        ? "Add these to finish your profile."
+                        : "Nice, everything is filled in."}
+                    </p>
+                    {missing.length > 0 && (
+                      <ul className="mt-3 flex flex-wrap gap-1.5">
+                        {missing.map((m) => (
+                          <li key={m.id}>
+                            <button
+                              type="button"
+                              onClick={() => handleMissingClick(m.id)}
+                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-base-content/25 px-2.5 py-1 text-xs text-base-content/70 transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary focus-visible:outline focus-visible:outline-primary"
+                            >
+                              <Plus className="h-3 w-3" />
+                              {m.label}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </motion.div>
+                </div>
               </motion.div>
             </motion.aside>
 
-            {/* ============================ RIGHT =========================== */}
             <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.99 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={SOFT}
-              className="flex min-w-0 flex-col rounded-2xl bg-base-300 shadow-lg"
+              className={`${CARD} flex min-w-0 flex-col`}
             >
-              {/* header */}
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-base-content/10 px-6 py-5 sm:px-8">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-t-3xl border-b border-base-content/10 bg-gradient-to-r from-primary/10 via-transparent to-transparent px-4 py-4 sm:gap-4 sm:px-8 sm:py-5">
                 <div className="min-w-0">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
@@ -1922,7 +2549,7 @@ const ProfilePage = () => {
                       exit={{ opacity: 0, y: -6 }}
                       transition={{ duration: 0.15 }}
                     >
-                      <h2 className="text-xl font-semibold">
+                      <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
                         {currentTab.title}
                       </h2>
                       <p className="text-sm text-base-content/60">
@@ -1946,7 +2573,7 @@ const ProfilePage = () => {
                       whileTap={{ scale: 0.94 }}
                       onClick={() => setIsEditing(true)}
                       disabled={isFetchingUser}
-                      className="btn btn-primary btn-sm gap-2"
+                      className="btn btn-primary btn-sm hidden gap-2 shadow-lg shadow-primary/30 sm:inline-flex"
                     >
                       {isFetchingUser ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1959,24 +2586,27 @@ const ProfilePage = () => {
                 </AnimatePresence>
               </div>
 
-              {/* tabs - sliding pill (layoutId) */}
               <LayoutGroup id="profile-tabs">
                 <div
                   role="tablist"
                   aria-label="Profile sections"
-                  className="mx-6 mt-5 grid grid-cols-3 gap-1 rounded-2xl border border-base-content/10 bg-base-100/50 p-1.5 sm:mx-8 sm:flex"
+                  className="mx-4 mt-4 grid grid-cols-3 gap-1 rounded-2xl border border-base-content/10 bg-base-100/60 p-1.5 shadow-inner sm:mx-8 sm:mt-5 sm:flex"
                 >
-                  {TABS.map(({ id, label, icon: Icon }) => {
+                  {TABS.map(({ id, label, icon: Icon }, index) => {
                     const active = tab === id;
                     return (
                       <motion.button
                         key={id}
+                        id={`tab-${id}`}
                         type="button"
                         role="tab"
                         aria-selected={active}
+                        aria-controls={`panel-${id}`}
+                        tabIndex={active ? 0 : -1}
                         onClick={() => setTab(id)}
+                        onKeyDown={(e) => onTabKeyDown(e, index)}
                         whileTap={{ scale: 0.95 }}
-                        className={`relative inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-medium focus-visible:outline focus-visible:outline-primary ${
+                        className={`relative inline-flex min-h-11 items-center justify-center rounded-xl px-3 py-2 text-xs font-medium focus-visible:outline focus-visible:outline-primary sm:px-4 sm:text-[13px] ${
                           active
                             ? "text-primary"
                             : "text-base-content/60 hover:text-base-content"
@@ -1986,12 +2616,18 @@ const ProfilePage = () => {
                           <motion.span
                             layoutId="profile-tab-pill"
                             transition={SPRING}
-                            className="absolute inset-0 rounded-xl bg-base-100 shadow-sm ring-1 ring-base-content/10"
+                            className="absolute inset-0 rounded-xl bg-base-100 shadow-md ring-1 ring-primary/20"
                           />
                         )}
-                        <span className="relative z-10 inline-flex items-center gap-1.5">
+                        <span className="relative z-10 inline-flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
                           <Icon className="h-4 w-4" />
                           {label}
+                          {id === "security" && !twoFA && (
+                            <span
+                              aria-label="Action recommended"
+                              className="size-1.5 animate-pulse rounded-full bg-warning"
+                            />
+                          )}
                         </span>
                       </motion.button>
                     );
@@ -1999,12 +2635,13 @@ const ProfilePage = () => {
                 </div>
               </LayoutGroup>
 
-              {/* content */}
               <div className="mt-2 flex flex-1 flex-col">
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div
                     key={tab}
+                    id={`panel-${tab}`}
                     role="tabpanel"
+                    aria-labelledby={`tab-${tab}`}
                     initial={{ opacity: 0, x: 18 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -18 }}
@@ -2022,13 +2659,24 @@ const ProfilePage = () => {
         </main>
       </motion.div>
 
-      {/* ── Dialogs: page level par, taaki transform wale parent se fixed na toote ── */}
       {twoFAModal.open && (
-        <TwoFactorModal
-          mode={twoFAModal.mode}
-          onClose={handleTwoFAModalClose}
-        />
+        <div className="relative z-[80]">
+          <TwoFactorModal
+            mode={twoFAModal.mode}
+            onClose={handleTwoFAModalClose}
+          />
+        </div>
       )}
+
+      <ConfirmDialog
+        open={confirmRemovePhoto}
+        title="Remove your profile photo?"
+        text="Your photo will be deleted and replaced with the default avatar. You can upload a new one anytime."
+        confirmLabel="Delete photo"
+        busy={isUpdatingAvatar}
+        onCancel={() => setConfirmRemovePhoto(false)}
+        onConfirm={handleRemovePhoto}
+      />
 
       <ConfirmDialog
         open={confirmRevoke.open}
@@ -2047,6 +2695,20 @@ const ProfilePage = () => {
         busy={isRevokingOthers}
         onCancel={() => setConfirmRevokeOthers(false)}
         onConfirm={handleRevokeOthers}
+      />
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="Discard your changes?"
+        text="You have unsaved changes to your profile. If you leave now, they'll be lost."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          handleCancel();
+          goBack();
+        }}
       />
     </MotionConfig>
   );
