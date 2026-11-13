@@ -1,4 +1,11 @@
-import { useState, useRef, useMemo, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useMemo,
+  useEffect,
+  useCallback,
+  useId,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AnimatePresence,
@@ -131,6 +138,7 @@ const FIELDS = [
 ];
 
 const FIELD_MAP = Object.fromEntries(FIELDS.map((f) => [f.name, f]));
+const READ_ONLY_FIELDS = FIELDS.filter((f) => f.readOnly).map((f) => f.name);
 
 const GROUPS = [
   {
@@ -180,6 +188,8 @@ const TABS = [
 const BIO_MAX = 160;
 const PW_MIN = 8;
 const PW_MAX = 15;
+const AVATAR_MAX_MB = 2;
+const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 const validators = {
   fullName: (v) =>
@@ -209,10 +219,15 @@ const buildInitialForm = (user) => ({
   bio: user?.bio || "",
 });
 
-// Backend may return `id` or `_id` for a session
+const buildUpdatePayload = (form) =>
+  Object.fromEntries(
+    Object.entries(form).filter(([key]) => !READ_ONLY_FIELDS.includes(key)),
+  );
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
 const sessionIdOf = (s) => String(s?.id ?? s?._id ?? "");
 
-// The backend may name / nest the flags differently. Read the first boolean found.
 const pickBool = (obj, paths) => {
   if (!obj || typeof obj !== "object") return undefined;
   for (const path of paths) {
@@ -242,7 +257,6 @@ const LOGIN_ALERT_PATHS = [
   "notifications.loginAlerts",
 ];
 
-// Returns true/false if a flag is found, otherwise undefined (never a fake false)
 const readTwoFactor = (u) => pickBool(u, TWO_FA_PATHS);
 const readLoginAlerts = (u) => pickBool(u, LOGIN_ALERT_PATHS);
 
@@ -292,6 +306,9 @@ const formatDob = (v) => {
         year: "numeric",
       });
 };
+
+const EMPTY_PW = { current: "", next: "", confirm: "" };
+const HIDDEN_PW = { current: false, next: false, confirm: false };
 
 const CARD =
   "rounded-3xl bg-base-300/90 shadow-2xl shadow-black/10 ring-1 ring-base-content/10 backdrop-blur";
@@ -540,6 +557,7 @@ const PasswordInput = ({
   error,
   autoComplete,
   placeholder,
+  maxLength,
 }) => (
   <div className="min-w-0 space-y-1.5">
     <label htmlFor={id} className="text-sm font-medium text-base-content/80">
@@ -554,7 +572,7 @@ const PasswordInput = ({
         onChange={onChange}
         autoComplete={autoComplete}
         placeholder={placeholder}
-        maxLength={PW_MAX}
+        maxLength={maxLength}
         aria-invalid={!!error}
         className={`${controlClass(error)} pr-11`}
       />
@@ -599,6 +617,7 @@ const ConfirmDialog = ({
   busy,
 }) => {
   const cancelRef = useRef(null);
+  const descId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -628,6 +647,7 @@ const ConfirmDialog = ({
             role="dialog"
             aria-modal="true"
             aria-label={title}
+            aria-describedby={descId}
             className="w-full max-w-sm rounded-3xl border border-base-content/10 bg-base-200 p-5 shadow-2xl sm:p-6"
           >
             <span
@@ -640,7 +660,10 @@ const ConfirmDialog = ({
               <TriangleAlert className="h-5 w-5" />
             </span>
             <h3 className="mb-1.5 text-base font-bold">{title}</h3>
-            <p className="mb-5 text-sm leading-relaxed text-base-content/60">
+            <p
+              id={descId}
+              className="mb-5 text-sm leading-relaxed text-base-content/60"
+            >
               {text}
             </p>
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -673,6 +696,10 @@ const ConfirmDialog = ({
   );
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Page                                                                      */
+/* -------------------------------------------------------------------------- */
+
 const ProfilePage = () => {
   const {
     authUser,
@@ -696,24 +723,24 @@ const ProfilePage = () => {
 
   const [tab, setTab] = useState("profile");
 
+  /* ----- Avatar state ----- */
   const [selectedImg, setSelectedImg] = useState(null);
   const [file, setFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
 
+  /* ----- Profile form state ----- */
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState(() => buildInitialForm(authUser));
   const [errors, setErrors] = useState({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
-  const [pwShow, setPwShow] = useState({
-    current: false,
-    next: false,
-    confirm: false,
-  });
+  /* ----- Password state ----- */
+  const [pw, setPw] = useState(EMPTY_PW);
+  const [pwShow, setPwShow] = useState(HIDDEN_PW);
   const [pwErrors, setPwErrors] = useState({});
 
+  /* ----- Security dialogs ----- */
   const [twoFAModal, setTwoFAModal] = useState({ open: false, mode: "setup" });
   const [confirmRevoke, setConfirmRevoke] = useState({
     open: false,
@@ -741,7 +768,8 @@ const ProfilePage = () => {
     readLoginAlerts(authUser) ?? true,
   );
 
-  // GET /auth/check -> latest twoFactorEnabled + loginAlerts flags
+  // GET /auth/check -> latest loginAlerts flag.
+  // (2FA is derived from authUser, which fetchCurrentUser keeps fresh.)
   const refreshSecurityFlags = useCallback(async () => {
     try {
       const res = await axiosInstance.get("/auth/check", {
@@ -765,17 +793,28 @@ const ProfilePage = () => {
     if (typeof authLoginAlerts === "boolean") setLoginAlerts(authLoginAlerts);
   }, [authLoginAlerts]);
 
+  /* ----- Delete-account state ----- */
   const [deleteText, setDeleteText] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteCode, setDeleteCode] = useState("");
   const [deleteUseRecovery, setDeleteUseRecovery] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  const resetDeleteForm = useCallback(() => {
+    setDeleteText("");
+    setDeletePassword("");
+    setDeleteCode("");
+    setDeleteUseRecovery(false);
+    setDeleteError("");
+  }, []);
+
   const initialForm = useMemo(() => buildInitialForm(authUser), [authUser]);
   const isDirty = useMemo(
     () => Object.keys(form).some((k) => form[k] !== initialForm[k]),
     [form, initialForm],
   );
+
+  /* ----- Data loading & syncing ----- */
 
   // First load: user + flags + sessions
   useEffect(() => {
@@ -791,6 +830,16 @@ const ProfilePage = () => {
       refreshSecurityFlags();
     }
   }, [tab, fetchSessions, refreshSecurityFlags]);
+
+  // Never keep typed passwords / codes around after leaving their tab
+  useEffect(() => {
+    if (tab !== "security") {
+      setPw(EMPTY_PW);
+      setPwShow(HIDDEN_PW);
+      setPwErrors({});
+    }
+    if (tab !== "account") resetDeleteForm();
+  }, [tab, resetDeleteForm]);
 
   // Sessions changed elsewhere (socket / other tab)
   useEffect(() => {
@@ -819,6 +868,7 @@ const ProfilePage = () => {
     if (!isEditing) setForm(initialForm);
   }, [initialForm, isEditing]);
 
+  // Lock background scroll while this full-screen page is mounted
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -827,12 +877,15 @@ const ProfilePage = () => {
     };
   }, []);
 
+  // Free the local preview URL when it is replaced or the page unmounts
   useEffect(
     () => () => {
       if (selectedImg) URL.revokeObjectURL(selectedImg);
     },
     [selectedImg],
   );
+
+  /* ----- Navigation & keyboard shortcuts ----- */
 
   const goBack = useCallback(() => {
     if (location.key !== "default") navigate(-1);
@@ -853,6 +906,7 @@ const ProfilePage = () => {
     confirmRevokeOthers ||
     confirmDiscard ||
     confirmRemovePhoto;
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== "Escape" || anyDialogOpen) return;
@@ -939,38 +993,24 @@ const ProfilePage = () => {
   );
   const securityLevel =
     securityScore >= 90
-      ? {
-          label: "Excellent",
-          text: "text-success",
-          bar: "bg-success",
-          stroke: "stroke-success",
-        }
+      ? { label: "Excellent", text: "text-success", stroke: "stroke-success" }
       : securityScore >= 60
-        ? {
-            label: "Good",
-            text: "text-info",
-            bar: "bg-info",
-            stroke: "stroke-info",
-          }
+        ? { label: "Good", text: "text-info", stroke: "stroke-info" }
         : {
             label: "Needs attention",
             text: "text-warning",
-            bar: "bg-warning",
             stroke: "stroke-warning",
           };
 
   const processFile = (selectedFile) => {
     if (!selectedFile) return;
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    const maxSizeMB = 2;
-
-    if (!allowedTypes.includes(selectedFile.type)) {
+    if (!AVATAR_TYPES.includes(selectedFile.type)) {
       toast.error("Only JPG, PNG, and WEBP formats are allowed.");
       return;
     }
-    if (selectedFile.size > maxSizeMB * 1024 * 1024) {
-      toast.error("File size should be under 2MB.");
+    if (selectedFile.size > AVATAR_MAX_MB * 1024 * 1024) {
+      toast.error(`File size should be under ${AVATAR_MAX_MB}MB.`);
       return;
     }
 
@@ -978,7 +1018,10 @@ const ProfilePage = () => {
     setSelectedImg(URL.createObjectURL(selectedFile));
   };
 
-  const handleFileChange = (e) => processFile(e.target.files[0]);
+  const handleFileChange = (e) => {
+    processFile(e.target.files?.[0]);
+    e.target.value = "";
+  };
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -1045,8 +1088,7 @@ const ProfilePage = () => {
     if (!isDirty) return setIsEditing(false);
 
     try {
-      const { email, ...payload } = form;
-      await updateProfile(payload);
+      await updateProfile(buildUpdatePayload(form));
       setIsEditing(false);
     } catch (err) {
       console.error("Update profile error:", err);
@@ -1079,7 +1121,6 @@ const ProfilePage = () => {
   const togglePwShow = (key) => () =>
     setPwShow((p) => ({ ...p, [key]: !p[key] }));
 
-  // PATCH /auth/change-password (via useAuthStore.changePassword)
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
 
@@ -1106,10 +1147,9 @@ const ProfilePage = () => {
         newPassword: pw.next,
         confirmPassword: pw.confirm,
       });
-      setPw({ current: "", next: "", confirm: "" });
-      setPwShow({ current: false, next: false, confirm: false });
+      setPw(EMPTY_PW);
+      setPwShow(HIDDEN_PW);
       setPwErrors({});
-      // Password change can invalidate other sessions on the server
       fetchSessions();
     } catch (err) {
       const msg = err?.response?.data?.message ?? "";
@@ -1123,48 +1163,41 @@ const ProfilePage = () => {
     }
   };
 
-  // PATCH /auth/security/login-alerts
   const handleLoginAlertsToggle = async (enabled) => {
-    setLoginAlerts(enabled); // optimistic
+    setLoginAlerts(enabled);
     const ok = await updateLoginAlerts(enabled);
-    if (!ok) setLoginAlerts(!enabled); // revert on failure
+    if (!ok) setLoginAlerts(!enabled);
   };
 
-  // DELETE /auth/sessions/:sessionId
   const handleRevokeSession = async (sessionId) => {
     setConfirmRevoke({ open: false, sessionId: null });
     if (!sessionId) return;
     const ok = await revokeSession(sessionId);
-    if (!ok) fetchSessions(); // resync list if it failed
+    if (!ok) fetchSessions();
   };
 
-  // POST /auth/sessions/revoke-others
   const handleRevokeOthers = async () => {
     setConfirmRevokeOthers(false);
     const ok = await revokeOtherSessions();
     if (!ok) fetchSessions();
   };
 
-  // Opens the 2FA modal AND starts the right store flow
   const openTwoFA = async (mode) => {
     setTwoFAModal({ open: true, mode });
     if (mode === "disable") {
       openTwoFaDisable();
       return;
     }
-    const ok = await startTwoFaSetup(); // POST /auth/2fa/setup
+    const ok = await startTwoFaSetup();
     if (!ok) {
-      // Server says it is already on -> fix the UI instead of showing "off"
       const msg = useSecurityStore.getState().twoFaError || "";
       if (/already/i.test(msg)) {
-        fetchCurrentUser(); // authUser will now report twoFA = true
+        fetchCurrentUser();
         setTwoFAModal({ open: false, mode: "setup" });
         resetTwoFaState();
       }
     }
   };
-
-  // POST /auth/2fa/* lives in the modal + store; here we just resync
   const handleTwoFAModalClose = useCallback(() => {
     setTwoFAModal({ open: false, mode: "setup" });
     resetTwoFaState();
@@ -1172,7 +1205,6 @@ const ProfilePage = () => {
     fetchCurrentUser();
   }, [resetTwoFaState, refreshSecurityFlags, fetchCurrentUser]);
 
-  // DELETE /auth/account
   const handleDeleteAccount = async () => {
     if (isDeletingAccount) return;
 
@@ -1184,8 +1216,9 @@ const ProfilePage = () => {
       setDeleteError("Password is required.");
       return;
     }
+
+    const code = deleteCode.trim();
     if (twoFA) {
-      const code = deleteCode.trim();
       if (!code) {
         setDeleteError(
           deleteUseRecovery
@@ -1204,9 +1237,7 @@ const ProfilePage = () => {
     try {
       await deleteAccount({
         password: deletePassword,
-        ...(twoFA && deleteCode
-          ? { code: deleteCode.trim(), useRecoveryCode: deleteUseRecovery }
-          : {}),
+        ...(twoFA && code ? { code, useRecoveryCode: deleteUseRecovery } : {}),
       });
     } catch (err) {
       const msg =
@@ -1320,11 +1351,7 @@ const ProfilePage = () => {
               placeholder={f.placeholder}
               autoComplete={f.autoComplete}
               aria-invalid={!!error}
-              max={
-                f.type === "date"
-                  ? new Date().toISOString().slice(0, 10)
-                  : undefined
-              }
+              max={f.type === "date" ? todayISO() : undefined}
               style={
                 f.type === "date" ? { colorScheme: "light dark" } : undefined
               }
@@ -1337,6 +1364,8 @@ const ProfilePage = () => {
       </div>
     );
   };
+
+  /* ----- Tab: Profile ----- */
 
   const profileTab = (
     <form
@@ -1484,6 +1513,8 @@ const ProfilePage = () => {
     </form>
   );
 
+  /* ----- Tab: Security ----- */
+
   const securityTab = (
     <motion.div
       variants={listVariants}
@@ -1576,6 +1607,7 @@ const ProfilePage = () => {
               error={pwErrors.next}
               autoComplete="new-password"
               placeholder={`${PW_MIN} to ${PW_MAX} characters`}
+              maxLength={PW_MAX}
             />
             <PasswordInput
               id="confirm-password"
@@ -1586,6 +1618,7 @@ const ProfilePage = () => {
               onToggle={togglePwShow("confirm")}
               error={pwErrors.confirm}
               autoComplete="new-password"
+              maxLength={PW_MAX}
             />
           </div>
 
@@ -2087,6 +2120,9 @@ const ProfilePage = () => {
                       autoComplete="one-time-code"
                       disabled={isDeletingAccount}
                       maxLength={deleteUseRecovery ? 12 : 6}
+                      aria-label={
+                        deleteUseRecovery ? "Recovery code" : "6-digit code"
+                      }
                       className="w-full rounded-xl border border-base-content/15 bg-base-100 px-4 py-2.5 text-sm tabular-nums outline-none transition-all focus:border-error focus:ring-4 focus:ring-error/15 disabled:opacity-50"
                     />
                     <label className="flex cursor-pointer items-center gap-2 text-xs text-base-content/60">
@@ -2339,7 +2375,7 @@ const ProfilePage = () => {
                         type="file"
                         id="avatar-upload"
                         className="sr-only"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept={AVATAR_TYPES.join(",")}
                         onChange={handleFileChange}
                         disabled={isUpdatingAvatar}
                         ref={fileInputRef}
