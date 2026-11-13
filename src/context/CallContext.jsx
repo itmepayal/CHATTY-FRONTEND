@@ -1,4 +1,3 @@
-// src/context/CallContext.jsx
 import {
   createContext,
   useCallback,
@@ -9,13 +8,6 @@ import {
   useState,
 } from "react";
 
-/* ---------- ICE servers ----------
-   Production mein TURN zaroori hai (mobile data / strict NAT ke liye).
-   .env (Vite):
-     VITE_TURN_URL=turn:your.turn.server:3478
-     VITE_TURN_USER=username
-     VITE_TURN_PASS=password
-*/
 const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
 if (import.meta.env.VITE_TURN_URL) {
   iceServers.push({
@@ -25,15 +17,32 @@ if (import.meta.env.VITE_TURN_URL) {
   });
 }
 
+const normalizeSdp = (desc) => {
+  if (!desc || typeof desc.sdp !== "string") return desc;
+
+  const sdp =
+    desc.sdp
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .join("\r\n") + "\r\n";
+
+  return { type: desc.type, sdp };
+};
+
+const plainDesc = (desc) => ({ type: desc.type, sdp: desc.sdp });
+
 const CallContext = createContext(null);
 export const useCall = () => useContext(CallContext);
 
 const initialState = {
-  status: "idle", // idle | calling | ringing | connecting | connected
+  status: "idle",
   callId: null,
-  peer: null, // { id, name }
+  peer: null,
   type: "audio",
-  direction: null, // outgoing | incoming
+  direction: null,
   error: "",
 };
 
@@ -46,7 +55,6 @@ export function CallProvider({ socket, children }) {
   const [peerMedia, setPeerMedia] = useState({ audio: true, video: true });
   const [seconds, setSeconds] = useState(0);
 
-  // refs: socket handlers mein stale state se bachne ke liye
   const stateRef = useRef(state);
   const pcRef = useRef(null);
   const localRef = useRef(null);
@@ -58,7 +66,6 @@ export function CallProvider({ socket, children }) {
     setState(stateRef.current);
   }, []);
 
-  /* ---------- cleanup ---------- */
   const cleanup = useCallback((error = "") => {
     pcRef.current?.close();
     pcRef.current = null;
@@ -78,7 +85,6 @@ export function CallProvider({ socket, children }) {
     setState(stateRef.current);
   }, []);
 
-  /* ---------- media ---------- */
   const getMedia = useCallback(async (type) => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
@@ -89,7 +95,6 @@ export function CallProvider({ socket, children }) {
     return stream;
   }, []);
 
-  /* ---------- peer connection ---------- */
   const createPeer = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
@@ -102,7 +107,7 @@ export function CallProvider({ socket, children }) {
       if (e.candidate && stateRef.current.callId) {
         socket.emit("call:ice", {
           callId: stateRef.current.callId,
-          candidate: e.candidate,
+          candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate,
         });
       }
     };
@@ -126,18 +131,14 @@ export function CallProvider({ socket, children }) {
     for (const c of pendingIce.current) {
       try {
         await pcRef.current?.addIceCandidate(c);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
     pendingIce.current = [];
   }, []);
 
-  /* ---------- public actions ---------- */
   const startCall = useCallback(
     async (peer, type = "audio") => {
       if (stateRef.current.status !== "idle") return;
-      // peer = { id, fullName }
       setCall({
         ...initialState,
         status: "calling",
@@ -181,7 +182,7 @@ export function CallProvider({ socket, children }) {
       return;
     }
     setCall({ status: "connecting" });
-    createPeer(); // pehle peer ready, phir accept
+    createPeer();
     socket.emit("call:accept", { callId });
   }, [socket, getMedia, createPeer, setCall, cleanup]);
 
@@ -221,12 +222,17 @@ export function CallProvider({ socket, children }) {
     });
   }, [socket]);
 
-  /* ---------- socket events ---------- */
   useEffect(() => {
     if (!socket) return;
 
+    const failCall = (err, msg) => {
+      console.error(msg, err);
+      const { callId } = stateRef.current;
+      if (callId) socket.emit("call:end", { callId });
+      cleanup(msg);
+    };
+
     const onIncoming = ({ callId, from, fromName, type }) => {
-      // already busy? server pehle hi rok deta hai, yeh extra safety hai
       if (stateRef.current.status !== "idle") return;
       setCall({
         ...initialState,
@@ -238,32 +244,41 @@ export function CallProvider({ socket, children }) {
       });
     };
 
-    // caller side: receiver ne accept kiya -> offer banao
     const onAccepted = async ({ callId }) => {
       if (callId !== stateRef.current.callId) return;
-      setCall({ status: "connecting" });
-      const pc = createPeer();
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit("call:offer", { callId, offer });
+      try {
+        setCall({ status: "connecting" });
+        const pc = createPeer();
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("call:offer", { callId, offer: plainDesc(offer) });
+      } catch (err) {
+        failCall(err, "Could not start call");
+      }
     };
 
-    // receiver side
     const onOffer = async ({ callId, offer }) => {
       if (callId !== stateRef.current.callId || !pcRef.current) return;
-      const pc = pcRef.current;
-      await pc.setRemoteDescription(offer);
-      await flushIce();
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("call:answer", { callId, answer });
+      try {
+        const pc = pcRef.current;
+        await pc.setRemoteDescription(normalizeSdp(offer));
+        await flushIce();
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("call:answer", { callId, answer: plainDesc(answer) });
+      } catch (err) {
+        failCall(err, "Call setup failed");
+      }
     };
 
-    // caller side
     const onAnswer = async ({ callId, answer }) => {
       if (callId !== stateRef.current.callId || !pcRef.current) return;
-      await pcRef.current.setRemoteDescription(answer);
-      await flushIce();
+      try {
+        await pcRef.current.setRemoteDescription(normalizeSdp(answer));
+        await flushIce();
+      } catch (err) {
+        failCall(err, "Call setup failed");
+      }
     };
 
     const onIce = async ({ callId, candidate }) => {
@@ -274,9 +289,7 @@ export function CallProvider({ socket, children }) {
       }
       try {
         await pcRef.current.addIceCandidate(candidate);
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     };
 
     const onEnded = ({ callId, status, reason }) => {
@@ -325,21 +338,18 @@ export function CallProvider({ socket, children }) {
     };
   }, [socket, createPeer, flushIce, setCall, cleanup]);
 
-  /* ---------- call timer ---------- */
   useEffect(() => {
     if (state.status !== "connected") return;
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [state.status]);
 
-  /* ---------- error auto-clear ---------- */
   useEffect(() => {
     if (!state.error) return;
     const t = setTimeout(() => setCall({ error: "" }), 3500);
     return () => clearTimeout(t);
   }, [state.error, setCall]);
 
-  /* ---------- tab close => end call ---------- */
   useEffect(() => {
     const onUnload = () => {
       const { callId } = stateRef.current;
