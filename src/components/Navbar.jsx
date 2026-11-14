@@ -8,7 +8,7 @@ const Navbar = () => {
   const { pathname } = useLocation();
 
   const navBtn = (path) =>
-    `btn btn-sm btn-ghost gap-2 rounded-full px-3 transition-colors ${
+    `btn btn-sm btn-ghost gap-2 rounded-full px-3 transition-colors min-h-[44px] sm:min-h-[2rem] ${
       pathname === path
         ? "bg-primary/10 text-primary hover:bg-primary/15"
         : "hover:bg-base-200"
@@ -72,7 +72,7 @@ const Navbar = () => {
                 <div className="mx-1 hidden h-6 w-px bg-base-300 sm:block" />
 
                 <button
-                  className="btn btn-sm btn-ghost gap-2 rounded-full px-3 text-error hover:bg-error/10"
+                  className="btn btn-sm btn-ghost gap-2 rounded-full px-3 text-error hover:bg-error/10 min-h-[44px] sm:min-h-[2rem]"
                   onClick={logout}
                   aria-label="Logout"
                   title="Logout"

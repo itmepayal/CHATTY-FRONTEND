@@ -360,7 +360,7 @@ const menuHeight = (f) => {
 };
 
 /* ---- status line under a bubble (pure) ---- */
-const renderStatus = (m, mine, seenBy, s) => {
+const renderStatus = (m, mine, seenBy, s, myReadReceipts = true) => {
   if (mine && m.pending) {
     return (
       <span className="inline-flex items-center gap-1">
@@ -384,10 +384,12 @@ const renderStatus = (m, mine, seenBy, s) => {
       : "";
   if (!mine || m.isDeleted) return time;
 
+  const showSeen = myReadReceipts !== false && seenBy > 0;
+
   return (
     <span className="inline-flex items-center gap-1">
       {time}
-      {seenBy > 0 ? (
+      {showSeen ? (
         <>
           <CheckCheck className="size-3.5 text-info" aria-label="Seen" />
           <span>Seen by {seenBy}</span>
@@ -721,7 +723,7 @@ const describeCall = (c) => {
   };
 };
 
-const GroupCallLog = ({ item, prev, onCallBack, disabled, s }) => {
+const GroupCallLog = ({ item, prev, onCallBack, disabled, s, cs }) => {
   const c = item.call;
   const { Icon, tone, title, sub } = describeCall(c);
   const showDay = !prev?.createdAt || !sameDay(prev.createdAt, item.createdAt);
@@ -733,13 +735,13 @@ const GroupCallLog = ({ item, prev, onCallBack, disabled, s }) => {
   return (
     <div>
       {showDay && (
-        <div className="flex justify-center my-3 sm:my-4">
+        <div className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}>
           <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
             {dayLabel(item.createdAt)}
           </span>
         </div>
       )}
-      <div className="flex justify-center my-2">
+      <div className={`flex justify-center ${cs?.callMargin || "my-2"}`}>
         <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm max-w-[92%]">
           <span
             className={`grid size-8 shrink-0 place-items-center rounded-full bg-base-200 ${tone}`}
@@ -826,6 +828,8 @@ const MessageRow = memo(function MessageRow({
   const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
   const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
 
+  const myReadReceipts =
+    usePrivacyStore((st) => st.privacy.readReceipts) !== false;
   const seenBy = (m.readBy || []).filter(
     (id) => !sameId(id, m.senderId),
   ).length;
@@ -852,7 +856,7 @@ const MessageRow = memo(function MessageRow({
   return (
     <div>
       {showDay && (
-        <div className="flex justify-center my-3 sm:my-4">
+        <div className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}>
           <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
             {dayLabel(m.createdAt)}
           </span>
@@ -901,7 +905,7 @@ const MessageRow = memo(function MessageRow({
           >
             {isDeleted ? (
               <div
-                className={`px-3.5 py-2 ${cs.radius} border border-base-300 bg-base-100 text-base-content/60 italic flex items-center gap-1.5 ${
+                className={`${cs.bubblePaddingDeleted || "px-3.5 py-2"} ${cs.radius} border border-base-300 bg-base-100 text-base-content/60 italic flex items-center gap-1.5 ${
                   endsGroup ? (mine ? cs.tailMine : cs.tailTheirs) : ""
                 }`}
               >
@@ -916,7 +920,7 @@ const MessageRow = memo(function MessageRow({
               <div
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
-                  hasText || hasAudio ? "px-3 sm:px-3.5 py-2" : "p-1"
+                  hasText || hasAudio ? (cs.bubblePadding || "px-3 sm:px-3.5 py-2") : "p-1"
                 } ${cs.radius} shadow-sm ${
                   isTouch ? "[-webkit-touch-callout:none] select-text" : ""
                 } ${
@@ -1071,7 +1075,7 @@ const MessageRow = memo(function MessageRow({
 
           {(endsGroup || pending) && (
             <div className="mt-1 px-1 text-[11px] text-base-content/50">
-              {renderStatus(m, mine, seenBy, s)}
+              {renderStatus(m, mine, seenBy, s, myReadReceipts)}
             </div>
           )}
 
@@ -1327,7 +1331,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           !m.pending &&
           !m.failed &&
           !sameId(m.senderId, myId) &&
-          !(m.readBy || []).some((id) => sameId(id, myId)),
+          !(m.readBy || []).some((id) => sameId(id, myId)) &&
+          !(m.silentReadBy || []).some((id) => sameId(id, myId)),
       ),
     [list, myId],
   );
@@ -2005,8 +2010,11 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           </button>
 
           {/* ---- group voice call ---- */}
-          <button
+          <motion.button
             type="button"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.88 }}
+            transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
             onClick={() => startGroupCall(group.id, "audio", group.name)}
             disabled={callBlocked}
@@ -2015,12 +2023,15 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               hasActiveGroupCall ? "A call is already running" : "Voice call"
             }
           >
-            <Phone className="size-[18px]" />
-          </button>
+            <Phone className="size-4" />
+          </motion.button>
 
           {/* ---- group video call ---- */}
-          <button
+          <motion.button
             type="button"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.88 }}
+            transition={{ type: "spring", stiffness: 400, damping: 18 }}
             className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
             onClick={() => startGroupCall(group.id, "video", group.name)}
             disabled={callBlocked}
@@ -2029,8 +2040,8 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               hasActiveGroupCall ? "A call is already running" : "Video call"
             }
           >
-            <Video className="size-[18px]" />
-          </button>
+            <Video className="size-4" />
+          </motion.button>
 
           {/* ---- archive / unarchive ---- */}
           <button
@@ -2188,6 +2199,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 item={item}
                 prev={timeline[i - 1]}
                 s={s}
+                cs={cs}
                 disabled={callBlocked}
                 onCallBack={() =>
                   startGroupCall(group.id, item.call.type, group.name)

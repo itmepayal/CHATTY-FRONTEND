@@ -313,7 +313,7 @@ const ConfirmModal = ({
 /* ---------- main ---------- */
 
 const UserInfoPanel = ({ open, onToggle }) => {
-  const { selectedUser, messages } = useChatStore();
+  const { selectedUser, users, messages } = useChatStore();
   const {
     onlineUsers,
     hiddenUsers,
@@ -402,7 +402,9 @@ const UserInfoPanel = ({ open, onToggle }) => {
     ? toIds(authUser.blockedUsers).includes(selectedId)
     : Boolean(selectedUser.isBlocked);
 
-  const unreadCount = Number(selectedUser.unreadCount) || 0;
+  const conversation = users?.find((u) => String(u.id ?? u._id) === selectedId);
+  const unreadCount =
+    Number(conversation?.unreadCount ?? selectedUser.unreadCount) || 0;
 
   const handleFavorite = async () => {
     if (pending) return;
@@ -450,11 +452,9 @@ const UserInfoPanel = ({ open, onToggle }) => {
   const websiteLabel = website.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
   // Fields available in the conversation-list response
-  const lastActivityRaw =
-    selectedUser.lastSeen ||
-    selectedUser.lastMessageAt ||
-    selectedUser.lastMessage?.createdAt;
-  const lastActivity = formatActivity(lastActivityRaw);
+  const lastActivity = selectedUser.lastSeen
+    ? formatActivity(selectedUser.lastSeen)
+    : null;
   const lastMessagePreview = previewLastMessage(selectedUser.lastMessage);
 
   const statusText = online

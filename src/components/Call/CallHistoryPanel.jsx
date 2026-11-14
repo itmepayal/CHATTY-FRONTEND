@@ -1,47 +1,64 @@
-// client/src/components/chat/CallHistoryPanel.jsx
 import { useEffect, useState } from "react";
 import {
+  Calendar,
   Loader2,
   Phone,
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
+  Users,
   Video,
 } from "lucide-react";
 import { useCallHistoryStore } from "../../store/useCallHistoryStore";
 import { useChatStore } from "../../store/useChatStore";
 import { useCall } from "../../context/CallContext";
-import { formatDuration } from "./VoiceMessage.jsx";
-import GroupCallHistoryPanel from "./GroupCallHistoryPanel.jsx";
+import GroupCallHistoryPanel from "../group/GroupCallHistoryPanel.jsx";
+import CallAvatar from "./common/CallAvatar.jsx";
+import { formatCallTimer } from "./common/callTokens.js";
 
-const when = (v) =>
-  new Date(v).toLocaleString(undefined, {
+const formatCallDate = (val) => {
+  if (!val) return "";
+  const d = new Date(val);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+
+  const timeStr = d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  if (isToday) return `Today, ${timeStr}`;
+
+  return d.toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
     hour: "numeric",
     minute: "2-digit",
   });
+};
 
-const describe = (c) => {
-  const kind = c.type === "video" ? "Video" : "Audio";
-  const missedIncoming = c.status === "missed" && c.direction === "incoming";
+const getCallDescription = (c) => {
+  const isVideo = c.type === "video";
+  const kind = isVideo ? "Video" : "Voice";
+  const incoming = c.direction === "incoming";
+  const missed = c.status === "missed" && incoming;
 
   let text;
-  if (c.status === "completed")
-    text = `${kind} call · ${formatDuration(c.duration || 0)}`;
-  else if (c.status === "missed")
-    text = missedIncoming
-      ? `Missed ${kind.toLowerCase()} call`
-      : `${kind} call · no answer`;
-  else text = `${kind} call · ${c.status}`;
+  if (c.status === "completed") {
+    text = `${kind} call · ${formatCallTimer(c.duration || 0)}`;
+  } else if (c.status === "missed") {
+    text = missed ? `Missed ${kind.toLowerCase()} call` : `${kind} call · No answer`;
+  } else {
+    text = `${kind} call · ${c.status}`;
+  }
 
-  const Icon = missedIncoming
+  const Icon = missed
     ? PhoneMissed
-    : c.direction === "incoming"
+    : incoming
       ? PhoneIncoming
       : PhoneOutgoing;
 
-  return { text, Icon, missed: missedIncoming };
+  return { text, Icon, missed, isVideo };
 };
 
 const PersonalCalls = ({ onOpenUser, onAfterOpen }) => {
@@ -54,71 +71,98 @@ const PersonalCalls = ({ onOpenUser, onAfterOpen }) => {
     fetchCalls();
   }, [fetchCalls]);
 
-  if (isLoading && !calls.length)
+  if (isLoading && !calls.length) {
     return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="size-5 animate-spin text-base-content/40" />
+      <div className="flex flex-col items-center justify-center py-12 gap-3 text-base-content/60">
+        <Loader2 className="size-6 animate-spin text-primary" />
+        <span className="text-xs font-medium">Loading call history…</span>
       </div>
     );
+  }
 
-  if (!calls.length)
+  if (!calls.length) {
     return (
-      <p className="py-8 text-center text-sm text-base-content/60">
-        No calls yet.
-      </p>
+      <div className="flex flex-col items-center justify-center py-14 px-6 text-center text-base-content/60 gap-3">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-base-200 border border-base-300">
+          <Phone className="size-6 text-base-content/40" />
+        </div>
+        <div>
+          <p className="font-semibold text-base-content">No calls yet</p>
+          <p className="text-xs text-base-content/60 mt-0.5">
+            When you call your contacts, they will appear here.
+          </p>
+        </div>
+      </div>
     );
+  }
 
   return (
-    <ul className="divide-y divide-base-300">
+    <ul className="divide-y divide-base-200/80">
       {calls.map((c) => {
-        const { text, Icon, missed } = describe(c);
+        const { text, Icon, missed, isVideo } = getCallDescription(c);
+        const userName = c.user?.fullName || c.user?.name || "User";
+
         return (
-          <li key={c.id} className="flex items-center gap-3 px-4 py-3">
+          <li
+            key={c.id}
+            className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-base-200/50 transition-colors"
+          >
             <button
               type="button"
               onClick={() => {
-                onOpenUser?.(c.user.id);
+                if (c.user?.id) onOpenUser?.(c.user.id);
                 onAfterOpen?.();
               }}
-              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-none"
             >
-              <img
-                src={c.user.avatar || "/avatar.png"}
-                alt=""
-                className="size-10 shrink-0 rounded-full object-cover border border-base-300"
+              <CallAvatar
+                src={c.user?.avatar}
+                name={userName}
+                size="sm"
+                className="shrink-0"
               />
+
               <div className="min-w-0 flex-1">
                 <div
-                  className={`truncate font-medium ${missed ? "text-error" : ""}`}
+                  className={`truncate font-semibold text-sm ${
+                    missed ? "text-error" : "text-base-content"
+                  }`}
                 >
-                  {c.user.fullName}
+                  {userName}
                 </div>
+
                 <div
-                  className={`flex items-center gap-1 truncate text-xs ${
-                    missed ? "text-error" : "text-base-content/60"
+                  className={`mt-0.5 flex items-center gap-1.5 truncate text-xs ${
+                    missed ? "text-error font-medium" : "text-base-content/60"
                   }`}
                 >
                   <Icon className="size-3.5 shrink-0" />
-                  {text}
+                  <span className="truncate">{text}</span>
                 </div>
               </div>
-              <span className="shrink-0 text-xs text-base-content/50">
-                {when(c.startedAt)}
+
+              <span className="shrink-0 text-[11px] text-base-content/50 tabular-nums">
+                {formatCallDate(c.startedAt || c.createdAt)}
               </span>
             </button>
 
             <button
               type="button"
-              className="btn btn-ghost btn-circle btn-sm shrink-0 text-primary"
+              className="btn btn-ghost btn-circle btn-sm shrink-0 text-primary hover:bg-primary/10"
               disabled={status !== "idle"}
               onClick={() => {
-                startCall({ id: c.user.id, fullName: c.user.fullName }, c.type);
+                if (c.user?.id) {
+                  startCall(
+                    { id: c.user.id, fullName: userName },
+                    c.type || "audio",
+                  );
+                }
                 onAfterOpen?.();
               }}
-              aria-label="Call again"
+              aria-label={`Call ${userName} again`}
               title="Call again"
             >
-              {c.type === "video" ? (
+              {isVideo ? (
                 <Video className="size-4" />
               ) : (
                 <Phone className="size-4" />
@@ -131,7 +175,7 @@ const PersonalCalls = ({ onOpenUser, onAfterOpen }) => {
   );
 };
 
-const CallHistoryPanel = ({ onOpenGroup, onAfterOpen }) => {
+export default function CallHistoryPanel({ onOpenGroup, onAfterOpen }) {
   const [tab, setTab] = useState("personal");
   const users = useChatStore((s) => s.users);
   const setSelectedUser = useChatStore((s) => s.setSelectedUser);
@@ -142,26 +186,39 @@ const CallHistoryPanel = ({ onOpenGroup, onAfterOpen }) => {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div role="tablist" className="tabs tabs-boxed m-3 shrink-0">
-        <button
-          role="tab"
-          type="button"
-          className={`tab flex-1 ${tab === "personal" ? "tab-active" : ""}`}
-          onClick={() => setTab("personal")}
-        >
-          Personal
-        </button>
-        <button
-          role="tab"
-          type="button"
-          className={`tab flex-1 ${tab === "groups" ? "tab-active" : ""}`}
-          onClick={() => setTab("groups")}
-        >
-          Groups
-        </button>
+    <div className="flex h-full min-h-0 flex-col bg-base-100">
+      {/* Tab Switcher */}
+      <div className="px-4 pt-3 pb-2 shrink-0">
+        <div className="grid grid-cols-2 p-1 rounded-2xl bg-base-200 border border-base-300">
+          <button
+            type="button"
+            className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition-all ${
+              tab === "personal"
+                ? "bg-base-100 text-base-content shadow-sm"
+                : "text-base-content/65 hover:text-base-content"
+            }`}
+            onClick={() => setTab("personal")}
+          >
+            <Phone className="size-3.5" />
+            <span>Direct Calls</span>
+          </button>
+
+          <button
+            type="button"
+            className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition-all ${
+              tab === "groups"
+                ? "bg-base-100 text-base-content shadow-sm"
+                : "text-base-content/65 hover:text-base-content"
+            }`}
+            onClick={() => setTab("groups")}
+          >
+            <Users className="size-3.5" />
+            <span>Group Calls</span>
+          </button>
+        </div>
       </div>
 
+      {/* List content */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "personal" ? (
           <PersonalCalls onOpenUser={openUser} onAfterOpen={onAfterOpen} />
@@ -171,6 +228,4 @@ const CallHistoryPanel = ({ onOpenGroup, onAfterOpen }) => {
       </div>
     </div>
   );
-};
-
-export default CallHistoryPanel;
+}

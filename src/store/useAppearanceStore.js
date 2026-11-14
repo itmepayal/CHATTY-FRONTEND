@@ -18,7 +18,7 @@ const VALID_VALUES = {
   theme: VALID_THEMES,
   fontSize: new Set(["sm", "md", "lg"]),
   bubbleStyle: new Set(["rounded", "soft", "sharp"]),
-  density: new Set(["comfortable", "compact"]),
+  density: new Set(["comfortable", "compact", "cozy"]),
   showTimestamps: new Set([true, false]),
   timeFormat: new Set(["12h", "24h"]),
 };
@@ -59,7 +59,6 @@ const queueSave = (key, value) => {
 };
 
 export const useAppearanceStore = create((set, get) => ({
-  // Start from the cached theme so logout / login / landing never flash "light"
   appearance: { ...APPEARANCE_DEFAULTS, theme: getCachedTheme() },
   isLoading: false,
   isSaving: false,
@@ -70,7 +69,8 @@ export const useAppearanceStore = create((set, get) => ({
       const res = await axiosInstance.get("/users/appearance", {
         withCredentials: true,
       });
-      const data = res?.data?.data ?? {};
+      const data = res?.data?.data?.appearance ?? res?.data?.data ?? {};
+      if (data.density === "cozy") data.density = "comfortable";
       const merged = { ...APPEARANCE_DEFAULTS, ...data };
       confirmedAppearance = merged;
       set({ appearance: merged });
@@ -82,24 +82,28 @@ export const useAppearanceStore = create((set, get) => ({
     }
   },
 
-  /** Persist one preference. Optimistic; reverts to the last confirmed value on failure. */
   setAppearance: async (key, value) => {
-    if (!VALID_VALUES[key]?.has(value)) return;
+    let normalized = value;
+    if (key === "density" && normalized === "cozy") {
+      normalized = "comfortable";
+    }
+    if (!VALID_VALUES[key]?.has(normalized)) return;
 
     const revision = ++revisions[key];
 
-    set({ appearance: { ...get().appearance, [key]: value } });
-    if (key === "theme") applyTheme(value);
+    set({ appearance: { ...get().appearance, [key]: normalized } });
+    if (key === "theme") applyTheme(normalized);
 
     pendingSaves += 1;
     set({ isSaving: true });
     try {
-      const res = await queueSave(key, value);
-      const saved = res?.data?.data ?? {};
+      const res = await queueSave(key, normalized);
+      const saved = res?.data?.data?.appearance ?? res?.data?.data ?? {};
       if (revisions[key] === revision) {
+        const savedVal = saved[key] === "cozy" ? "comfortable" : (saved[key] ?? normalized);
         confirmedAppearance = {
           ...confirmedAppearance,
-          [key]: saved[key] ?? value,
+          [key]: savedVal,
         };
         const appearance = {
           ...get().appearance,
@@ -126,10 +130,10 @@ export const useAppearanceStore = create((set, get) => ({
     }
   },
 
-  /** Restore every appearance option to its default, locally and on the server. */
   resetAppearance: async () => {
     Object.keys(revisions).forEach((k) => revisions[k]++);
 
+    const previous = { ...confirmedAppearance };
     const defaults = { ...APPEARANCE_DEFAULTS };
     set({ appearance: defaults });
     applyTheme(defaults.theme);
@@ -137,11 +141,15 @@ export const useAppearanceStore = create((set, get) => ({
     pendingSaves += 1;
     set({ isSaving: true });
     try {
-      await Promise.all(
-        Object.entries(defaults).map(([k, v]) => queueSave(k, v)),
-      );
-      confirmedAppearance = { ...defaults };
+      const res = await axiosInstance.patch("/users/appearance", defaults);
+      const saved = res?.data?.data?.appearance ?? res?.data?.data ?? {};
+      confirmedAppearance = { ...defaults, ...saved };
+      set({ appearance: confirmedAppearance });
+      applyTheme(confirmedAppearance.theme);
     } catch (err) {
+      confirmedAppearance = previous;
+      set({ appearance: previous });
+      applyTheme(previous.theme);
       toast.error(err?.response?.data?.message || "Couldn't reset appearance.");
     } finally {
       pendingSaves = Math.max(0, pendingSaves - 1);
@@ -149,10 +157,6 @@ export const useAppearanceStore = create((set, get) => ({
     }
   },
 
-  /**
-   * Local-only reset (logout / delete account). Does NOT call the server.
-   * Keeps the cached theme and does NOT overwrite localStorage.
-   */
   reset: () => {
     Object.keys(revisions).forEach((k) => revisions[k]++);
     Object.keys(saveQueues).forEach((k) => delete saveQueues[k]);
@@ -164,37 +168,43 @@ export const useAppearanceStore = create((set, get) => ({
       isSaving: false,
       isLoading: false,
     });
-    // Do not use applyTheme here: it would write to the cache.
     document.documentElement.setAttribute("data-theme", theme);
   },
 
-  /** Bootstrap from authUser (login / register / checkAuth / 2FA). */
   initFromUser: (user) => {
     if (!user) return;
 
-    // Server response had no appearance fields -> don't overwrite the real
-    // saved theme with defaults; load it from the server instead.
-    if (user.appearanceTheme === undefined) {
+    const rawTheme = user.theme ?? user.appearanceTheme;
+    if (rawTheme === undefined) {
       get().fetchAppearance();
       return;
     }
 
+    const rawFontSize = user.fontSize ?? user.appearanceFontSize;
+    const rawBubbleStyle = user.bubbleStyle ?? user.appearanceBubbleStyle;
+    const rawDensity = user.density ?? user.appearanceDensity;
+    const rawTimestamps = user.showTimestamps ?? user.appearanceTimestamps;
+    const rawTimeFormat = user.timeFormat ?? user.appearanceTimeFormat;
+
+    const normalizedDensity =
+      rawDensity === "cozy" ? "comfortable" : rawDensity;
+
     const merged = {
-      theme: VALID_THEMES.has(user.appearanceTheme)
-        ? user.appearanceTheme
+      theme: VALID_THEMES.has(rawTheme)
+        ? rawTheme
         : APPEARANCE_DEFAULTS.theme,
-      fontSize: VALID_VALUES.fontSize.has(user.appearanceFontSize)
-        ? user.appearanceFontSize
+      fontSize: VALID_VALUES.fontSize.has(rawFontSize)
+        ? rawFontSize
         : APPEARANCE_DEFAULTS.fontSize,
-      bubbleStyle: VALID_VALUES.bubbleStyle.has(user.appearanceBubbleStyle)
-        ? user.appearanceBubbleStyle
+      bubbleStyle: VALID_VALUES.bubbleStyle.has(rawBubbleStyle)
+        ? rawBubbleStyle
         : APPEARANCE_DEFAULTS.bubbleStyle,
-      density: VALID_VALUES.density.has(user.appearanceDensity)
-        ? user.appearanceDensity
+      density: VALID_VALUES.density.has(normalizedDensity)
+        ? (normalizedDensity === "cozy" ? "comfortable" : normalizedDensity)
         : APPEARANCE_DEFAULTS.density,
-      showTimestamps: user.appearanceTimestamps !== false,
-      timeFormat: VALID_VALUES.timeFormat.has(user.appearanceTimeFormat)
-        ? user.appearanceTimeFormat
+      showTimestamps: rawTimestamps !== false,
+      timeFormat: VALID_VALUES.timeFormat.has(rawTimeFormat)
+        ? rawTimeFormat
         : APPEARANCE_DEFAULTS.timeFormat,
     };
     confirmedAppearance = merged;

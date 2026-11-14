@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Phone, Video, X } from "lucide-react";
+import { Phone, PhoneOff, Video } from "lucide-react";
 import { useGroupCallStore } from "../../../store/useGroupCallStore";
 import { useCall } from "../../../context/CallContext";
 
-const avatarSrc = (a) => (typeof a === "string" ? a : a?.url) || "/avatar.png";
+import { CALL_SPRING } from "../../Call/common/callTokens";
+import CallAvatar from "../../Call/common/CallAvatar";
+import { CallTypeBadge } from "../../Call/common/CallStatusBadge";
 
 const RING_SECONDS = 45;
 
-const IncomingGroupCall = () => {
+export default function IncomingGroupCall() {
   const incoming = useGroupCallStore((s) => s.incoming);
   const status = useGroupCallStore((s) => s.status);
   const joinCall = useGroupCallStore((s) => s.joinCall);
@@ -20,6 +22,7 @@ const IncomingGroupCall = () => {
     Boolean(incoming) && status === "idle" && oneToOneStatus === "idle";
   const callId = incoming?.callId;
 
+  // Ringtone playback
   useEffect(() => {
     if (!visible) return;
     const audio = new Audio("/didi.mp3");
@@ -31,6 +34,7 @@ const IncomingGroupCall = () => {
     };
   }, [visible, callId]);
 
+  // Timeout dismiss
   useEffect(() => {
     if (!visible) return;
     const t = setTimeout(dismiss, RING_SECONDS * 1000);
@@ -38,6 +42,8 @@ const IncomingGroupCall = () => {
   }, [visible, callId, dismiss]);
 
   const isVideo = incoming?.type === "video";
+  const starterName = incoming?.starter?.fullName || "Someone";
+  const groupName = incoming?.groupName || "Group";
 
   return (
     <AnimatePresence>
@@ -45,57 +51,69 @@ const IncomingGroupCall = () => {
         <motion.div
           key={callId}
           role="alertdialog"
-          aria-label="Incoming group call"
-          initial={{ opacity: 0, y: -24 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -16, transition: { duration: 0.12 } }}
-          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[80] mx-auto w-auto max-w-md rounded-2xl border border-base-300 bg-base-100 p-3 shadow-2xl sm:left-auto sm:right-4 sm:mx-0 sm:w-96"
+          aria-label={`Incoming group call from ${groupName}`}
+          initial={{ opacity: 0, y: -30, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.94 }}
+          transition={CALL_SPRING}
+          className="fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[90] mx-auto w-auto max-w-md overflow-hidden rounded-3xl border border-white/20 bg-neutral/95 p-4 sm:p-5 text-white shadow-2xl backdrop-blur-2xl ring-1 ring-black/40 sm:left-auto sm:right-5 sm:mx-0 sm:w-[26rem]"
         >
-          <div className="flex items-center gap-3">
-            <img
-              src={avatarSrc(incoming.starter?.avatar)}
-              alt=""
-              className="size-12 shrink-0 rounded-full border border-base-300 object-cover"
+          {/* Subtle background glow */}
+          <div className="pointer-events-none absolute -top-12 -right-12 size-36 rounded-full bg-primary/20 blur-2xl" />
+
+          <div className="relative flex items-center gap-3.5">
+            <CallAvatar
+              src={incoming?.starter?.avatar}
+              name={starterName}
+              size="md"
+              pulse
+              pulseColor="bg-primary/30"
             />
+
             <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold leading-tight">
-                {incoming.groupName}
-              </p>
-              <p className="truncate text-sm text-base-content/60">
-                {incoming.starter?.fullName || "Someone"} started a{" "}
-                {isVideo ? "video" : "voice"} call
+              <div className="flex items-center gap-2">
+                <CallTypeBadge
+                  isVideo={isVideo}
+                  text={isVideo ? "Video" : "Voice"}
+                  className="px-2 py-0.5 text-[10px]"
+                />
+              </div>
+
+              <h3 className="mt-1 truncate font-bold text-base text-white">
+                {groupName}
+              </h3>
+              <p className="truncate text-xs font-medium text-white/70">
+                {starterName} started a call
               </p>
             </div>
           </div>
 
-          <div className="mt-3 flex gap-2">
+          <div className="relative mt-4 flex items-center gap-2.5">
             <button
               type="button"
-              className="btn btn-ghost btn-sm flex-1"
               onClick={dismiss}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white/90 transition-all hover:bg-white/20 active:scale-95"
             >
-              <X className="size-4" />
-              Ignore
+              <PhoneOff className="size-3.5 text-error" />
+              <span>Decline</span>
             </button>
+
             <button
               type="button"
               autoFocus
-              className="btn btn-success btn-sm flex-1"
               onClick={() => joinCall(incoming.groupId, incoming.groupName)}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-success px-4 py-2.5 text-xs font-semibold text-success-content shadow-lg shadow-success/20 transition-all hover:brightness-110 active:scale-95"
             >
               {isVideo ? (
-                <Video className="size-4" />
+                <Video className="size-3.5" />
               ) : (
-                <Phone className="size-4" />
+                <Phone className="size-3.5" />
               )}
-              Join
+              <span>Join Call</span>
             </button>
           </div>
         </motion.div>
       )}
     </AnimatePresence>
   );
-};
-
-export default IncomingGroupCall;
+}

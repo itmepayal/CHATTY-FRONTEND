@@ -466,7 +466,24 @@ export const useChatStore = create((set, get) => {
               merged.push(u);
             }
           }
-          return { users: sortUsers(merged) };
+          const sorted = sortUsers(merged);
+          const updatedSelectedUser = state.selectedUser
+            ? (() => {
+                const matched = sorted.find((u) =>
+                  sameId(u.id, state.selectedUser.id),
+                );
+                return matched
+                  ? {
+                      ...state.selectedUser,
+                      unreadCount: isTabVisible()
+                        ? 0
+                        : (matched.unreadCount ?? 0),
+                    }
+                  : state.selectedUser;
+              })()
+            : null;
+
+          return { users: sorted, selectedUser: updatedSelectedUser };
         });
       } catch (error) {
         if (!silent) toast.error(errMsg(error, "Failed to fetch users"));
@@ -588,14 +605,29 @@ export const useChatStore = create((set, get) => {
     },
 
     markSeen: async (userId) => {
+      if (!userId) return;
       set((s) => ({
         users: s.users.map((u) =>
           sameId(u.id, userId) ? { ...u, unreadCount: 0 } : u,
         ),
+        selectedUser:
+          s.selectedUser && sameId(s.selectedUser.id, userId)
+            ? { ...s.selectedUser, unreadCount: 0 }
+            : s.selectedUser,
       }));
 
       try {
-        await axiosInstance.patch(`/messages/seen/${userId}`);
+        const res = await axiosInstance.patch(`/messages/seen/${userId}`);
+        const confirmedUnread = res?.data?.data?.unreadCount ?? 0;
+        set((s) => ({
+          users: s.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, unreadCount: confirmedUnread } : u,
+          ),
+          selectedUser:
+            s.selectedUser && sameId(s.selectedUser.id, userId)
+              ? { ...s.selectedUser, unreadCount: confirmedUnread }
+              : s.selectedUser,
+        }));
       } catch {
         get().getUsers({ silent: true });
       }
@@ -605,6 +637,7 @@ export const useChatStore = create((set, get) => {
       set((s) => {
         const exists = s.users.some((user) => sameId(user.id, u.userId));
         let updatedUsers;
+        const newUnread = typeof u.unreadCount === "number" ? u.unreadCount : 0;
         if (exists) {
           updatedUsers = s.users.map((user) => {
             if (!sameId(user.id, u.userId)) return user;
@@ -628,7 +661,7 @@ export const useChatStore = create((set, get) => {
             id: String(u.userId),
             fullName: contact?.fullName || "User",
             avatar: contact?.avatar || "",
-            unreadCount: typeof u.unreadCount === "number" ? u.unreadCount : 0,
+            unreadCount: newUnread,
             lastMessage: u.lastMessage || null,
             lastMessageAt: u.lastMessageAt || null,
             ts: u.ts ?? Date.now(),
@@ -636,7 +669,24 @@ export const useChatStore = create((set, get) => {
           };
           updatedUsers = [...s.users, newUser];
         }
-        return { users: sortUsers(updatedUsers) };
+
+        const isViewing =
+          s.selectedUser &&
+          sameId(s.selectedUser.id, u.userId) &&
+          isTabVisible();
+
+        const updatedSelectedUser =
+          s.selectedUser && sameId(s.selectedUser.id, u.userId)
+            ? {
+                ...s.selectedUser,
+                unreadCount: isViewing ? 0 : newUnread,
+              }
+            : s.selectedUser;
+
+        return {
+          users: sortUsers(updatedUsers),
+          selectedUser: updatedSelectedUser,
+        };
       }),
 
     emitTyping: (isTyping, toId) => {
@@ -777,7 +827,7 @@ export const useChatStore = create((set, get) => {
             const contactUser = useContactStore
               .getState()
               .contacts?.find((c) => sameId(c.id, otherUserId));
-            const newUnread = isCurrentOpenChat
+            const newUnread = isCurrentOpenChat && isTabVisible()
               ? 0
               : sameId(incoming.senderId, me)
                 ? 0
@@ -793,11 +843,22 @@ export const useChatStore = create((set, get) => {
               ts: msgTs,
               ...contactUser,
             };
-            return { users: sortUsers([...st.users, newUser]) };
+            return {
+              users: sortUsers([...st.users, newUser]),
+              selectedUser:
+                isCurrentOpenChat && st.selectedUser
+                  ? {
+                      ...st.selectedUser,
+                      unreadCount: isTabVisible()
+                        ? 0
+                        : (st.selectedUser.unreadCount || 0) + 1,
+                    }
+                  : st.selectedUser,
+            };
           }
           const updatedUsers = st.users.map((u) => {
             if (!sameId(u.id, otherUserId)) return u;
-            const newUnread = isCurrentOpenChat
+            const newUnread = isCurrentOpenChat && isTabVisible()
               ? 0
               : sameId(incoming.senderId, me)
                 ? (u.unreadCount || 0)
@@ -810,7 +871,18 @@ export const useChatStore = create((set, get) => {
               ts: msgTs,
             };
           });
-          return { users: sortUsers(updatedUsers) };
+          return {
+            users: sortUsers(updatedUsers),
+            selectedUser:
+              isCurrentOpenChat && st.selectedUser
+                ? {
+                    ...st.selectedUser,
+                    unreadCount: isTabVisible()
+                      ? 0
+                      : (st.selectedUser.unreadCount || 0) + 1,
+                  }
+                : st.selectedUser,
+          };
         });
 
         // 4. Asynchronously decrypt encrypted messages without blocking the UI
@@ -934,10 +1006,23 @@ export const useChatStore = create((set, get) => {
       const onMessagesSeen = ({ messageIds }) => {
         set((s) => ({
           messages: s.messages.map((m) =>
-            messageIds.some((id) => sameId(id, m.id))
+            Array.isArray(messageIds) && messageIds.some((id) => sameId(id, m.id))
               ? upgradeStatus(m, "seen")
               : m,
           ),
+          users: s.users.map((u) => {
+            const hasSeenLast =
+              Array.isArray(messageIds) &&
+              u.lastMessage &&
+              messageIds.some((id) => sameId(id, u.lastMessage.id));
+            if (hasSeenLast) {
+              return {
+                ...u,
+                lastMessage: upgradeStatus(u.lastMessage, "seen"),
+              };
+            }
+            return u;
+          }),
         }));
       };
 
@@ -1073,6 +1158,53 @@ export const useChatStore = create((set, get) => {
       socket.on("chatArchived", onChatArchived);
       document.addEventListener("visibilitychange", onVisibilityChange);
 
+      const onProfileUpdated = ({ detail } = {}) => {
+        const uid = detail?.userId;
+        if (!uid) return;
+        get().getUsers({ silent: true });
+        const current = get().selectedUser;
+        if (current && sameId(current.id, uid)) {
+          axiosInstance
+            .get(`/users/${uid}/profile`)
+            .then((res) => {
+              const u = res?.data?.data?.user;
+              if (u) {
+                get().setSelectedUser({ ...current, ...u });
+              }
+            })
+            .catch(() => {});
+        }
+      };
+
+      const onPresenceUpdated = ({ detail } = {}) => {
+        const uid = detail?.userId;
+        if (!uid) return;
+        const current = get().selectedUser;
+        if (current && sameId(current.id, uid)) {
+          get().setSelectedUser({
+            ...current,
+            lastSeen: detail.isOnline
+              ? null
+              : (detail.lastSeen ?? current.lastSeen),
+          });
+        }
+        set((state) => ({
+          users: state.users.map((u) =>
+            sameId(u.id, uid)
+              ? {
+                  ...u,
+                  lastSeen: detail.isOnline
+                    ? null
+                    : (detail.lastSeen ?? u.lastSeen),
+                }
+              : u,
+          ),
+        }));
+      };
+
+      window.addEventListener("chatty:profile-updated", onProfileUpdated);
+      window.addEventListener("chatty:presence-updated", onPresenceUpdated);
+
       set({
         _subscribedSocket: socket,
         _isSubscribed: true,
@@ -1091,6 +1223,8 @@ export const useChatStore = create((set, get) => {
         _onDisappearing: onDisappearingUpdated,
         _onTyping: onTyping,
         _onChatArchived: onChatArchived,
+        _onProfileUpdated: onProfileUpdated,
+        _onPresenceUpdated: onPresenceUpdated,
       });
 
       syncActiveChat();
@@ -1127,6 +1261,12 @@ export const useChatStore = create((set, get) => {
       if (s._onVisibilityChange) {
         document.removeEventListener("visibilitychange", s._onVisibilityChange);
       }
+      if (s._onProfileUpdated) {
+        window.removeEventListener("chatty:profile-updated", s._onProfileUpdated);
+      }
+      if (s._onPresenceUpdated) {
+        window.removeEventListener("chatty:presence-updated", s._onPresenceUpdated);
+      }
 
       set({
         _subscribedSocket: null,
@@ -1146,18 +1286,30 @@ export const useChatStore = create((set, get) => {
         _onDisappearing: null,
         _onTyping: null,
         _onChatArchived: null,
+        _onProfileUpdated: null,
+        _onPresenceUpdated: null,
       });
     },
 
     setSelectedUser: (selectedUser) => {
-      set({
-        selectedUser,
+      set((s) => ({
+        selectedUser: selectedUser
+          ? { ...selectedUser, unreadCount: 0 }
+          : null,
+        users: selectedUser
+          ? s.users.map((u) =>
+              sameId(u.id, selectedUser.id) ? { ...u, unreadCount: 0 } : u,
+            )
+          : s.users,
         replyingTo: null,
         editingMessage: null,
         scheduled: [],
         disappearAfter: 0,
-      });
+      }));
       syncActiveChat();
+      if (selectedUser?.id && isTabVisible()) {
+        get().markSeen(selectedUser.id);
+      }
     },
 
     /* ---------------- reply / edit composer state ---------------- */

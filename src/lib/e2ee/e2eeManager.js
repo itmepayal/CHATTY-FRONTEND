@@ -184,7 +184,11 @@ class E2EEManager {
         }
 
         // Server HAS a registered public key
-        if (localRecord?.privateKey && localRecord?.publicJwk) {
+        const isLocalKeyValid =
+          localRecord?.privateKey?.type === "private" &&
+          localRecord?.privateKey?.algorithm?.name === "ECDH";
+
+        if (isLocalKeyValid && localRecord?.publicJwk) {
           // Verify that local public key matches server registered public key
           const registered = await getUserPublicKeyApi(uid);
           const serverKey = registered?.publicKey;

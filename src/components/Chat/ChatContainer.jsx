@@ -518,8 +518,8 @@ const LinkPreviewCard = ({ preview, isMine }) => (
 /* ------------------------------------------------------------------ */
 /*  Small shared pieces                                                */
 /* ------------------------------------------------------------------ */
-const DayChip = ({ value }) => (
-  <div className="my-3 flex justify-center sm:my-4">
+const DayChip = ({ value, cs }) => (
+  <div className={`${cs?.dayMargin || "my-3 sm:my-4"} flex justify-center`}>
     <span className="rounded-full border border-base-300 bg-base-100 px-3 py-1 text-xs text-base-content/60">
       {dayLabel(value)}
     </span>
@@ -551,7 +551,7 @@ const Equalizer = ({ active }) => (
 /* ------------------------------------------------------------------ */
 /*  1:1 call log row (shows inside the chat timeline)                  */
 /* ------------------------------------------------------------------ */
-const CallLogRow = ({ item, prev, s, onCallBack, disabled }) => {
+const CallLogRow = ({ item, prev, s, cs, onCallBack, disabled }) => {
   const c = item.call;
   const kind = c.type === "video" ? "Video" : "Voice";
   const incoming = c.direction === "incoming";
@@ -579,8 +579,8 @@ const CallLogRow = ({ item, prev, s, onCallBack, disabled }) => {
 
   return (
     <div>
-      {showDay && <DayChip value={item.createdAt} />}
-      <div className="my-2 flex justify-center">
+      {showDay && <DayChip value={item.createdAt} cs={cs} />}
+      <div className={`${cs?.callMargin || "my-2"} flex justify-center`}>
         <div className="flex max-w-[92%] items-center gap-2.5 rounded-2xl border border-base-300 bg-base-100 px-3 py-2 shadow-sm">
           <span
             className={`grid size-8 shrink-0 place-items-center rounded-full bg-base-200 ${
@@ -742,7 +742,7 @@ const MenuItem = ({ icon: Icon, label, onClick, danger = false, large }) => (
 );
 
 /* ---- status line under a bubble (pure) ---- */
-const renderStatus = (message, mine, s) => {
+const renderStatus = (message, mine, s, showSeen = true) => {
   if (mine && message.status === "sending") {
     const label =
       message.uploadProgress > 0 && message.uploadProgress < 100
@@ -784,7 +784,7 @@ const renderStatus = (message, mine, s) => {
   return (
     <span className="inline-flex items-center gap-1">
       {label}
-      <AnimatedTicks status={message.status} />
+      <AnimatedTicks status={message.status} showSeen={showSeen} />
     </span>
   );
 };
@@ -1225,6 +1225,9 @@ const ChatInput = () => {
   } = useChatStore();
   const authUser = useAuthStore((st) => st.authUser);
   const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
+  const myReadReceipts =
+    usePrivacyStore((st) => st.privacy.readReceipts) !== false;
+  const showSeen = myReadReceipts && selectedUser?.readReceipts !== false;
   // Chat prefs are backend-authoritative
   const { enterToSend } = useChatPrefsStore((st) => st.prefs);
   const isTouch = useIsTouch();
@@ -1959,6 +1962,7 @@ const MessageRow = memo(function MessageRow({
   reactOpen,
   menuOpen,
   highlighted,
+  showSeen,
   h,
 }) {
   const isMine = sameId(m.senderId, myId);
@@ -2010,7 +2014,7 @@ const MessageRow = memo(function MessageRow({
 
   return (
     <div>
-      {showDay && <DayChip value={m.createdAt} />}
+      {showDay && <DayChip value={m.createdAt} cs={cs} />}
 
       <motion.div
         id={`msg-${m.id}`}
@@ -2050,7 +2054,7 @@ const MessageRow = memo(function MessageRow({
           >
             {isDeleted ? (
               <div
-                className={`flex items-center gap-1.5 border border-base-300 bg-base-100 px-3.5 py-2 italic text-base-content/60 ${cs.radius} ${
+                className={`flex items-center gap-1.5 border border-base-300 bg-base-100 ${cs.bubblePaddingDeleted || "px-3.5 py-2"} italic text-base-content/60 ${cs.radius} ${
                   endsGroup ? (isMine ? cs.tailMine : cs.tailTheirs) : ""
                 }`}
               >
@@ -2066,7 +2070,7 @@ const MessageRow = memo(function MessageRow({
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
                   hasText || hasAudio || reply || isForwarded
-                    ? "px-3 py-2 sm:px-3.5"
+                    ? (cs.bubblePadding || "px-3 py-2 sm:px-3.5")
                     : "p-1"
                 } ${cs.radius} shadow-sm ${
                   isTouch ? "[-webkit-touch-callout:none] select-text" : ""
@@ -2255,7 +2259,7 @@ const MessageRow = memo(function MessageRow({
 
           {(endsGroup || pending) && (
             <div className="mt-1 px-1 text-[11px] text-base-content/50">
-              {renderStatus(m, isMine, s)}
+              {renderStatus(m, isMine, s, showSeen)}
             </div>
           )}
 
@@ -3164,6 +3168,7 @@ const ChatContainer = () => {
                   item={item}
                   prev={timeline[i - 1]}
                   s={s}
+                  cs={cs}
                   disabled={callStatus !== "idle" || isBlocked}
                   onCallBack={() =>
                     startCall(
@@ -3196,6 +3201,7 @@ const ChatContainer = () => {
                     popover?.type === "menu" && sameId(popover.id, item.id)
                   }
                   highlighted={sameId(highlightId, item.id)}
+                  showSeen={showSeen}
                   h={handlersRef}
                 />
               ),

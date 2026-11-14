@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, Pause, Play } from "lucide-react";
 
 const SPEEDS = [1, 1.5, 2];
 
-let activeAudio = null;
+let activeMedia = null;
 
 export const formatDuration = (sec = 0) => {
   const s = Math.max(0, Math.floor(sec));
@@ -17,77 +17,247 @@ export const resolveSrc = (audio) => {
   return url;
 };
 
+/**
+ * Transforms Cloudinary URLs to alternative formats.
+ * Cloudinary video/upload supports on-the-fly transcoding to .mp3,
+ * delivering strict audio/mpeg that Chrome and all browsers play reliably.
+ */
+export const getTranscodedCloudinaryUrl = (url, targetExt = "mp3") => {
+  if (!url || typeof url !== "string") return "";
+  if (!url.includes("res.cloudinary.com") || !url.includes("/video/upload/")) {
+    return url;
+  }
+
+  const [base, query] = url.split("?");
+  const qs = query ? `?${query}` : "";
+
+  if (base.toLowerCase().endsWith(`.${targetExt.toLowerCase()}`)) {
+    return url;
+  }
+
+  const replaced = base.replace(/\.[a-zA-Z0-9]+$/, "") + `.${targetExt}`;
+  return replaced + qs;
+};
+
+/**
+ * Generates an ordered list of candidate sources for an audio attachment.
+ * Universal fallback handles mobile AAC/M4A containers served as video/mp4.
+ */
+export const getAudioSources = (audio) => {
+  const rawUrl = resolveSrc(audio);
+  if (!rawUrl) return [];
+
+  // Local Blob / data URLs must be played as-is
+  if (rawUrl.startsWith("blob:") || rawUrl.startsWith("data:")) {
+    const mime = (typeof audio === "object" && audio?.mimeType) || "audio/webm";
+    return [{ src: rawUrl, type: mime }];
+  }
+
+  const isCloudinary =
+    rawUrl.includes("res.cloudinary.com") && rawUrl.includes("/video/upload/");
+
+  if (isCloudinary) {
+    const isM4a = /\.m4a($|\?)/i.test(rawUrl);
+    const isWebm = /\.webm($|\?)/i.test(rawUrl);
+    const isMp3 = /\.mp3($|\?)/i.test(rawUrl);
+
+    if (isM4a) {
+      // Cloudinary .mp3 transcode produces standard audio/mpeg which Chrome's <audio> element
+      // plays without container/MIME type rejection.
+      const mp3Url = getTranscodedCloudinaryUrl(rawUrl, "mp3");
+      return [
+        { src: mp3Url, type: "audio/mpeg" },
+        { src: rawUrl, type: "audio/mp4" },
+      ];
+    }
+
+    if (isWebm) {
+      const mp3Url = getTranscodedCloudinaryUrl(rawUrl, "mp3");
+      return [
+        { src: rawUrl, type: "audio/webm" },
+        { src: mp3Url, type: "audio/mpeg" },
+      ];
+    }
+
+    if (isMp3) {
+      return [{ src: rawUrl, type: "audio/mpeg" }];
+    }
+
+    // Default Cloudinary fallback
+    const mp3Url = getTranscodedCloudinaryUrl(rawUrl, "mp3");
+    return [
+      { src: mp3Url, type: "audio/mpeg" },
+      { src: rawUrl, type: "audio/mp4" },
+    ];
+  }
+
+  const mime = (typeof audio === "object" && audio?.mimeType) || "audio/mp4";
+  return [{ src: rawUrl, type: mime }];
+};
+
 const VoiceMessage = ({ audio, isMine, uploading = false }) => {
-  const ref = useRef(null);
+  const audioRef = useRef(null);
+  const videoRef = useRef(null);
+
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [nativeDuration, setNativeDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [error, setError] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [useVideoFallback, setUseVideoFallback] = useState(false);
 
+  const rawUrl = resolveSrc(audio);
+  const sources = useMemo(() => getAudioSources(audio), [audio, rawUrl]);
+  const primarySrc = sources[0]?.src || rawUrl;
   const total = audio?.duration || nativeDuration || 0;
-  const src = useMemo(() => resolveSrc(audio), [audio?.url]);
 
-  useEffect(
-    () => () => {
-      const a = ref.current;
-      if (a) {
-        a.pause();
-        if (activeAudio === a) activeAudio = null;
-      }
-    },
-    [],
-  );
+  // Active element determines whether audio tag or video fallback tag is in control
+  const getActiveMedia = useCallback(() => {
+    if (useVideoFallback) return videoRef.current;
+    return audioRef.current || videoRef.current;
+  }, [useVideoFallback]);
+
+  // Pause on unmount
+  useEffect(() => {
+    return () => {
+      const a = audioRef.current;
+      const v = videoRef.current;
+      if (a) a.pause();
+      if (v) v.pause();
+      if (activeMedia === a || activeMedia === v) activeMedia = null;
+    };
+  }, []);
+
+  // Reset state when audio URL changes
+  useEffect(() => {
+    setError(false);
+    setUseVideoFallback(false);
+    setPlaying(false);
+    setCurrent(0);
+    setNativeDuration(0);
+  }, [rawUrl]);
 
   const toggle = async () => {
-    const a = ref.current;
-    if (!a || uploading || !src) return;
+    if (uploading || !primarySrc) return;
+
+    let media = getActiveMedia();
+    if (!media) return;
+
     if (playing) {
-      a.pause();
+      media.pause();
       return;
     }
-    if (activeAudio && activeAudio !== a) activeAudio.pause();
-    activeAudio = a;
+
+    if (activeMedia && activeMedia !== media) {
+      try {
+        activeMedia.pause();
+      } catch {}
+    }
+    activeMedia = media;
+
     try {
       if (error) {
         setError(false);
-        a.load();
+        setUseVideoFallback(false);
+        media = audioRef.current || media;
+        if (media.load) media.load();
       }
-      a.playbackRate = rate;
-      await a.play();
+      media.playbackRate = rate;
+      setBuffering(true);
+      await media.play();
       setError(false);
+      setBuffering(false);
     } catch (err) {
       if (err?.name === "AbortError") {
+        setBuffering(false);
         return;
       }
-      console.error("[VoiceMessage] Playback failed:", {
-        error: err,
-        src: a.src,
-        currentSrc: a.currentSrc,
-        networkState: a.networkState,
-        readyState: a.readyState,
-        mediaError: a.error
-          ? {
-              code: a.error.code,
-              message: a.error.message,
-            }
-          : null,
-      });
+
+      console.warn("[VoiceMessage] Primary play attempt failed, trying fallback:", err?.message);
+
+      // If audio element failed, attempt video element fallback (which has broader container decoding)
+      if (!useVideoFallback && videoRef.current) {
+        try {
+          setUseVideoFallback(true);
+          const v = videoRef.current;
+          v.playbackRate = rate;
+          activeMedia = v;
+          await v.play();
+          setError(false);
+          setBuffering(false);
+          return;
+        } catch (vErr) {
+          console.error("[VoiceMessage] Video fallback playback also failed:", vErr);
+        }
+      }
+
+      setBuffering(false);
       setError(true);
     }
   };
 
   const seek = (e) => {
-    const a = ref.current;
+    const media = getActiveMedia();
     const v = Number(e.target.value);
-    if (a) a.currentTime = v;
+    if (media) media.currentTime = v;
     setCurrent(v);
   };
 
   const cycleRate = () => {
     const next = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length];
     setRate(next);
-    if (ref.current) ref.current.playbackRate = next;
+    const media = getActiveMedia();
+    if (media) media.playbackRate = next;
+  };
+
+  const handleMetadata = (e) => {
+    setError(false);
+    setBuffering(false);
+    const d = e.currentTarget.duration;
+    if (d && Number.isFinite(d) && d > 0) {
+      setNativeDuration(Math.round(d));
+    }
+  };
+
+  const handleTimeUpdate = (e) => {
+    setCurrent(e.currentTarget.currentTime);
+  };
+
+  const handleEnded = () => {
+    setPlaying(false);
+    setCurrent(0);
+    const media = getActiveMedia();
+    if (activeMedia === media) activeMedia = null;
+  };
+
+  const handleAudioError = (e) => {
+    const mediaErr = e.currentTarget.error;
+    console.warn("[VoiceMessage] Audio element error encountered:", {
+      code: mediaErr?.code,
+      message: mediaErr?.message,
+      currentSrc: e.currentTarget.currentSrc || primarySrc,
+    });
+
+    // If audio element fails, seamlessly switch to video fallback
+    if (!useVideoFallback && videoRef.current) {
+      setUseVideoFallback(true);
+      setError(false);
+    } else {
+      setError(true);
+      setBuffering(false);
+    }
+  };
+
+  const handleVideoError = (e) => {
+    const mediaErr = e.currentTarget.error;
+    console.error("[VoiceMessage] Video fallback element error:", {
+      code: mediaErr?.code,
+      message: mediaErr?.message,
+      currentSrc: e.currentTarget.currentSrc || primarySrc,
+    });
+    setError(true);
+    setBuffering(false);
   };
 
   const shown = playing || current > 0 ? current : total;
@@ -98,41 +268,64 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
         isMine ? "bg-primary-content/10" : "bg-base-200"
       }`}
     >
+      {/* Primary HTML5 Audio Element */}
       <audio
-        ref={ref}
-        src={src}
+        ref={audioRef}
+        src={primarySrc}
         preload="metadata"
-        onLoadedMetadata={(e) => {
+        crossOrigin="anonymous"
+        onLoadedMetadata={handleMetadata}
+        onCanPlay={() => {
           setError(false);
-          const d = e.currentTarget.duration;
-          if (d && Number.isFinite(d) && d > 0) {
-            setNativeDuration(Math.round(d));
-          }
+          setBuffering(false);
         }}
-        onCanPlay={() => setError(false)}
+        onWaiting={() => setBuffering(true)}
+        onPlaying={() => {
+          setError(false);
+          setBuffering(false);
+          setPlaying(true);
+        }}
         onPlay={() => {
           setError(false);
           setPlaying(true);
         }}
         onPause={() => setPlaying(false)}
-        onEnded={() => {
-          setPlaying(false);
-          setCurrent(0);
-          if (activeAudio === ref.current) activeAudio = null;
+        onEnded={handleEnded}
+        onTimeUpdate={handleTimeUpdate}
+        onError={handleAudioError}
+      >
+        {sources.map((s, idx) => (
+          <source key={`${s.src}-${idx}`} src={s.src} type={s.type} />
+        ))}
+      </audio>
+
+      {/* Hidden Video Fallback Element (handles video/mp4 containers that audio elements reject) */}
+      <video
+        ref={videoRef}
+        src={rawUrl}
+        preload="metadata"
+        playsInline
+        crossOrigin="anonymous"
+        style={{ display: "none" }}
+        onLoadedMetadata={handleMetadata}
+        onCanPlay={() => {
+          setError(false);
+          setBuffering(false);
         }}
-        onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
-        onError={(e) => {
-          const mediaErr = e.currentTarget.error;
-          console.error("[VoiceMessage] Media element error:", {
-            code: mediaErr?.code,
-            message: mediaErr?.message,
-            src: e.currentTarget.src,
-            currentSrc: e.currentTarget.currentSrc,
-            networkState: e.currentTarget.networkState,
-            readyState: e.currentTarget.readyState,
-          });
-          setError(true);
+        onWaiting={() => setBuffering(true)}
+        onPlaying={() => {
+          setError(false);
+          setBuffering(false);
+          setPlaying(true);
         }}
+        onPlay={() => {
+          setError(false);
+          setPlaying(true);
+        }}
+        onPause={() => setPlaying(false)}
+        onEnded={handleEnded}
+        onTimeUpdate={handleTimeUpdate}
+        onError={handleVideoError}
       />
 
       <button
@@ -146,7 +339,7 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
             : "bg-primary text-primary-content"
         }`}
       >
-        {uploading ? (
+        {uploading || buffering ? (
           <Loader2 className="size-4 animate-spin" />
         ) : error ? (
           <AlertCircle className="size-4" />

@@ -217,5 +217,7 @@ export const importNonExtractablePrivateKey = async (privateJwk) => {
  */
 export const publicKeysMatch = (keyA, keyB) => {
   if (!keyA || !keyB) return false;
-  return keyA.x === keyB.x && keyA.y === keyB.y;
+  const crvMatch = !keyA.crv || !keyB.crv || keyA.crv === keyB.crv;
+  const ktyMatch = !keyA.kty || !keyB.kty || keyA.kty === keyB.kty;
+  return keyA.x === keyB.x && keyA.y === keyB.y && crvMatch && ktyMatch;
 };

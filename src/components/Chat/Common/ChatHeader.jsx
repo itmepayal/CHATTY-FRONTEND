@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { EyeOff, Phone, Video, X } from "lucide-react";
+import { ArrowLeft, EyeOff, Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../../../store/useChatStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
@@ -14,9 +14,6 @@ const SPRING = { type: "spring", stiffness: 420, damping: 28 };
 const RING_GRADIENT =
   "conic-gradient(from 0deg, var(--color-success), var(--color-primary), var(--color-secondary), var(--color-success))";
 
-/* ------------------------------------------------------------------ */
-/*  Tiny status icons                                                  */
-/* ------------------------------------------------------------------ */
 const TypingDots = () => (
   <span className="inline-flex items-center gap-0.5" aria-hidden="true">
     {[0, 1, 2].map((i) => (
@@ -50,6 +47,42 @@ const OutlineDot = () => (
 );
 
 const HiddenIcon = () => <EyeOff className="size-3 shrink-0" />;
+
+const formatLastSeen = (d) => {
+  if (!d) return "Offline";
+  try {
+    const date = new Date(d);
+    if (Number.isNaN(date.getTime())) return "Offline";
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+
+    if (diffMin < 1) return "Last seen just now";
+    if (diffMin < 60) return `Last seen ${diffMin}m ago`;
+
+    const isToday = date.toDateString() === now.toDateString();
+    const timeStr = date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    if (isToday) return `Last seen today at ${timeStr}`;
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Last seen yesterday at ${timeStr}`;
+    }
+
+    const dateStr = date.toLocaleDateString([], {
+      day: "numeric",
+      month: "short",
+    });
+    return `Last seen ${dateStr} at ${timeStr}`;
+  } catch {
+    return "Offline";
+  }
+};
 
 // one entry per visual state
 const STATUS = {
@@ -148,6 +181,10 @@ const ChatHeader = () => {
         ? "online"
         : "offline";
   const status = STATUS[statusKey];
+  const displayLabel =
+    statusKey === "offline" && selectedUser.lastSeen
+      ? formatLastSeen(selectedUser.lastSeen)
+      : status.label;
 
   const hiddenReason = !myStatusVisible
     ? "You turned off your online status, so you can't see theirs"
@@ -184,8 +221,19 @@ const ChatHeader = () => {
         {/* glowing hairline */}
         <div className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-        <div className="relative flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="relative flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            {/* Mobile back button (phones / tablets: returns to sidebar conversation list) */}
+            <button
+              type="button"
+              onClick={() => setSelectedUser(null)}
+              aria-label="Back to conversations"
+              title="Back to conversations"
+              className="btn btn-ghost btn-circle btn-sm -ml-1 sm:-ml-2 lg:hidden shrink-0 min-h-[44px] min-w-[44px] sm:min-h-[2rem] sm:min-w-[2rem]"
+            >
+              <ArrowLeft className="size-5" aria-hidden="true" />
+            </button>
+
             {/* ---------- avatar + animated presence ring ---------- */}
             <div className="relative shrink-0">
               {/* soft glow */}
@@ -278,7 +326,7 @@ const ChatHeader = () => {
               >
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.span
-                    key={statusKey}
+                    key={`${statusKey}-${displayLabel}`}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
@@ -286,7 +334,7 @@ const ChatHeader = () => {
                     className="inline-flex items-center gap-1.5 whitespace-nowrap"
                   >
                     <status.Icon />
-                    {status.label}
+                    {displayLabel}
                   </motion.span>
                 </AnimatePresence>
               </motion.div>

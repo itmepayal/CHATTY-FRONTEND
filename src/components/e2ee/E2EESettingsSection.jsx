@@ -25,6 +25,8 @@ export function E2EESettingsSection() {
     isReady,
     isRestoreRequired,
     isNotConfigured,
+    isMismatch,
+    me,
     serverStatus,
     refresh,
   } = useE2EE();
@@ -34,6 +36,37 @@ export function E2EESettingsSection() {
   const [changePassModalOpen, setChangePassModalOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const getKeyStorageLabel = () => {
+    if (isReady && me?.privateKey) {
+      return me.privateKey.extractable === false
+        ? "IndexedDB (Non-extractable)"
+        : "IndexedDB (Extractable)";
+    }
+    if (isRestoreRequired) {
+      return "Backup on server (Key missing locally)";
+    }
+    if (isMismatch) {
+      return "Key Mismatch (Local differs from server)";
+    }
+    if (isNotConfigured) {
+      return "Not initialized";
+    }
+    return "Not stored locally";
+  };
+
+  const getCryptoSuiteLabel = () => {
+    if (isReady) return "ECDH P-256 + AES-GCM-256";
+    if (isNotConfigured) return "Not initialized";
+    return "ECDH P-256 + AES-GCM-256 (Inactive)";
+  };
+
+  const getBackupLabel = () => {
+    if (serverStatus?.hasBackup) {
+      return `Version ${serverStatus.backupVersion || 1} (PBKDF2-SHA256 · 600,000 iterations)`;
+    }
+    return "No backup";
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -93,22 +126,23 @@ export function E2EESettingsSection() {
   };
 
   return (
-    <div className="space-y-4">
-      {/* 1. Status Overview Card */}
-      <div className="rounded-2xl border border-base-300 bg-base-100 p-4 sm:p-5">
-        <div className="flex items-center justify-between pb-3 border-b border-base-content/10">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+    <div className="space-y-5">
+      <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-6 shadow-sm transition-all hover:border-base-content/20">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-base-200/80">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <ShieldCheck className="size-5" />
             </div>
-            <div>
-              <h3 className="text-sm font-semibold">Encryption Status</h3>
-              <p className="text-xs text-base-content/60">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-semibold text-base-content truncate">
+                Encryption Status
+              </h3>
+              <p className="text-xs text-base-content/60 truncate">
                 End-to-end encryption identity on this device
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {getStatusBadge()}
             <button
               onClick={handleRefresh}
@@ -124,23 +158,23 @@ export function E2EESettingsSection() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className="rounded-xl bg-base-200/50 p-3">
+          <div className="rounded-xl bg-base-200/50 p-3 border border-base-300/50">
             <span className="text-base-content/60 block mb-0.5">
               Cryptographic Suite
             </span>
             <span className="font-semibold text-base-content font-mono">
-              ECDH P-256 + AES-GCM-256
+              {getCryptoSuiteLabel()}
             </span>
           </div>
-          <div className="rounded-xl bg-base-200/50 p-3">
+          <div className="rounded-xl bg-base-200/50 p-3 border border-base-300/50">
             <span className="text-base-content/60 block mb-0.5">
               Key Storage
             </span>
             <span className="font-semibold text-base-content">
-              IndexedDB (Non-extractable)
+              {getKeyStorageLabel()}
             </span>
           </div>
-          <div className="rounded-xl bg-base-200/50 p-3">
+          <div className="rounded-xl bg-base-200/50 p-3 border border-base-300/50">
             <span className="text-base-content/60 block mb-0.5">
               Public Key Registered
             </span>
@@ -161,22 +195,19 @@ export function E2EESettingsSection() {
                   : "Not registered"}
             </span>
           </div>
-          <div className="rounded-xl bg-base-200/50 p-3">
+          <div className="rounded-xl bg-base-200/50 p-3 border border-base-300/50">
             <span className="text-base-content/60 block mb-0.5">
               Multi-Device Backup
             </span>
             <span className="font-semibold text-base-content">
-              {serverStatus?.hasBackup
-                ? `Version ${serverStatus.backupVersion || 1} (PBKDF2-SHA256)`
-                : "No backup"}
+              {getBackupLabel()}
             </span>
           </div>
         </div>
 
-        {/* Action prompts if not ready */}
         {isRestoreRequired && (
-          <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="mt-4 rounded-xl border border-warning/30 bg-warning/10 p-3.5 text-xs text-warning flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
               <KeyRound className="size-4 shrink-0" />
               <span>
                 Enter your recovery passphrase to decrypt messages on this
@@ -185,7 +216,7 @@ export function E2EESettingsSection() {
             </div>
             <button
               onClick={() => setRestoreModalOpen(true)}
-              className="btn btn-warning btn-xs shrink-0 font-semibold"
+              className="btn btn-warning btn-xs shrink-0 font-semibold rounded-lg"
             >
               Restore Now
             </button>
@@ -193,8 +224,8 @@ export function E2EESettingsSection() {
         )}
 
         {isNotConfigured && (
-          <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 p-3.5 text-xs text-primary flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="mt-4 rounded-xl border border-primary/30 bg-primary/10 p-3.5 text-xs text-primary flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
               <Lock className="size-4 shrink-0" />
               <span>
                 Enable End-to-End Encryption to protect your messages with
@@ -203,7 +234,7 @@ export function E2EESettingsSection() {
             </div>
             <button
               onClick={() => setSetupModalOpen(true)}
-              className="btn btn-primary btn-xs shrink-0 font-semibold"
+              className="btn btn-primary btn-xs shrink-0 font-semibold rounded-lg"
             >
               Enable E2EE
             </button>
@@ -211,14 +242,15 @@ export function E2EESettingsSection() {
         )}
       </div>
 
-      {/* 2. Key Backup & Rotation Card */}
-      <div className="rounded-2xl border border-base-300 bg-base-100 p-4 sm:p-5">
-        <div className="flex items-center gap-3 pb-3 border-b border-base-content/10">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
+      <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-6 shadow-sm transition-all hover:border-base-content/20">
+        <div className="flex items-center gap-3 pb-3.5 border-b border-base-200/80">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
             <FileKey className="size-5" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold">Multi-Device Key Backup</h3>
+            <h3 className="text-sm sm:text-base font-semibold text-base-content">
+              Multi-Device Key Backup
+            </h3>
             <p className="text-xs text-base-content/60">
               Passphrase-protected backup for restoring your identity on new
               devices
@@ -234,7 +266,7 @@ export function E2EESettingsSection() {
             passphrase can decrypt it.
           </p>
 
-          <div className="flex flex-wrap items-center gap-2 pt-2">
+          <div className="flex flex-wrap items-center gap-2.5 pt-2">
             {isReady && (
               <button
                 onClick={() => setChangePassModalOpen(true)}
@@ -268,14 +300,13 @@ export function E2EESettingsSection() {
         </div>
       </div>
 
-      {/* 3. Danger Zone / Reset Identity Card */}
-      <div className="rounded-2xl border border-error/20 bg-base-100 p-4 sm:p-5">
-        <div className="flex items-center gap-3 pb-3 border-b border-base-content/10">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-error/10 text-error">
+      <div className="rounded-2xl sm:rounded-3xl border border-error/25 bg-base-100 p-4 sm:p-6 shadow-sm">
+        <div className="flex items-center gap-3 pb-3.5 border-b border-error/15">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-error/10 text-error">
             <AlertTriangle className="size-5" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-error">
+            <h3 className="text-sm sm:text-base font-semibold text-error">
               Danger Zone: Reset Identity
             </h3>
             <p className="text-xs text-base-content/60">
@@ -289,7 +320,7 @@ export function E2EESettingsSection() {
             If you permanently lost your recovery passphrase or suspect your key
             was compromised, you can reset your encryption identity. This will
             delete your keys from the server.
-            <span className="font-semibold text-error block mt-1">
+            <span className="font-semibold text-error block mt-1.5">
               Warning: Historical encrypted messages cannot be recovered once
               reset.
             </span>
@@ -307,7 +338,6 @@ export function E2EESettingsSection() {
         </div>
       </div>
 
-      {/* Modals */}
       <E2EESetupModal
         isOpen={setupModalOpen}
         onClose={() => setSetupModalOpen(false)}

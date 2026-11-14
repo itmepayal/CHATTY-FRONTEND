@@ -210,16 +210,16 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     try {
       await axiosInstance.post("/auth/logout", {}, { withCredentials: true });
+    } catch (error) {
+      console.error("Logout network error:", error);
+    } finally {
       get().disconnectSocket();
       clearE2EECache();
+      useChatPrefsStore.getState().reset?.();
+      useAppearanceStore.getState().reset?.();
       console.log("[E2EE] logout: encryption cache cleared");
       set({ authUser: null });
       toast.success("You have been logged out successfully.");
-    } catch (error) {
-      console.error("Logout error:", error);
-      toast.error(
-        error?.response?.data?.message || "Failed to logout. Please try again.",
-      );
     }
   },
 
@@ -476,7 +476,7 @@ export const useAuthStore = create((set, get) => ({
       }
     });
 
-    socket.on("presence:updated", ({ userId, isOnline }) => {
+    socket.on("presence:updated", ({ userId, isOnline, lastSeen }) => {
       const uid = String(userId);
       set((state) => {
         const setIds = new Set(state.onlineUsers.map(String));
@@ -487,6 +487,11 @@ export const useAuthStore = create((set, get) => ({
         }
         return { onlineUsers: Array.from(setIds) };
       });
+      window.dispatchEvent(
+        new CustomEvent("chatty:presence-updated", {
+          detail: { userId: uid, isOnline, lastSeen },
+        }),
+      );
     });
 
     socket.on("privacy:settings-updated", (settings) => {
