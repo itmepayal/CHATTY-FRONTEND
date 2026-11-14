@@ -107,8 +107,20 @@ const replySnapshot = (m) =>
         text: m.text || "",
         image: m.image?.url ? { url: m.image.url } : null,
         file: m.file?.name ? { name: m.file.name } : null,
-        audio: m.audio?.url ? { url: m.audio.url } : null,
-        video: m.video?.url ? { url: m.video.url } : null,
+        audio: m.audio?.url
+          ? {
+              url: m.audio.url,
+              duration: m.audio.duration || 0,
+              mimeType: m.audio.mimeType,
+            }
+          : null,
+        video: m.video?.url
+          ? {
+              url: m.video.url,
+              duration: m.video.duration || 0,
+              mimeType: m.video.mimeType,
+            }
+          : null,
         location: Number.isFinite(m.location?.lat)
           ? { lat: m.location.lat, lng: m.location.lng }
           : null,

@@ -3,7 +3,6 @@ import { AlertCircle, Loader2, Pause, Play } from "lucide-react";
 
 const SPEEDS = [1, 1.5, 2];
 
-// Only one voice note plays at a time
 let activeAudio = null;
 
 export const formatDuration = (sec = 0) => {
@@ -11,28 +10,23 @@ export const formatDuration = (sec = 0) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-// Safari can't play webm/ogg. If the browser can't play the stored type,
-// ask Cloudinary to transcode by swapping the extension to .mp3.
-const resolveSrc = ({ url, mimeType }) => {
-  if (!url || url.startsWith("blob:")) return url;
-  const probe = document.createElement("audio");
-  if (mimeType && probe.canPlayType(mimeType)) return url;
-  return url.replace(/\.(webm|weba|ogg|oga|opus)(\?.*)?$/i, ".mp3$2");
+export const resolveSrc = (audio) => {
+  if (!audio) return "";
+  const url = typeof audio === "string" ? audio : audio.url;
+  if (!url || typeof url !== "string") return "";
+  return url;
 };
 
 const VoiceMessage = ({ audio, isMine, uploading = false }) => {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
+  const [nativeDuration, setNativeDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [error, setError] = useState(false);
 
-  const total = audio.duration || 0;
-  const src = useMemo(
-    () => resolveSrc(audio),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [audio.url, audio.mimeType],
-  );
+  const total = audio?.duration || nativeDuration || 0;
+  const src = useMemo(() => resolveSrc(audio), [audio?.url]);
 
   useEffect(
     () => () => {
@@ -47,7 +41,7 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
 
   const toggle = async () => {
     const a = ref.current;
-    if (!a || uploading) return;
+    if (!a || uploading || !src) return;
     if (playing) {
       a.pause();
       return;
@@ -55,10 +49,30 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
     if (activeAudio && activeAudio !== a) activeAudio.pause();
     activeAudio = a;
     try {
+      if (error) {
+        setError(false);
+        a.load();
+      }
       a.playbackRate = rate;
       await a.play();
       setError(false);
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        return;
+      }
+      console.error("[VoiceMessage] Playback failed:", {
+        error: err,
+        src: a.src,
+        currentSrc: a.currentSrc,
+        networkState: a.networkState,
+        readyState: a.readyState,
+        mediaError: a.error
+          ? {
+              code: a.error.code,
+              message: a.error.message,
+            }
+          : null,
+      });
       setError(true);
     }
   };
@@ -88,7 +102,18 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
         ref={ref}
         src={src}
         preload="metadata"
-        onPlay={() => setPlaying(true)}
+        onLoadedMetadata={(e) => {
+          setError(false);
+          const d = e.currentTarget.duration;
+          if (d && Number.isFinite(d) && d > 0) {
+            setNativeDuration(Math.round(d));
+          }
+        }}
+        onCanPlay={() => setError(false)}
+        onPlay={() => {
+          setError(false);
+          setPlaying(true);
+        }}
         onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false);
@@ -96,7 +121,18 @@ const VoiceMessage = ({ audio, isMine, uploading = false }) => {
           if (activeAudio === ref.current) activeAudio = null;
         }}
         onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
-        onError={() => setError(true)}
+        onError={(e) => {
+          const mediaErr = e.currentTarget.error;
+          console.error("[VoiceMessage] Media element error:", {
+            code: mediaErr?.code,
+            message: mediaErr?.message,
+            src: e.currentTarget.src,
+            currentSrc: e.currentTarget.currentSrc,
+            networkState: e.currentTarget.networkState,
+            readyState: e.currentTarget.readyState,
+          });
+          setError(true);
+        }}
       />
 
       <button
