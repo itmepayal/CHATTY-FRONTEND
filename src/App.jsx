@@ -13,6 +13,8 @@ import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import LandingPage from "./pages/LandingPage";
 
 import { useAuthStore } from "./store/useAuthStore";
+import { useChatStore } from "./store/useChatStore";
+import { useGroupStore } from "./store/useGroupStore";
 import ChattyLoader from "./components/common/ChattyLoader";
 
 import { CallProvider } from "./context/CallContext";
@@ -32,6 +34,12 @@ const App = () => {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    if (!socket || !authUser) return;
+    useChatStore.getState().subscribeToMessage();
+    useGroupStore.getState().subscribeToGroups();
+  }, [socket, authUser]);
 
   useGroupCallListeners();
 

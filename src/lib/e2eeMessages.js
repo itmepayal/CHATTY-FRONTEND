@@ -22,7 +22,7 @@ export const e2eeErrMsg = (e) => ERR[e?.message] || null;
 const needsDecrypt = (m) =>
   Boolean(
     m &&
-    m.encrypted &&
+    (m.encrypted || m.e2ee) &&
     m.iv &&
     !m.decrypted &&
     !m.isDeleted &&
@@ -30,14 +30,41 @@ const needsDecrypt = (m) =>
   );
 
 const decryptWith = async (m, fn) => {
-  if (!needsDecrypt(m)) return m;
+  const isEnc = Boolean(m?.encrypted || m?.e2ee);
+  if (!needsDecrypt(m)) {
+    return {
+      ...m,
+      cryptoState: isEnc
+        ? m.decrypted
+          ? "decrypted"
+          : "plaintext"
+        : "plaintext",
+      decrypted: Boolean(m?.decrypted || !isEnc),
+      decryptFailed: Boolean(m?.decryptFailed),
+    };
+  }
   const cipher = m._cipher ?? m.text;
   try {
     const text = await fn(cipher, m.iv);
     const { _cipher: _drop, ...rest } = m;
-    return { ...rest, text, decrypted: true, decryptFailed: false };
-  } catch {
-    return { ...m, text: "", _cipher: cipher, decryptFailed: true };
+    return {
+      ...rest,
+      text,
+      decrypted: true,
+      decryptFailed: false,
+      cryptoState: "decrypted",
+      decryptError: null,
+    };
+  } catch (err) {
+    return {
+      ...m,
+      text: "",
+      _cipher: cipher,
+      decrypted: false,
+      decryptFailed: true,
+      cryptoState: "decryption_failed",
+      decryptError: err?.message || "Decryption failed",
+    };
   }
 };
 

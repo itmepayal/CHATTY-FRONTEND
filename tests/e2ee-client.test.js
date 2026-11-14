@@ -440,120 +440,221 @@ test("Category 5: Multi-Device Envelope Encryption and Decryption", async (t) =>
     { userId: bobId, deviceId: "bob-dev-2", publicKey: bobB2.publicJwk },
   ];
 
-  await t.test("5.1 Alice Device A1 encrypts and wraps keys for all 4 devices", async () => {
-    const plaintext = "Secret multi-device chat message!";
-    
-    // 1. Generate random message key (AES-256-GCM)
-    const rawMsgKey = crypto.getRandomValues(new Uint8Array(32));
-    const msgKey = await subtle.importKey(
-      "raw",
-      rawMsgKey,
-      "AES-GCM",
-      false,
-      ["encrypt", "decrypt"],
-    );
-    const msgIv = crypto.getRandomValues(new Uint8Array(12));
-    const ctBuffer = await subtle.encrypt(
-      { name: "AES-GCM", iv: msgIv },
-      msgKey,
-      enc.encode(plaintext),
-    );
-    const cipherB64 = bufToB64(ctBuffer);
-    const ivB64 = bufToB64(msgIv);
+  await t.test(
+    "5.1 Alice Device A1 encrypts and wraps keys for all 4 devices",
+    async () => {
+      const plaintext = "Secret multi-device chat message!";
 
-    // 2. Wrap message key separately for each device using ECDH
-    const keyEnvelopes = [];
-    for (const dev of destDevices) {
-      const devPub = await subtle.importKey("jwk", dev.publicKey, ECDH_ALGO, true, []);
-      const wrapKey = await deriveChattySharedKey(aliceA1.pair.privateKey, devPub);
-      const wrapIv = crypto.getRandomValues(new Uint8Array(12));
-      const wrapped = await subtle.encrypt(
-        { name: "AES-GCM", iv: wrapIv },
-        wrapKey,
+      // 1. Generate random message key (AES-256-GCM)
+      const rawMsgKey = crypto.getRandomValues(new Uint8Array(32));
+      const msgKey = await subtle.importKey(
+        "raw",
         rawMsgKey,
+        "AES-GCM",
+        false,
+        ["encrypt", "decrypt"],
       );
-      keyEnvelopes.push({
-        deviceId: dev.deviceId,
-        userId: dev.userId,
-        wrappedKey: bufToB64(wrapped),
-        iv: bufToB64(wrapIv),
-      });
-    }
+      const msgIv = crypto.getRandomValues(new Uint8Array(12));
+      const ctBuffer = await subtle.encrypt(
+        { name: "AES-GCM", iv: msgIv },
+        msgKey,
+        enc.encode(plaintext),
+      );
+      const cipherB64 = bufToB64(ctBuffer);
+      const ivB64 = bufToB64(msgIv);
 
-    assert.equal(keyEnvelopes.length, 4, "Created 4 envelopes");
+      // 2. Wrap message key separately for each device using ECDH
+      const keyEnvelopes = [];
+      for (const dev of destDevices) {
+        const devPub = await subtle.importKey(
+          "jwk",
+          dev.publicKey,
+          ECDH_ALGO,
+          true,
+          [],
+        );
+        const wrapKey = await deriveChattySharedKey(
+          aliceA1.pair.privateKey,
+          devPub,
+        );
+        const wrapIv = crypto.getRandomValues(new Uint8Array(12));
+        const wrapped = await subtle.encrypt(
+          { name: "AES-GCM", iv: wrapIv },
+          wrapKey,
+          rawMsgKey,
+        );
+        keyEnvelopes.push({
+          deviceId: dev.deviceId,
+          userId: dev.userId,
+          wrappedKey: bufToB64(wrapped),
+          iv: bufToB64(wrapIv),
+        });
+      }
 
-    // 3. Sender's OTHER device (Alice A2) unwraps envelope and decrypts
-    const a2Envelope = keyEnvelopes.find((e) => e.deviceId === "alice-dev-2");
-    assert.ok(a2Envelope, "Found A2 envelope");
+      assert.equal(keyEnvelopes.length, 4, "Created 4 envelopes");
 
-    const a1PubForA2 = await subtle.importKey("jwk", aliceA1.publicJwk, ECDH_ALGO, true, []);
-    const a2WrapKey = await deriveChattySharedKey(aliceA2.pair.privateKey, a1PubForA2);
-    const a2UnwrappedRaw = await subtle.decrypt(
-      { name: "AES-GCM", iv: b64ToBuf(a2Envelope.iv) },
-      a2WrapKey,
-      b64ToBuf(a2Envelope.wrappedKey),
-    );
-    assert.deepEqual(new Uint8Array(a2UnwrappedRaw), rawMsgKey, "A2 successfully recovered message key");
+      // 3. Sender's OTHER device (Alice A2) unwraps envelope and decrypts
+      const a2Envelope = keyEnvelopes.find((e) => e.deviceId === "alice-dev-2");
+      assert.ok(a2Envelope, "Found A2 envelope");
 
-    const a2MsgKey = await subtle.importKey("raw", a2UnwrappedRaw, "AES-GCM", false, ["decrypt"]);
-    const a2Decrypted = dec.decode(
-      await subtle.decrypt({ name: "AES-GCM", iv: b64ToBuf(ivB64) }, a2MsgKey, b64ToBuf(cipherB64)),
-    );
-    assert.equal(a2Decrypted, plaintext, "Alice Device A2 successfully decrypted sent message!");
+      const a1PubForA2 = await subtle.importKey(
+        "jwk",
+        aliceA1.publicJwk,
+        ECDH_ALGO,
+        true,
+        [],
+      );
+      const a2WrapKey = await deriveChattySharedKey(
+        aliceA2.pair.privateKey,
+        a1PubForA2,
+      );
+      const a2UnwrappedRaw = await subtle.decrypt(
+        { name: "AES-GCM", iv: b64ToBuf(a2Envelope.iv) },
+        a2WrapKey,
+        b64ToBuf(a2Envelope.wrappedKey),
+      );
+      assert.deepEqual(
+        new Uint8Array(a2UnwrappedRaw),
+        rawMsgKey,
+        "A2 successfully recovered message key",
+      );
 
-    // 4. Recipient Device B1 unwraps envelope and decrypts
-    const b1Envelope = keyEnvelopes.find((e) => e.deviceId === "bob-dev-1");
-    assert.ok(b1Envelope, "Found B1 envelope");
-    const a1PubForB1 = await subtle.importKey("jwk", aliceA1.publicJwk, ECDH_ALGO, true, []);
-    const b1WrapKey = await deriveChattySharedKey(bobB1.pair.privateKey, a1PubForB1);
-    const b1UnwrappedRaw = await subtle.decrypt(
-      { name: "AES-GCM", iv: b64ToBuf(b1Envelope.iv) },
-      b1WrapKey,
-      b64ToBuf(b1Envelope.wrappedKey),
-    );
-    const b1MsgKey = await subtle.importKey("raw", b1UnwrappedRaw, "AES-GCM", false, ["decrypt"]);
-    const b1Decrypted = dec.decode(
-      await subtle.decrypt({ name: "AES-GCM", iv: b64ToBuf(ivB64) }, b1MsgKey, b64ToBuf(cipherB64)),
-    );
-    assert.equal(b1Decrypted, plaintext, "Bob Device B1 successfully decrypted incoming message!");
+      const a2MsgKey = await subtle.importKey(
+        "raw",
+        a2UnwrappedRaw,
+        "AES-GCM",
+        false,
+        ["decrypt"],
+      );
+      const a2Decrypted = dec.decode(
+        await subtle.decrypt(
+          { name: "AES-GCM", iv: b64ToBuf(ivB64) },
+          a2MsgKey,
+          b64ToBuf(cipherB64),
+        ),
+      );
+      assert.equal(
+        a2Decrypted,
+        plaintext,
+        "Alice Device A2 successfully decrypted sent message!",
+      );
 
-    // 5. Recipient Device B2 unwraps envelope and decrypts
-    const b2Envelope = keyEnvelopes.find((e) => e.deviceId === "bob-dev-2");
-    assert.ok(b2Envelope, "Found B2 envelope");
-    const a1PubForB2 = await subtle.importKey("jwk", aliceA1.publicJwk, ECDH_ALGO, true, []);
-    const b2WrapKey = await deriveChattySharedKey(bobB2.pair.privateKey, a1PubForB2);
-    const b2UnwrappedRaw = await subtle.decrypt(
-      { name: "AES-GCM", iv: b64ToBuf(b2Envelope.iv) },
-      b2WrapKey,
-      b64ToBuf(b2Envelope.wrappedKey),
-    );
-    const b2MsgKey = await subtle.importKey("raw", b2UnwrappedRaw, "AES-GCM", false, ["decrypt"]);
-    const b2Decrypted = dec.decode(
-      await subtle.decrypt({ name: "AES-GCM", iv: b64ToBuf(ivB64) }, b2MsgKey, b64ToBuf(cipherB64)),
-    );
-    assert.equal(b2Decrypted, plaintext, "Bob Device B2 successfully decrypted incoming message!");
-  });
+      // 4. Recipient Device B1 unwraps envelope and decrypts
+      const b1Envelope = keyEnvelopes.find((e) => e.deviceId === "bob-dev-1");
+      assert.ok(b1Envelope, "Found B1 envelope");
+      const a1PubForB1 = await subtle.importKey(
+        "jwk",
+        aliceA1.publicJwk,
+        ECDH_ALGO,
+        true,
+        [],
+      );
+      const b1WrapKey = await deriveChattySharedKey(
+        bobB1.pair.privateKey,
+        a1PubForB1,
+      );
+      const b1UnwrappedRaw = await subtle.decrypt(
+        { name: "AES-GCM", iv: b64ToBuf(b1Envelope.iv) },
+        b1WrapKey,
+        b64ToBuf(b1Envelope.wrappedKey),
+      );
+      const b1MsgKey = await subtle.importKey(
+        "raw",
+        b1UnwrappedRaw,
+        "AES-GCM",
+        false,
+        ["decrypt"],
+      );
+      const b1Decrypted = dec.decode(
+        await subtle.decrypt(
+          { name: "AES-GCM", iv: b64ToBuf(ivB64) },
+          b1MsgKey,
+          b64ToBuf(cipherB64),
+        ),
+      );
+      assert.equal(
+        b1Decrypted,
+        plaintext,
+        "Bob Device B1 successfully decrypted incoming message!",
+      );
 
-  await t.test("5.2 displayText prevents raw ciphertext and base64 leak in UI", () => {
-    // Case 1: Plaintext message displays text
-    assert.equal(displayText({ text: "Hello plaintext" }), "Hello plaintext");
+      // 5. Recipient Device B2 unwraps envelope and decrypts
+      const b2Envelope = keyEnvelopes.find((e) => e.deviceId === "bob-dev-2");
+      assert.ok(b2Envelope, "Found B2 envelope");
+      const a1PubForB2 = await subtle.importKey(
+        "jwk",
+        aliceA1.publicJwk,
+        ECDH_ALGO,
+        true,
+        [],
+      );
+      const b2WrapKey = await deriveChattySharedKey(
+        bobB2.pair.privateKey,
+        a1PubForB2,
+      );
+      const b2UnwrappedRaw = await subtle.decrypt(
+        { name: "AES-GCM", iv: b64ToBuf(b2Envelope.iv) },
+        b2WrapKey,
+        b64ToBuf(b2Envelope.wrappedKey),
+      );
+      const b2MsgKey = await subtle.importKey(
+        "raw",
+        b2UnwrappedRaw,
+        "AES-GCM",
+        false,
+        ["decrypt"],
+      );
+      const b2Decrypted = dec.decode(
+        await subtle.decrypt(
+          { name: "AES-GCM", iv: b64ToBuf(ivB64) },
+          b2MsgKey,
+          b64ToBuf(cipherB64),
+        ),
+      );
+      assert.equal(
+        b2Decrypted,
+        plaintext,
+        "Bob Device B2 successfully decrypted incoming message!",
+      );
+    },
+  );
 
-    // Case 2: Encrypted message not yet decrypted displays lock placeholder
-    assert.equal(
-      displayText({ text: "aW52YWxpZENpcGhlcjEyMzQ1", encrypted: true, decrypted: false }),
-      FAILED_TEXT,
-    );
+  await t.test(
+    "5.2 displayText prevents raw ciphertext and base64 leak in UI",
+    () => {
+      // Case 1: Plaintext message displays text
+      assert.equal(displayText({ text: "Hello plaintext" }), "Hello plaintext");
 
-    // Case 3: Message with decryptFailed=true displays lock placeholder
-    assert.equal(
-      displayText({ text: "", encrypted: true, decrypted: false, decryptFailed: true }),
-      FAILED_TEXT,
-    );
+      // Case 2: Encrypted message not yet decrypted displays lock placeholder
+      assert.equal(
+        displayText({
+          text: "aW52YWxpZENpcGhlcjEyMzQ1",
+          encrypted: true,
+          decrypted: false,
+        }),
+        FAILED_TEXT,
+      );
 
-    // Case 4: Successfully decrypted message displays decrypted text
-    assert.equal(
-      displayText({ text: "Decrypted readable text", encrypted: true, decrypted: true }),
-      "Decrypted readable text",
-    );
-  });
+      // Case 3: Message with decryptFailed=true displays lock placeholder
+      assert.equal(
+        displayText({
+          text: "",
+          encrypted: true,
+          decrypted: false,
+          decryptFailed: true,
+        }),
+        FAILED_TEXT,
+      );
+
+      // Case 4: Successfully decrypted message displays decrypted text
+      assert.equal(
+        displayText({
+          text: "Decrypted readable text",
+          encrypted: true,
+          decrypted: true,
+        }),
+        "Decrypted readable text",
+      );
+    },
+  );
 });

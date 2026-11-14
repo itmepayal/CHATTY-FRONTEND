@@ -75,6 +75,7 @@ export function useE2EE() {
     isBackupMissing: state.status === E2EE_STATUS.BACKUP_MISSING,
     isMismatch: state.status === E2EE_STATUS.IDENTITY_MISMATCH,
     isLocked: state.status === E2EE_STATUS.LOCKED,
+    isUnsupported: state.status === E2EE_STATUS.UNSUPPORTED,
     setup,
     restore,
     changePassphrase,

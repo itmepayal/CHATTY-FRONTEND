@@ -361,7 +361,7 @@ const menuHeight = (f) => {
 
 /* ---- status line under a bubble (pure) ---- */
 const renderStatus = (m, mine, seenBy, s) => {
-  if (m.pending) {
+  if (mine && m.pending) {
     return (
       <span className="inline-flex items-center gap-1">
         <Loader2 className="size-3 animate-spin" />
@@ -369,7 +369,7 @@ const renderStatus = (m, mine, seenBy, s) => {
       </span>
     );
   }
-  if (m.failed) {
+  if (mine && m.failed) {
     return (
       <span className="inline-flex items-center gap-1 text-error">
         <AlertCircle className="size-3" />
@@ -809,10 +809,13 @@ const MessageRow = memo(function MessageRow({
   const isDeleted = Boolean(m.isDeleted);
   // E2EE: a message whose text could not be decrypted still gets a bubble
   // (with a lock placeholder) instead of an empty one.
-  const decryptFailed =
+  const decryptFailed = !isDeleted && Boolean(m.decryptFailed);
+  const isDecrypting =
     !isDeleted &&
-    (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted));
-  const hasText = !isDeleted && (Boolean(m.text) || decryptFailed);
+    (m.cryptoState === "decrypting" ||
+      (Boolean(m.encrypted) && !m.decrypted && !decryptFailed));
+  const hasText =
+    !isDeleted && (Boolean(m.text) || decryptFailed || isDecrypting);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
   const hasVideo = !isDeleted && Boolean(m.video?.url);
@@ -983,14 +986,18 @@ const MessageRow = memo(function MessageRow({
                   </div>
                 )}
                 {hasText &&
-                  (decryptFailed ? (
-                    <p
-                      className="flex items-center gap-1.5 italic opacity-70 text-sm"
-                      title="Waiting for this group's encryption key"
-                    >
-                      <Lock className="size-3.5 shrink-0" />
-                      <span>{displayText(m)}</span>
+                  (isDecrypting ? (
+                    <p className="flex items-center gap-1.5 italic opacity-75 text-xs py-0.5">
+                      <Loader2 className="size-3.5 animate-spin shrink-0 text-primary" />
+                      <span>Decrypting message…</span>
                     </p>
+                  ) : decryptFailed ? (
+                    <div className="flex flex-col gap-1 text-xs py-0.5">
+                      <p className="flex items-center gap-1.5 font-medium text-error">
+                        <Lock className="size-3.5 shrink-0" />
+                        <span>{m.decryptError || "Decryption failed"}</span>
+                      </p>
+                    </div>
                   ) : (
                     <p
                       className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${

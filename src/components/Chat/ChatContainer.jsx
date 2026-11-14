@@ -56,6 +56,7 @@ import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
 import { useChatStore } from "../../store/useChatStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useContactStore } from "../../store/useContactStore";
 import { useAppearanceStore } from "../../store/useAppearanceStore.js";
 import { usePrivacyStore } from "../../store/usePrivacyStore.js";
 import { useChatPrefsStore } from "../../store/useChatPrefsStore.js";
@@ -171,12 +172,8 @@ const modalCard = {
   transition: { duration: 0.2, ease: EASE },
 };
 
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
 const sameId = (a, b) => String(a) === String(b);
 
-// avatar can be a string or { public_id, url }
 const avatarSrc = (avatar) =>
   (typeof avatar === "string" ? avatar : avatar?.url) || "./avatar.png";
 
@@ -247,24 +244,54 @@ const useIsTouch = () => {
   return touch;
 };
 
-/* ------------------------------------------------------------------ */
-/*  Reply helpers                                                      */
-/* ------------------------------------------------------------------ */
-
-// message.replyTo can be a populated object, a snapshot, or just an id
 const resolveReply = (message, list) => {
   const r = message.replyTo;
   if (!r) return null;
-  if (typeof r === "object") return { ...r, id: r.id || r._id };
-  const found = list.find((m) => sameId(m.id, r));
-  return found ? found : { id: r, missing: true };
+  const targetId = typeof r === "object" ? r.id || r._id : r;
+  if (!targetId) return null;
+
+  const found = Array.isArray(list)
+    ? list.find((m) => sameId(m.id, targetId))
+    : null;
+
+  if (found) {
+    if (found.isDeleted)
+      return { id: targetId, senderId: found.senderId, isDeleted: true };
+    const isLocked =
+      Boolean(found.decryptFailed) ||
+      found.cryptoState === "decrypting" ||
+      (Boolean(found.encrypted) && !found.decrypted && !found.text);
+    if (isLocked) {
+      return {
+        id: targetId,
+        senderId: found.senderId,
+        text: "",
+        decryptFailed: true,
+      };
+    }
+    return { ...found, id: targetId };
+  }
+
+  if (typeof r === "object") {
+    if (r.isDeleted) return { id: targetId, isDeleted: true };
+    if (r.decryptFailed || r.encrypted || r.e2ee) {
+      return {
+        id: targetId,
+        senderId: r.senderId,
+        text: "",
+        decryptFailed: true,
+      };
+    }
+    return { ...r, id: targetId };
+  }
+  return { id: targetId, missing: true };
 };
 
 const replyPreviewText = (r) => {
   if (!r || r.missing) return "Original message unavailable";
   if (r.isDeleted) return "This message was deleted";
-  // E2EE: never show the placeholder / ciphertext of a locked message
-  if (r.decryptFailed) return "🔒 Encrypted message";
+  if (r.decryptFailed || (r.encrypted && !r.decrypted && !r.text))
+    return "🔒 Encrypted message";
   if (r.text) return r.text;
   if (r.image?.url) return "📷 Photo";
   if (r.file?.name) return `📎 ${r.file.name}`;
@@ -597,12 +624,13 @@ const CallLogRow = ({ item, prev, s, onCallBack, disabled }) => {
 /* ------------------------------------------------------------------ */
 const messageFlags = (message, isMine) => {
   const isDeleted = Boolean(message.isDeleted);
-  // E2EE: nothing to copy / edit / forward when the text could not be decrypted
-  const decryptFailed =
+  const decryptFailed = !isDeleted && Boolean(message.decryptFailed);
+  const isDecrypting =
     !isDeleted &&
-    (Boolean(message.decryptFailed) ||
-      (Boolean(message.encrypted) && !message.decrypted));
-  const hasText = !isDeleted && !decryptFailed && Boolean(message.text);
+    (message.cryptoState === "decrypting" ||
+      (Boolean(message.encrypted) && !message.decrypted && !decryptFailed));
+  const hasText =
+    !isDeleted && (Boolean(message.text) || decryptFailed || isDecrypting);
   const hasAudio = !isDeleted && Boolean(message.audio?.url);
   const hasVideo = !isDeleted && Boolean(message.video?.url);
   const age = message.createdAt
@@ -611,6 +639,7 @@ const messageFlags = (message, isMine) => {
   return {
     isDeleted,
     decryptFailed,
+    isDecrypting,
     hasText,
     hasImage: !isDeleted && Boolean(message.image?.url),
     hasFile: !isDeleted && Boolean(message.file?.name),
@@ -621,7 +650,8 @@ const messageFlags = (message, isMine) => {
     hasLinkPreview: !isDeleted && Boolean(message.linkPreview?.url),
     canDeleteForAll: isMine && !isDeleted,
     canReply: !isDeleted,
-    canForward: !isDeleted && !decryptFailed,
+    canForward:
+      !isDeleted && !decryptFailed && !isDecrypting && Boolean(message.text),
     canPin: !isDeleted,
     canReport: !isMine && !isDeleted,
     isPinned: Boolean(message.isPinned),
@@ -629,7 +659,8 @@ const messageFlags = (message, isMine) => {
       isMine &&
       !isDeleted &&
       !decryptFailed &&
-      hasText &&
+      !isDecrypting &&
+      Boolean(message.text) &&
       !hasAudio &&
       !hasVideo &&
       age < EDIT_WINDOW_MS,
@@ -712,7 +743,7 @@ const MenuItem = ({ icon: Icon, label, onClick, danger = false, large }) => (
 
 /* ---- status line under a bubble (pure) ---- */
 const renderStatus = (message, mine, s) => {
-  if (message.status === "sending") {
+  if (mine && message.status === "sending") {
     const label =
       message.uploadProgress > 0 && message.uploadProgress < 100
         ? `Sending… ${message.uploadProgress}%`
@@ -724,7 +755,7 @@ const renderStatus = (message, mine, s) => {
       </span>
     );
   }
-  if (message.status === "failed") {
+  if (mine && message.status === "failed") {
     return (
       <span className="inline-flex items-center gap-1 text-error">
         <AlertCircle className="size-3" />
@@ -1250,7 +1281,6 @@ const ChatInput = () => {
   const fileIsImage = isImageFile(file);
   const PreviewIcon = file ? getFileIcon(file.type, file.name) : null;
 
-  /* ---- entering edit mode: load the (decrypted) text into the box ---- */
   useEffect(() => {
     if (!editingMessage) return;
     setText(editingMessage.text || "");
@@ -1941,15 +1971,17 @@ const MessageRow = memo(function MessageRow({
     !sameId(next.senderId, m.senderId) ||
     (next.createdAt && m.createdAt && !sameDay(next.createdAt, m.createdAt));
 
-  const pending = m.status === "sending" || m.status === "failed";
-  const failed = m.status === "failed";
+  const pending = isMine && (m.status === "sending" || m.status === "failed");
+  const failed = isMine && m.status === "failed";
   const isDeleted = Boolean(m.isDeleted);
-  // E2EE: a message whose text could not be decrypted still gets a bubble
-  // (with a lock placeholder) instead of an empty one.
-  const decryptFailed =
+  // E2EE: explicit crypto states (decrypting, decrypted, decryption_failed)
+  const decryptFailed = !isDeleted && Boolean(m.decryptFailed);
+  const isDecrypting =
     !isDeleted &&
-    (Boolean(m.decryptFailed) || (Boolean(m.encrypted) && !m.decrypted));
-  const hasText = !isDeleted && (Boolean(m.text) || decryptFailed);
+    (m.cryptoState === "decrypting" ||
+      (Boolean(m.encrypted) && !m.decrypted && !decryptFailed));
+  const hasText =
+    !isDeleted && (Boolean(m.text) || decryptFailed || isDecrypting);
   const hasFile = !isDeleted && Boolean(m.file?.name);
   const hasAudio = !isDeleted && Boolean(m.audio?.url);
   const hasVideo = !isDeleted && Boolean(m.video?.url);
@@ -2119,14 +2151,26 @@ const MessageRow = memo(function MessageRow({
                   </div>
                 )}
                 {hasText &&
-                  (decryptFailed ? (
-                    <p
-                      className="flex items-center gap-1.5 text-sm italic opacity-70"
-                      title="Waiting for this chat's encryption key"
-                    >
-                      <Lock className="size-3.5 shrink-0" />
-                      <span>{displayText(m)}</span>
+                  (isDecrypting ? (
+                    <p className="flex items-center gap-1.5 text-xs italic opacity-75 py-0.5">
+                      <Loader2 className="size-3.5 animate-spin shrink-0 text-primary" />
+                      <span>Decrypting message…</span>
                     </p>
+                  ) : decryptFailed ? (
+                    <div className="flex flex-col gap-1 text-xs py-0.5">
+                      <p className="flex items-center gap-1.5 font-medium text-error">
+                        <Lock className="size-3.5 shrink-0" />
+                        <span>{m.decryptError || "Decryption failed"}</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => h.current.retryDecryptMessage?.(m.id)}
+                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline self-start"
+                      >
+                        <RotateCw className="size-3" />
+                        Retry
+                      </button>
+                    </div>
                   ) : (
                     <p
                       className={`whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere] ${
@@ -2252,7 +2296,6 @@ const ChatContainer = () => {
     isMessagesLoading,
     selectedUser,
     subscribeToMessage,
-    unSubscribeFromMessage,
     retryMessage,
     discardMessage,
     reactToMessage,
@@ -2282,7 +2325,18 @@ const ChatContainer = () => {
     // ---- E2EE ----
     redecryptFailed,
   } = useChatStore();
-  const { authUser } = useAuthStore();
+  const { authUser, socket } = useAuthStore();
+  const { contacts } = useContactStore();
+
+  const forwardCandidates = useMemo(() => {
+    const map = new Map();
+    (users || []).forEach((u) => map.set(String(u.id), u));
+    (contacts || []).forEach((c) => {
+      const id = String(c.id);
+      if (!map.has(id)) map.set(id, c);
+    });
+    return Array.from(map.values());
+  }, [users, contacts]);
 
   const s = useAppearanceStore((st) => st.appearance);
   // memoized: a new object every render would defeat MessageRow's memo
@@ -2389,8 +2443,6 @@ const ChatContainer = () => {
         decryptRetriesRef.current[key] =
           (decryptRetriesRef.current[key] || 0) + 1;
         await redecryptFailed();
-        // re-arm the effect for the next attempt if still locked
-        if (!cancelled) setRetryTick((n) => n + 1);
       } catch {
         /* silent: the manual Retry button is still there */
       }
@@ -2400,7 +2452,7 @@ const ChatContainer = () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [selectedUser?.id, undecryptedCount, redecryptFailed, retryTick]);
+  }, [selectedUser?.id, undecryptedCount, redecryptFailed]);
 
   // manual retry (banner button)
   const handleRetryDecrypt = async () => {
@@ -2521,16 +2573,10 @@ const ChatContainer = () => {
   useEffect(() => {
     if (selectedUser?.id) {
       getMessage(selectedUser.id);
+      socket?.emit?.("chat:open", selectedUser.id);
     }
     subscribeToMessage();
-
-    return () => unSubscribeFromMessage();
-  }, [
-    selectedUser?.id,
-    getMessage,
-    subscribeToMessage,
-    unSubscribeFromMessage,
-  ]);
+  }, [selectedUser?.id, socket, getMessage, subscribeToMessage]);
 
   useEffect(() => {
     if (!selectedUser?.id) return;
@@ -2743,6 +2789,8 @@ const ChatContainer = () => {
     retryMessage,
     discardMessage,
     scrollToMessage,
+    retryDecryptMessage: (id) =>
+      useChatStore.getState().retryDecryptMessage?.(id),
     resolveReply: (m) => resolveReply(m, list),
     onImageLoad: () => stickToBottomRef.current && scrollToBottom("auto"),
   };
@@ -3351,7 +3399,7 @@ const ChatContainer = () => {
           {forwardMsg && (
             <ForwardModal
               key="forward"
-              users={users}
+              users={forwardCandidates}
               myId={authUser?.id}
               onClose={() => setForwardMsg(null)}
               onConfirm={(ids) => forwardMessages(forwardMsg.id, ids)}

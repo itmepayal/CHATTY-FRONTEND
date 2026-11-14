@@ -131,6 +131,7 @@ const wrapForUsers = async (raw, userIds, version) => {
 const LIVE_PUSH_MS = 5000;
 
 let handlers = null;
+let subscribedGroupSocket = null;
 const seenInFlight = new Set();
 const seenDirty = new Set();
 const watchers = new Map(); // shareId -> { watchId, last }
@@ -688,11 +689,45 @@ export const useGroupStore = create((set, get) => ({
     set({ groupMessages: next });
   },
 
-  // Async: normalize -> decrypt -> insert. Used for socket events.
+  // Normalize -> immediate insert with decrypting state -> async decrypt in background
   ingestMessage: async (raw) => {
-    const msg = await decryptGroupMessage(normalizeMsg(raw));
-    get().receiveMessage(msg);
-    return msg;
+    const normalized = normalizeMsg(raw);
+    const isEncrypted = Boolean(normalized.encrypted && normalized.iv);
+    const initial = {
+      ...normalized,
+      cryptoState: isEncrypted ? "decrypting" : "plaintext",
+      text: isEncrypted ? "" : (normalized.text ?? ""),
+      _cipher: isEncrypted ? (normalized._cipher ?? normalized.text) : null,
+      decrypted: !isEncrypted,
+      decryptFailed: false,
+    };
+    get().receiveMessage(initial);
+
+    if (isEncrypted) {
+      decryptGroupMessage(initial)
+        .then((decrypted) => {
+          get().receiveMessage({
+            ...decrypted,
+            cryptoState: "decrypted",
+            decrypted: true,
+            decryptFailed: false,
+            _cipher: null,
+            decryptError: null,
+          });
+        })
+        .catch((err) => {
+          console.error("[group] Decryption failed:", err);
+          get().receiveMessage({
+            ...initial,
+            text: "",
+            decrypted: false,
+            decryptFailed: true,
+            cryptoState: "decryption_failed",
+            decryptError: err?.message || "Group decryption failed",
+          });
+        });
+    }
+    return initial;
   },
 
   markSeen: async (groupId) => {
@@ -925,6 +960,7 @@ export const useGroupStore = create((set, get) => ({
   subscribeToGroups: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
+    if (subscribedGroupSocket === socket && handlers) return;
     get().unsubscribeFromGroups();
 
     const h = {
@@ -1057,6 +1093,7 @@ export const useGroupStore = create((set, get) => ({
 
     Object.entries(h).forEach(([ev, fn]) => socket.on(ev, fn));
     handlers = h;
+    subscribedGroupSocket = socket;
 
     get()
       .fetchGroups({ silent: true })
@@ -1064,10 +1101,11 @@ export const useGroupStore = create((set, get) => ({
   },
 
   unsubscribeFromGroups: () => {
-    const socket = useAuthStore.getState().socket;
+    const socket = subscribedGroupSocket || useAuthStore.getState().socket;
     if (socket && handlers) {
       Object.entries(handlers).forEach(([ev, fn]) => socket.off(ev, fn));
     }
     handlers = null;
+    subscribedGroupSocket = null;
   },
 }));

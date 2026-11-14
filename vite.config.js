@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      "/socket.io": {
+        target: "https://chatty-backend-2l2t.onrender.com",
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 });

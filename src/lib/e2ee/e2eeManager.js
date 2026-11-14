@@ -1,13 +1,4 @@
-/**
- * Central E2EE State Manager
- * Implements the lifecycle state machine, first-time setup, new-device restoration,
- * passphrase rotation, identity verification, and memory cleanup.
- */
-
-import {
-  CRYPTO_PARAMS,
-  E2EE_STATUS,
-} from "./e2ee.constants.js";
+import { CRYPTO_PARAMS, E2EE_STATUS } from "./e2ee.constants.js";
 import {
   E2EEConflictError,
   E2EEIdentityMismatchError,
@@ -33,9 +24,13 @@ import {
   getUserPublicKeyApi,
 } from "./e2ee.api.js";
 import { registerCurrentDevice } from "./e2eeDevice.js";
+import toast from "react-hot-toast";
 
 const subtle = globalThis.crypto?.subtle;
-const ECDH_ALGO = { name: CRYPTO_PARAMS.ECDH_NAME, namedCurve: CRYPTO_PARAMS.ECDH_CURVE };
+const ECDH_ALGO = {
+  name: CRYPTO_PARAMS.ECDH_NAME,
+  namedCurve: CRYPTO_PARAMS.ECDH_CURVE,
+};
 
 class E2EEManager {
   constructor() {
@@ -86,8 +81,20 @@ class E2EEManager {
     return this.status;
   }
 
-  whenReady() {
-    return this.readyPromise;
+  async whenReady(timeoutMs = 3000) {
+    if (this.status === E2EE_STATUS.READY && this.me?.privateKey) {
+      return this.status;
+    }
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(this.status), timeoutMs);
+    });
+    try {
+      const res = await Promise.race([this.readyPromise, timeoutPromise]);
+      return res || this.status;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -103,7 +110,11 @@ class E2EEManager {
     const uid = String(userId);
 
     // If already ready for this user, return immediately
-    if (this.status === E2EE_STATUS.READY && this.currentUserId === uid && this.me?.privateKey) {
+    if (
+      this.status === E2EE_STATUS.READY &&
+      this.currentUserId === uid &&
+      this.me?.privateKey
+    ) {
       return this.status;
     }
 
@@ -119,6 +130,14 @@ class E2EEManager {
       try {
         if (!subtle) {
           console.warn("[E2EE Manager] WebCrypto subtle is not supported.");
+          try {
+            toast.error(
+              "Encryption needs HTTPS. Open the app over https (use ngrok/cloudflared tunnel or deploy)",
+              { id: "e2ee-unsupported-https", duration: 8000 },
+            );
+          } catch {
+            // ignore
+          }
           return this.setStatus(E2EE_STATUS.UNSUPPORTED);
         }
 
@@ -128,12 +147,17 @@ class E2EEManager {
           server = await getE2EEStatusApi();
           this.serverStatus = server;
         } catch (err) {
-          console.warn("[E2EE Manager] Could not fetch server E2EE status:", err?.message);
+          console.warn(
+            "[E2EE Manager] Could not fetch server E2EE status:",
+            err?.message,
+          );
           // If server fails or unauthorized, fallback to error
           return this.setStatus(E2EE_STATUS.ERROR);
         }
 
-        const hasServerPublicKey = Boolean(server?.hasPublicKey || server?.hasKey);
+        const hasServerPublicKey = Boolean(
+          server?.hasPublicKey || server?.hasKey,
+        );
         const hasServerBackup = Boolean(server?.hasBackup);
 
         // 2. Fetch local identity from IndexedDB
@@ -177,7 +201,9 @@ class E2EEManager {
             return this.setStatus(E2EE_STATUS.READY);
           } else if (serverKey) {
             // Cryptographic mismatch
-            console.error("[E2EE Manager] IDENTITY MISMATCH: local key does not match server key.");
+            console.error(
+              "[E2EE Manager] IDENTITY MISMATCH: local key does not match server key.",
+            );
             this.me = null;
             return this.setStatus(E2EE_STATUS.IDENTITY_MISMATCH);
           }
@@ -208,8 +234,13 @@ class E2EEManager {
   /* ------------------------------------------------------------------ */
 
   async setupIdentity(passphrase) {
-    if (!this.currentUserId) throw new E2EENotReadyError("No authenticated user.");
-    if (!passphrase || typeof passphrase !== "string" || passphrase.length < 6) {
+    if (!this.currentUserId)
+      throw new E2EENotReadyError("No authenticated user.");
+    if (
+      !passphrase ||
+      typeof passphrase !== "string" ||
+      passphrase.length < 6
+    ) {
       throw new Error("Recovery passphrase must be at least 6 characters.");
     }
 
@@ -218,7 +249,9 @@ class E2EEManager {
 
     try {
       // 1. Generate an extractable temporary key pair in memory
-      const tempPair = await subtle.generateKey(ECDH_ALGO, true, ["deriveBits"]);
+      const tempPair = await subtle.generateKey(ECDH_ALGO, true, [
+        "deriveBits",
+      ]);
 
       // 2. Export private JWK strictly in memory for backup encryption
       const privateJwk = await subtle.exportKey("jwk", tempPair.privateKey);
@@ -230,10 +263,14 @@ class E2EEManager {
       };
 
       // 3. Encrypt the private key backup using user's passphrase
-      const backupResult = await encryptPrivateKeyBackup(privateJwk, passphrase);
+      const backupResult = await encryptPrivateKeyBackup(
+        privateJwk,
+        passphrase,
+      );
 
       // 4. Import the private key as NON-EXTRACTABLE for local storage
-      const nonExtractablePrivateKey = await importNonExtractablePrivateKey(privateJwk);
+      const nonExtractablePrivateKey =
+        await importNonExtractablePrivateKey(privateJwk);
 
       // 5. Register with backend
       try {
@@ -287,7 +324,8 @@ class E2EEManager {
   /* ------------------------------------------------------------------ */
 
   async restoreIdentity(passphrase) {
-    if (!this.currentUserId) throw new E2EENotReadyError("No authenticated user.");
+    if (!this.currentUserId)
+      throw new E2EENotReadyError("No authenticated user.");
     if (!passphrase) throw new Error("Passphrase is required to restore.");
 
     this.setStatus(E2EE_STATUS.RESTORING);
@@ -307,7 +345,8 @@ class E2EEManager {
       );
 
       // 3. Import private key as NON-EXTRACTABLE
-      const nonExtractablePrivateKey = await importNonExtractablePrivateKey(privateJwk);
+      const nonExtractablePrivateKey =
+        await importNonExtractablePrivateKey(privateJwk);
       const publicJwk = {
         kty: "EC",
         crv: "P-256",
@@ -361,7 +400,9 @@ class E2EEManager {
 
   async changePassphrase(currentPassphrase, newPassphrase) {
     if (this.status !== E2EE_STATUS.READY || !this.currentUserId) {
-      throw new E2EENotReadyError("Encryption must be ready to change recovery passphrase.");
+      throw new E2EENotReadyError(
+        "Encryption must be ready to change recovery passphrase.",
+      );
     }
     if (!newPassphrase || newPassphrase.length < 6) {
       throw new Error("New passphrase must be at least 6 characters.");
@@ -377,7 +418,10 @@ class E2EEManager {
     );
 
     // 2. Re-encrypt with new passphrase
-    const reEncrypted = await encryptPrivateKeyBackup(privateJwk, newPassphrase);
+    const reEncrypted = await encryptPrivateKeyBackup(
+      privateJwk,
+      newPassphrase,
+    );
     const nextVersion = (backupData.backupVersion || 1) + 1;
 
     // 3. Upload updated backup
@@ -411,7 +455,8 @@ class E2EEManager {
   /* ------------------------------------------------------------------ */
 
   async resetIdentity(password) {
-    if (!this.currentUserId) throw new E2EENotReadyError("No authenticated user.");
+    if (!this.currentUserId)
+      throw new E2EENotReadyError("No authenticated user.");
     if (!password) throw new Error("Account password is required for reset.");
 
     const uid = this.currentUserId;

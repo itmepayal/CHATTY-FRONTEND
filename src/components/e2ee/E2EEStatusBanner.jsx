@@ -24,6 +24,7 @@ export function E2EEStatusBanner() {
     isNotConfigured,
     isBackupMissing,
     isMismatch,
+    isUnsupported,
   } = useE2EE();
 
   const [setupOpen, setSetupOpen] = useState(false);
@@ -34,6 +35,17 @@ export function E2EEStatusBanner() {
 
   return (
     <>
+      {isUnsupported && (
+        <div className="flex items-center justify-between border-b border-error/20 bg-error/10 px-4 py-2.5 text-xs text-error transition-all">
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="size-4 shrink-0 text-error" />
+            <span>
+              <strong>Encryption needs HTTPS:</strong> Open the app over https (use ngrok/cloudflared tunnel or deploy) to enable encryption on mobile.
+            </span>
+          </div>
+        </div>
+      )}
+
       {isRestoreRequired && (
         <div className="flex items-center justify-between border-b border-warning/20 bg-warning/10 px-4 py-2.5 text-xs text-warning transition-all">
           <div className="flex items-center gap-2.5">

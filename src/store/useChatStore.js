@@ -11,10 +11,23 @@ import {
   decryptDmPreview,
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
+import { useContactStore } from "../store/useContactStore.js";
 
-const ATTACHMENT_FIELD = "image"; // router accepts ONE field name for every file type
+const ATTACHMENT_FIELD = "image";
 
-const sameId = (a, b) => String(a) === String(b);
+const extractRawId = (v) => {
+  if (v == null) return null;
+  if (typeof v === "object") {
+    const raw = v._id ?? v.id;
+    return raw != null ? String(raw) : null;
+  }
+  return String(v);
+};
+const sameId = (a, b) => {
+  const aid = extractRawId(a);
+  const bid = extractRawId(b);
+  return Boolean(aid && bid && aid === bid);
+};
 const newClientId = () =>
   crypto.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -103,6 +116,72 @@ const replySnapshot = (m) =>
       }
     : null;
 
+const hydrateReply = (replyTo, pool = []) => {
+  if (!replyTo) return null;
+  const targetId =
+    typeof replyTo === "object" ? replyTo.id || replyTo._id : replyTo;
+  if (!targetId) return null;
+
+  const found = Array.isArray(pool)
+    ? pool.find((m) => sameId(m.id, targetId))
+    : null;
+
+  if (found) {
+    if (found.isDeleted) {
+      return {
+        id: String(targetId),
+        senderId: String(found.senderId),
+        isDeleted: true,
+      };
+    }
+    const isLocked =
+      Boolean(found.decryptFailed) ||
+      found.cryptoState === "decrypting" ||
+      (Boolean(found.encrypted) && !found.decrypted && !found.text);
+    if (isLocked) {
+      return {
+        id: String(targetId),
+        senderId: String(found.senderId),
+        text: "",
+        decryptFailed: true,
+      };
+    }
+    return replySnapshot(found);
+  }
+
+  // Not in pool
+  if (typeof replyTo === "object") {
+    if (replyTo.isDeleted) {
+      return { id: String(targetId), isDeleted: true };
+    }
+    if (replyTo.decryptFailed) {
+      return {
+        id: String(targetId),
+        senderId: replyTo.senderId ? String(replyTo.senderId) : null,
+        text: "",
+        decryptFailed: true,
+      };
+    }
+    if (replyTo.e2ee || replyTo.encrypted) {
+      return {
+        id: String(targetId),
+        senderId: replyTo.senderId ? String(replyTo.senderId) : null,
+        text: "",
+        decryptFailed: true,
+      };
+    }
+    if (replyTo.text !== undefined) {
+      return {
+        ...replyTo,
+        id: String(targetId),
+        senderId: replyTo.senderId ? String(replyTo.senderId) : null,
+      };
+    }
+  }
+
+  return { id: String(targetId), missing: true };
+};
+
 const typingTimers = new Map();
 
 const clearTypingTimer = (fromId) => {
@@ -114,7 +193,10 @@ const clearTypingTimer = (fromId) => {
 };
 
 const errMsg = (error, fallback) => error?.response?.data?.message || fallback;
-const myId = () => useAuthStore.getState().authUser?.id;
+const myId = () => {
+  const authUser = useAuthStore.getState().authUser;
+  return authUser?._id ?? authUser?.id ?? null;
+};
 
 /* ---------------- live location helpers ---------------- */
 const getPosition = () =>
@@ -206,13 +288,45 @@ export const useChatStore = create((set, get) => {
       formData.append("clientId", clientId);
 
       if (msg.text) {
-        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
-        const enc = await encryptFor(msg.receiverId, msg.text);
-        formData.append("text", enc.text);
-        formData.append("iv", enc.iv);
-        formData.append("encrypted", "true");
-        if (Array.isArray(enc.keyEnvelopes) && enc.keyEnvelopes.length > 0) {
-          formData.append("keyEnvelopes", JSON.stringify(enc.keyEnvelopes));
+        let isEncrypted = false;
+        let cipherText = msg.text;
+        let cipherIv = null;
+        let envelopes = [];
+
+        try {
+          const isReady = await e2eeReady();
+          if (isReady) {
+            const enc = await encryptFor(msg.receiverId, msg.text);
+            if (enc?.text && enc?.iv) {
+              isEncrypted = true;
+              cipherText = enc.text;
+              cipherIv = enc.iv;
+              envelopes = enc.keyEnvelopes || [];
+            }
+          } else {
+            throw new Error("e2ee-not-ready");
+          }
+        } catch (encErr) {
+          if (encErr?.message === "peer-has-no-key") {
+            toast.error(
+              "This user hasn't set up encryption yet. Ask them to open the app once.",
+            );
+            throw encErr;
+          } else {
+            throw encErr;
+          }
+        }
+
+        if (isEncrypted) {
+          formData.append("text", cipherText);
+          formData.append("iv", cipherIv);
+          formData.append("encrypted", "true");
+          if (Array.isArray(envelopes) && envelopes.length > 0) {
+            formData.append("keyEnvelopes", JSON.stringify(envelopes));
+          }
+        } else {
+          formData.append("text", msg.text);
+          formData.append("encrypted", "false");
         }
       } else {
         formData.append("text", "");
@@ -259,6 +373,7 @@ export const useChatStore = create((set, get) => {
                   text: msg.text || "",
                   decrypted: true,
                   decryptFailed: false,
+                  cryptoState: "decrypted",
                   // prefer local plaintext quote over the server's (encrypted) one
                   replyTo: m.replyTo || saved.replyTo || null,
                   clientId,
@@ -273,10 +388,17 @@ export const useChatStore = create((set, get) => {
     } catch (error) {
       patchMessage(clientId, {
         status: "failed",
+        cryptoState: "plaintext",
         _inFlight: false,
         error: true,
       });
-      toast.error(e2eeErrMsg(error) || errMsg(error, "Failed to send message"));
+      const serverMsg = error?.response?.data?.message;
+      toast.error(
+        serverMsg ||
+          e2eeErrMsg(error) ||
+          error?.message ||
+          "Failed to send message",
+      );
     }
   };
 
@@ -284,6 +406,7 @@ export const useChatStore = create((set, get) => {
     messages: [],
     users: [],
     selectedUser: null,
+    syncActiveChat: () => syncActiveChat(),
     isUsersLoading: false,
     isMessagesLoading: false,
     typingFrom: {},
@@ -302,17 +425,65 @@ export const useChatStore = create((set, get) => {
       if (!silent) set({ isUsersLoading: true });
       try {
         const res = await axiosInstance.get("/messages/");
-        const users = await Promise.all(
+        const serverUsers = await Promise.all(
           (res.data.data || []).map(async (u) => ({
             ...u,
             lastMessage: await decryptDmPreview(u.lastMessage, u.id),
           })),
         );
-        set({ users });
+        set((state) => {
+          const merged = serverUsers.map((su) => {
+            const current = state.users.find((u) => sameId(u.id, su.id));
+            if (!current) return su;
+            if (current.ts && su.ts && current.ts > su.ts) {
+              return {
+                ...su,
+                unreadCount:
+                  typeof current.unreadCount === "number"
+                    ? current.unreadCount
+                    : su.unreadCount,
+                lastMessage: current.lastMessage || su.lastMessage,
+                lastMessageAt: current.lastMessageAt || su.lastMessageAt,
+                ts: current.ts,
+              };
+            }
+            return su;
+          });
+          for (const u of state.users) {
+            if (!merged.some((m) => sameId(m.id, u.id))) {
+              merged.push(u);
+            }
+          }
+          return { users: sortUsers(merged) };
+        });
       } catch (error) {
         if (!silent) toast.error(errMsg(error, "Failed to fetch users"));
       } finally {
         if (!silent) set({ isUsersLoading: false });
+      }
+    },
+
+    rehydrateReplies: () => {
+      const current = get().messages;
+      let changed = false;
+      const next = current.map((m) => {
+        if (!m.replyTo) return m;
+        const targetId = m.replyTo.id || m.replyTo._id;
+        const target = current.find((p) => sameId(p.id, targetId));
+        if (!target) return m;
+        const updated = hydrateReply(m.replyTo, current);
+        if (
+          updated.text !== m.replyTo.text ||
+          updated.decryptFailed !== m.replyTo.decryptFailed ||
+          updated.missing !== m.replyTo.missing
+        ) {
+          changed = true;
+          return { ...m, replyTo: updated };
+        }
+        return m;
+      });
+      if (changed) {
+        set({ messages: next });
       }
     },
 
@@ -322,13 +493,17 @@ export const useChatStore = create((set, get) => {
       try {
         const res = await axiosInstance.get(`/messages/${id}`);
         const server = await decryptDmList(res.data.data || [], myId(), id);
+        const hydrated = server.map((m) => ({
+          ...m,
+          replyTo: hydrateReply(m.replyTo, server),
+        }));
 
         // user switched chats while we were loading -> drop this result
         if (!sameId(get().selectedUser?.id, id)) return;
 
         set((s) => ({
           messages: mergeServerWithLocal(
-            server,
+            hydrated,
             silent
               ? s.messages
               : s.messages.filter((m) => sameId(m.receiverId, id)),
@@ -339,25 +514,65 @@ export const useChatStore = create((set, get) => {
       } catch (error) {
         toast.error(errMsg(error, "Failed to fetch messages"));
       } finally {
-        if (!silent && sameId(get().selectedUser?.id, id)) {
+        if (!silent) {
           set({ isMessagesLoading: false });
         }
       }
     },
 
+    // Retry decrypting a single message
+    retryDecryptMessage: async (messageId) => {
+      const target = get().messages.find((m) => sameId(m.id, messageId));
+      if (!target) return;
+      patchById(messageId, { cryptoState: "decrypting", decryptFailed: false });
+      try {
+        await whenE2EEReady();
+        const me = myId();
+        const peer = dmPeerOf(target, me);
+        const decrypted = await decryptDmMessage(target, me, peer);
+        patchById(messageId, {
+          text: decrypted.text,
+          decrypted: true,
+          decryptFailed: false,
+          cryptoState: "decrypted",
+          replyTo: hydrateReply(decrypted.replyTo, get().messages),
+          _cipher: null,
+          decryptError: null,
+        });
+        get().rehydrateReplies();
+      } catch (err) {
+        patchById(messageId, {
+          text: "",
+          decrypted: false,
+          decryptFailed: true,
+          cryptoState: "decryption_failed",
+          decryptError: err?.message || "Decryption failed",
+        });
+      }
+    },
+
     // retry messages that failed to decrypt (e.g. after keys were reset / init finished late)
     redecryptFailed: async () => {
-      await whenE2EEReady();
-      const me = myId();
-      const peer = get().selectedUser?.id;
-      const next = await Promise.all(
-        get().messages.map((m) =>
-          m.decryptFailed || (m.encrypted && !m.decrypted)
-            ? decryptDmMessage(m, me, peer)
-            : m,
-        ),
-      );
-      set({ messages: next });
+      try {
+        await whenE2EEReady();
+        const me = myId();
+        const peer = get().selectedUser?.id;
+        const currentMessages = get().messages;
+        const next = await Promise.all(
+          currentMessages.map((m) =>
+            m.decryptFailed || (m.encrypted && !m.decrypted)
+              ? decryptDmMessage(m, me, peer)
+              : m,
+          ),
+        );
+        const hydrated = next.map((m) => ({
+          ...m,
+          replyTo: hydrateReply(m.replyTo, next),
+        }));
+        set({ messages: hydrated });
+      } catch (e) {
+        console.warn("[chat] redecryptFailed error:", e);
+      }
     },
 
     markSeen: async (userId) => {
@@ -376,18 +591,40 @@ export const useChatStore = create((set, get) => {
 
     applyConversationUpdate: (u) =>
       set((s) => {
-        const users = s.users.map((user) => {
-          if (!sameId(user.id, u.userId)) return user;
-          if (user.ts && u.ts && u.ts < user.ts) return user;
-          return {
-            ...user,
-            unreadCount: u.unreadCount,
-            lastMessage: u.lastMessage,
-            lastMessageAt: u.lastMessageAt,
-            ts: u.ts,
+        const exists = s.users.some((user) => sameId(user.id, u.userId));
+        let updatedUsers;
+        if (exists) {
+          updatedUsers = s.users.map((user) => {
+            if (!sameId(user.id, u.userId)) return user;
+            if (user.ts && u.ts && u.ts < user.ts) return user;
+            return {
+              ...user,
+              unreadCount:
+                typeof u.unreadCount === "number"
+                  ? u.unreadCount
+                  : (user.unreadCount || 0),
+              lastMessage: u.lastMessage ?? user.lastMessage,
+              lastMessageAt: u.lastMessageAt ?? user.lastMessageAt,
+              ts: u.ts ?? Date.now(),
+            };
+          });
+        } else {
+          const contact = useContactStore
+            .getState()
+            .contacts?.find((c) => sameId(c.id, u.userId));
+          const newUser = {
+            id: String(u.userId),
+            fullName: contact?.fullName || "User",
+            avatar: contact?.avatar || "",
+            unreadCount: typeof u.unreadCount === "number" ? u.unreadCount : 0,
+            lastMessage: u.lastMessage || null,
+            lastMessageAt: u.lastMessageAt || null,
+            ts: u.ts ?? Date.now(),
+            ...contact,
           };
-        });
-        return { users: sortUsers(users) };
+          updatedUsers = [...s.users, newUser];
+        }
+        return { users: sortUsers(updatedUsers) };
       }),
 
     emitTyping: (isTyping, toId) => {
@@ -402,66 +639,236 @@ export const useChatStore = create((set, get) => {
       const socket = getSocket();
       if (!socket) return;
 
-      const onNewMessage = async (raw) => {
+      const s = get();
+      if (s._subscribedSocket === socket && s._isSubscribed) {
+        return;
+      }
+
+      get().unSubscribeFromMessage();
+
+      const onNewMessage = (raw) => {
+        if (!raw) return;
         const me = myId();
+        console.log("[socket] onNewMessage received:", {
+          id: raw?.id,
+          senderId: raw?.senderId,
+          receiverId: raw?.receiverId,
+          clientId: raw?.clientId,
+          encrypted: raw?.encrypted,
+        });
 
         // sender stopped typing the moment their message arrives
-        set((s) => {
-          if (!s.typingFrom[String(raw.senderId)]) return {};
-          const next = { ...s.typingFrom };
+        set((st) => {
+          if (!st.typingFrom[String(raw.senderId)]) return {};
+          const next = { ...st.typingFrom };
           delete next[String(raw.senderId)];
           return { typingFrom: next };
         });
 
-        const peerHint = sameId(raw.senderId, me)
-          ? raw.receiverId
-          : raw.senderId;
-        const message = await decryptDmMessage(raw, me, peerHint);
+        const isEncrypted = Boolean(raw.encrypted && raw.iv);
+        const incoming = {
+          ...raw,
+          status:
+            raw.status && raw.status !== "sending" ? raw.status : "delivered",
+          cryptoState: isEncrypted ? "decrypting" : "plaintext",
+          _cipher: isEncrypted ? (raw._cipher ?? raw.text) : null,
+          text: isEncrypted ? "" : (raw.text ?? ""),
+          decrypted: !isEncrypted,
+          decryptFailed: false,
+        };
 
-        // read the store AFTER the async decrypt so we never use stale state
-        const { selectedUser, messages } = get();
-
-        if (selectedUser && sameId(message.senderId, selectedUser.id)) {
-          if (messages.some((m) => sameId(m.id, message.id))) return;
-
-          const visible = isTabVisible();
-          set({
-            messages: [
-              ...messages,
-              visible ? { ...message, status: "seen" } : message,
-            ],
-          });
-
-          if (visible && message.status !== "seen") {
-            get().markSeen(selectedUser.id);
-          }
-          return;
-        }
-
-        // my own message (forwarded / scheduled / sent from another device)
-        if (
+        const { selectedUser } = get();
+        const isFromSelectedUser =
+          selectedUser && sameId(incoming.senderId, selectedUser.id);
+        const isMyOwnMessage =
           selectedUser &&
           me &&
-          sameId(message.senderId, me) &&
-          sameId(message.receiverId, selectedUser.id)
-        ) {
-          const exists = messages.some(
-            (m) =>
-              sameId(m.id, message.id) ||
-              (message.clientId && m.clientId === message.clientId),
-          );
-          if (!exists) set({ messages: [...messages, message] });
+          sameId(incoming.senderId, me) &&
+          sameId(incoming.receiverId, selectedUser.id);
+
+        // 1. If currently viewing chat with the sender (incoming direct message)
+        if (isFromSelectedUser) {
+          const visible = isTabVisible();
+          set((st) => {
+            const exists = st.messages.some((m) => sameId(m.id, incoming.id));
+            if (exists) return {};
+            const incomingHydrated = {
+              ...incoming,
+              replyTo: hydrateReply(incoming.replyTo, st.messages),
+            };
+            return {
+              messages: [
+                ...st.messages,
+                visible
+                  ? { ...incomingHydrated, status: "seen" }
+                  : incomingHydrated,
+              ],
+            };
+          });
+
+          if (visible) {
+            get().markSeen(selectedUser.id);
+          }
+        }
+        // 2. My own message (forwarded / scheduled / sent from another device / socket echo)
+        else if (isMyOwnMessage) {
+          set((st) => {
+            // Check if there is an optimistic message matching clientId
+            const clientIdx = incoming.clientId
+              ? st.messages.findIndex((m) => m.clientId === incoming.clientId)
+              : -1;
+            if (clientIdx !== -1) {
+              const next = [...st.messages];
+              next[clientIdx] = {
+                ...next[clientIdx],
+                ...incoming,
+                id: incoming.id,
+                text: next[clientIdx].text || incoming.text,
+                decrypted: true,
+                decryptFailed: false,
+                cryptoState: "decrypted",
+                replyTo:
+                  next[clientIdx].replyTo ||
+                  hydrateReply(incoming.replyTo, next),
+                status: incoming.status || "sent",
+              };
+              return { messages: next };
+            }
+
+            const idExists = st.messages.some((m) => sameId(m.id, incoming.id));
+            if (!idExists) {
+              const incomingHydrated = {
+                ...incoming,
+                replyTo: hydrateReply(incoming.replyTo, st.messages),
+              };
+              return { messages: [...st.messages, incomingHydrated] };
+            }
+            return {};
+          });
 
           if (get().scheduled.length) get().getScheduled(selectedUser.id);
+        }
+
+        // 3. Always update sidebar conversation preview & unread count
+        const otherUserId = sameId(incoming.senderId, me)
+          ? incoming.receiverId
+          : incoming.senderId;
+        const isCurrentOpenChat =
+          selectedUser && sameId(otherUserId, selectedUser.id);
+        const msgTs = incoming.createdAt
+          ? new Date(incoming.createdAt).getTime()
+          : Date.now();
+
+        set((st) => {
+          const existsInUsers = st.users.some((u) => sameId(u.id, otherUserId));
+          if (!existsInUsers) {
+            const contactUser = useContactStore
+              .getState()
+              .contacts?.find((c) => sameId(c.id, otherUserId));
+            const newUnread = isCurrentOpenChat
+              ? 0
+              : sameId(incoming.senderId, me)
+                ? 0
+                : 1;
+            const newUser = {
+              id: String(otherUserId),
+              fullName:
+                contactUser?.fullName || incoming.sender?.fullName || "User",
+              avatar: contactUser?.avatar || incoming.sender?.avatar || "",
+              unreadCount: newUnread,
+              lastMessage: incoming,
+              lastMessageAt: incoming.createdAt || new Date().toISOString(),
+              ts: msgTs,
+              ...contactUser,
+            };
+            return { users: sortUsers([...st.users, newUser]) };
+          }
+          const updatedUsers = st.users.map((u) => {
+            if (!sameId(u.id, otherUserId)) return u;
+            const newUnread = isCurrentOpenChat
+              ? 0
+              : sameId(incoming.senderId, me)
+                ? (u.unreadCount || 0)
+                : (u.unreadCount || 0) + 1;
+            return {
+              ...u,
+              unreadCount: newUnread,
+              lastMessage: incoming,
+              lastMessageAt: incoming.createdAt || new Date().toISOString(),
+              ts: msgTs,
+            };
+          });
+          return { users: sortUsers(updatedUsers) };
+        });
+
+        // 4. Asynchronously decrypt encrypted messages without blocking the UI
+        if (isEncrypted) {
+          const peerHint = sameId(incoming.senderId, me)
+            ? incoming.receiverId
+            : incoming.senderId;
+          decryptDmMessage(incoming, me, peerHint)
+            .then((decrypted) => {
+              patchById(incoming.id, {
+                text: decrypted.text,
+                decrypted: true,
+                decryptFailed: false,
+                cryptoState: "decrypted",
+                replyTo: hydrateReply(decrypted.replyTo, get().messages),
+                _cipher: null,
+                decryptError: null,
+              });
+              get().rehydrateReplies();
+              set((st) => ({
+                users: st.users.map((u) =>
+                  sameId(u.id, otherUserId) &&
+                  sameId(u.lastMessage?.id, incoming.id)
+                    ? {
+                        ...u,
+                        lastMessage: {
+                          ...u.lastMessage,
+                          text: decrypted.text,
+                          decrypted: true,
+                          decryptFailed: false,
+                          cryptoState: "decrypted",
+                        },
+                      }
+                    : u,
+                ),
+              }));
+            })
+            .catch((err) => {
+              console.error(
+                "[chat] Decryption failed for incoming message:",
+                incoming.id,
+                err,
+              );
+              patchById(incoming.id, {
+                text: "",
+                decrypted: false,
+                decryptFailed: true,
+                cryptoState: "decryption_failed",
+                decryptError: err?.message || "Decryption failed",
+              });
+              get().rehydrateReplies();
+            });
         }
       };
 
       const onConversationUpdated = async (u) => {
         const lastMessage = await decryptDmPreview(u.lastMessage, u.userId);
+        const { users } = get();
+        const exists = users.some((usr) => sameId(usr.id, u.userId));
+        if (!exists) {
+          get().getUsers({ silent: true });
+          return;
+        }
         get().applyConversationUpdate({ ...u, lastMessage });
       };
 
       const onReconnect = () => {
+        console.log(
+          "[socket] reconnected: restoring active chat & refreshing messages...",
+        );
         typingTimers.forEach((_, k) => clearTypingTimer(k));
         set({ typingFrom: {} });
 
@@ -534,8 +941,10 @@ export const useChatStore = create((set, get) => {
       }) => {
         const target = get().messages.find((m) => sameId(m.id, messageId));
         if (!target) return;
+        const isMine = sameId(target.senderId, myId());
         let plain = text;
         let decryptFailed = false;
+
         if (encrypted && iv) {
           try {
             await whenE2EEReady();
@@ -544,10 +953,16 @@ export const useChatStore = create((set, get) => {
               keyEnvelopes: keyEnvelopes || target.keyEnvelopes,
             });
           } catch {
-            plain = "";
-            decryptFailed = true;
+            if (isMine) {
+              plain = target.text || "";
+              decryptFailed = false;
+            } else {
+              plain = "";
+              decryptFailed = true;
+            }
           }
         }
+
         patchById(messageId, {
           text: decryptFailed ? "" : plain,
           isEdited,
@@ -555,8 +970,18 @@ export const useChatStore = create((set, get) => {
           linkPreview: null,
           decrypted: !decryptFailed,
           decryptFailed,
+          cryptoState: encrypted
+            ? decryptFailed
+              ? "decryption_failed"
+              : "decrypted"
+            : "plaintext",
+          encrypted: Boolean(encrypted),
+          iv: iv || null,
           ...(keyEnvelopes ? { keyEnvelopes } : {}),
+          _cipher: null,
         });
+
+        get().rehydrateReplies?.();
       };
 
       const onPinned = ({ messageId, isPinned, pinnedBy }) => {
@@ -620,8 +1045,6 @@ export const useChatStore = create((set, get) => {
         }));
       };
 
-      get().unSubscribeFromMessage();
-
       socket.on("newMessage", onNewMessage);
       socket.on("conversationUpdated", onConversationUpdated);
       socket.on("connect", onReconnect);
@@ -639,6 +1062,8 @@ export const useChatStore = create((set, get) => {
       document.addEventListener("visibilitychange", onVisibilityChange);
 
       set({
+        _subscribedSocket: socket,
+        _isSubscribed: true,
         _onNewMessage: onNewMessage,
         _onConversationUpdated: onConversationUpdated,
         _onReconnect: onReconnect,
@@ -660,30 +1085,56 @@ export const useChatStore = create((set, get) => {
     },
 
     unSubscribeFromMessage: () => {
-      const socket = getSocket();
+      const socket = get()._subscribedSocket || getSocket();
       const s = get();
 
       typingTimers.forEach((_, k) => clearTypingTimer(k));
 
       if (socket) {
-        socket.off("newMessage", s._onNewMessage);
-        socket.off("conversationUpdated", s._onConversationUpdated);
-        socket.off("connect", s._onReconnect);
-        socket.off("messageReaction", s._onReaction);
-        socket.off("messageDeleted", s._onMessageDeleted);
-        socket.off("messageDeletedForMe", s._onMessageDeletedForMe);
-        socket.off("messagesDelivered", s._onMessagesDelivered);
-        socket.off("messagesSeen", s._onMessagesSeen);
-        socket.off("messageEdited", s._onEdited);
-        socket.off("messagePinned", s._onPinned);
-        socket.off("messageLinkPreview", s._onLinkPreview);
-        socket.off("disappearingUpdated", s._onDisappearing);
-        socket.off("typing", s._onTyping);
-        socket.off("chatArchived", s._onChatArchived);
+        if (s._onNewMessage) socket.off("newMessage", s._onNewMessage);
+        if (s._onConversationUpdated)
+          socket.off("conversationUpdated", s._onConversationUpdated);
+        if (s._onReconnect) socket.off("connect", s._onReconnect);
+        if (s._onReaction) socket.off("messageReaction", s._onReaction);
+        if (s._onMessageDeleted)
+          socket.off("messageDeleted", s._onMessageDeleted);
+        if (s._onMessageDeletedForMe)
+          socket.off("messageDeletedForMe", s._onMessageDeletedForMe);
+        if (s._onMessagesDelivered)
+          socket.off("messagesDelivered", s._onMessagesDelivered);
+        if (s._onMessagesSeen) socket.off("messagesSeen", s._onMessagesSeen);
+        if (s._onEdited) socket.off("messageEdited", s._onEdited);
+        if (s._onPinned) socket.off("messagePinned", s._onPinned);
+        if (s._onLinkPreview)
+          socket.off("messageLinkPreview", s._onLinkPreview);
+        if (s._onDisappearing)
+          socket.off("disappearingUpdated", s._onDisappearing);
+        if (s._onTyping) socket.off("typing", s._onTyping);
+        if (s._onChatArchived) socket.off("chatArchived", s._onChatArchived);
       }
       if (s._onVisibilityChange) {
         document.removeEventListener("visibilitychange", s._onVisibilityChange);
       }
+
+      set({
+        _subscribedSocket: null,
+        _isSubscribed: false,
+        _onNewMessage: null,
+        _onConversationUpdated: null,
+        _onReconnect: null,
+        _onVisibilityChange: null,
+        _onReaction: null,
+        _onMessageDeleted: null,
+        _onMessageDeletedForMe: null,
+        _onMessagesDelivered: null,
+        _onMessagesSeen: null,
+        _onEdited: null,
+        _onPinned: null,
+        _onLinkPreview: null,
+        _onDisappearing: null,
+        _onTyping: null,
+        _onChatArchived: null,
+      });
     },
 
     setSelectedUser: (selectedUser) => {
@@ -773,6 +1224,7 @@ export const useChatStore = create((set, get) => {
         _isVideo: Boolean(videoFile),
         _duration: voice?.duration || video?.duration || 0,
         status: "sending",
+        cryptoState: "plaintext",
         createdAt: null,
       };
       set((s) => ({
@@ -793,30 +1245,51 @@ export const useChatStore = create((set, get) => {
         return { messages: s.messages.filter((x) => x.clientId !== clientId) };
       }),
 
-    /* ---------------- EDIT (re-encrypted) ---------------- */
+    /* ---------------- EDIT (re-encrypted or plaintext matching original) ---------------- */
     editMessage: async (messageId, text) => {
       try {
         const target = get().messages.find((m) => sameId(m.id, messageId));
         if (!target) return false;
-        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
 
-        const enc = await encryptFor(dmPeerOf(target, myId()), text);
-        const res = await axiosInstance.patch(`/messages/edit/${messageId}`, {
-          text: enc.text,
-          iv: enc.iv,
-          encrypted: true,
-          keyEnvelopes: enc.keyEnvelopes,
-        });
+        const isTargetEncrypted = Boolean(target.encrypted || target.e2ee);
+        let payload = {};
+
+        if (isTargetEncrypted) {
+          if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+          const enc = await encryptFor(dmPeerOf(target, myId()), text);
+          payload = {
+            text: enc.text,
+            iv: enc.iv,
+            encrypted: true,
+            keyEnvelopes: enc.keyEnvelopes,
+          };
+        } else {
+          payload = {
+            text,
+            encrypted: false,
+          };
+        }
+
+        const res = await axiosInstance.patch(
+          `/messages/edit/${messageId}`,
+          payload,
+        );
         const p = res.data.data;
-        // server sends { messageId, isEdited, editedAt, ... } (or just { messageId } if no change)
         if (p?.text !== undefined) {
           patchById(messageId, {
-            text, // plaintext we just encrypted, not the server's ciphertext
+            text, // plaintext we just entered
             isEdited: p.isEdited ?? true,
             editedAt: p.editedAt ?? new Date().toISOString(),
             linkPreview: null,
             decrypted: true,
+            decryptFailed: false,
+            cryptoState: isTargetEncrypted ? "decrypted" : "plaintext",
+            ...(payload.iv ? { iv: payload.iv } : {}),
+            ...(payload.keyEnvelopes
+              ? { keyEnvelopes: payload.keyEnvelopes }
+              : {}),
           });
+          get().rehydrateReplies();
         }
         return true;
       } catch (error) {
@@ -856,33 +1329,60 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- FORWARD (re-encrypted per recipient) ---------------- */
     // The server can't re-encrypt, so for text we send one ciphertext per recipient:
-    //   { userIds, ciphertexts: [{ userId, text, iv }] }
+    //   { userIds, ciphertexts: [{ userId, text, iv, keyEnvelopes }] }
     forwardMessages: async (messageId, userIds) => {
       try {
         const src = get().messages.find((m) => sameId(m.id, messageId));
+        if (!src) {
+          toast.error("Message not found in this chat");
+          return false;
+        }
+
+        const isEncrypted = Boolean(src.encrypted || src.e2ee);
+        const isDecrypted = Boolean(src.decrypted);
+        const decryptFailed = Boolean(src.decryptFailed);
+        const isDecrypting = src.cryptoState === "decrypting";
+
+        if (
+          isEncrypted &&
+          (decryptFailed || isDecrypting || !isDecrypted || !src.text)
+        ) {
+          toast.error("This message is still encrypted");
+          return false;
+        }
+
         let targets = userIds;
         const payload = {};
 
-        if (src?.text) {
+        if (isEncrypted && src.text) {
           if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
           const results = await Promise.allSettled(
             userIds.map(async (uid) => {
               const enc = await encryptFor(uid, src.text);
-              return { userId: String(uid), text: enc.text, iv: enc.iv };
+              return {
+                userId: String(uid),
+                text: enc.text,
+                iv: enc.iv,
+                keyEnvelopes: enc.keyEnvelopes || [],
+              };
             }),
           );
           const ok = results
             .filter((r) => r.status === "fulfilled")
             .map((r) => r.value);
-          const failed = userIds.length - ok.length;
+          const failedCount = userIds.length - ok.length;
           if (!ok.length) throw new Error("peer-has-no-key");
-          if (failed)
+          if (failedCount > 0) {
             toast.error(
-              `${failed} contact(s) haven't enabled encryption and were skipped.`,
+              `${failedCount} contact(s) haven't enabled encryption and were skipped.`,
             );
+          }
           targets = ok.map((o) => o.userId);
           payload.ciphertexts = ok;
           payload.encrypted = true;
+        } else {
+          // Plaintext forward
+          payload.encrypted = false;
         }
 
         const res = await axiosInstance.post(`/messages/forward/${messageId}`, {
@@ -947,6 +1447,9 @@ export const useChatStore = create((set, get) => {
             decryptDmMessage(
               {
                 ...it,
+                id: it._id || it.id,
+                encrypted: Boolean(it.e2ee || it.encrypted),
+                keyEnvelopes: it.keyEnvelopes || [],
                 senderId: me,
                 receiverId: it.receiverId ?? userId,
               },

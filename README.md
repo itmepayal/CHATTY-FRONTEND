@@ -1,3 +1,15 @@
+## 🔒 End-to-End Encryption (E2EE) & Mobile Testing Notice
+> **IMPORTANT FOR MOBILE TESTING:**
+> Modern browser WebCrypto APIs (`crypto.subtle`) are restricted to secure contexts (`https://` or `localhost`).
+> When testing on physical mobile devices, accessing via raw IP (e.g. `http://192.168.x.x:5173`) will cause `crypto.subtle` to be undefined, blocking encryption.
+> **Mobile devices must open the app over HTTPS** using a reverse tunnel like ngrok or cloudflared:
+> ```bash
+> ngrok http 5173
+> # or
+> cloudflared tunnel --url http://localhost:5173
+> ```
+> Open the HTTPS tunnel URL on your mobile browser.
+
 🚀 Chatty Application: Next Feature Roadmap
 
 2 End-to-End Encryption Messages ko sender aur receiver ke beech securely encrypt karna

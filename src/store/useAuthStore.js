@@ -10,10 +10,11 @@ import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 const baseUrl = import.meta.env.VITE_API_URL;
 
 const socketUrl = (() => {
+  if (!baseUrl || baseUrl.startsWith("/")) return undefined;
   try {
     return new URL(baseUrl, window.location.origin).origin;
   } catch {
-    return baseUrl;
+    return undefined;
   }
 })();
 
@@ -389,11 +390,80 @@ export const useAuthStore = create((set, get) => ({
     socket.on("connect", () => {
       console.log("socket connected:", socket.id);
       serverDisconnectRetries = 0;
+      import("./useChatStore.js")
+        .then(({ useChatStore }) => {
+          useChatStore.getState().subscribeToMessage();
+          useChatStore.getState().syncActiveChat?.();
+        })
+        .catch(() => {});
+      import("./useGroupStore.js")
+        .then(({ useGroupStore }) =>
+          useGroupStore.getState().subscribeToGroups(),
+        )
+        .catch(() => {});
     });
 
-    socket.on("connect_error", (err) =>
-      console.error("socket error:", err.message),
-    );
+    socket.on("connect_error", async (err) => {
+      console.error("socket error:", err.message);
+
+      const isSessionRevoked =
+        err.message?.includes("Session revoked") ||
+        err.message?.includes("Invalid session") ||
+        err.message?.includes("session owner mismatch") ||
+        err.message?.includes("token version invalidated") ||
+        err.message?.includes("User not found");
+
+      const isUnauthorized =
+        err.message?.includes("Unauthorized") ||
+        err.message?.includes("Forbidden");
+
+      if (isSessionRevoked || isUnauthorized) {
+        // Prevent infinite reconnection attempts with a revoked session
+        socket.disconnect();
+
+        // Attempt silent session refresh once
+        try {
+          const refreshRes = await axiosInstance.post(
+            "/auth/refresh",
+            {},
+            { withCredentials: true },
+          );
+          if (refreshRes?.status === 200) {
+            console.log(
+              "[socket] Session refreshed successfully, reconnecting socket...",
+            );
+            const newTokens = refreshRes.data?.data?.token;
+            if (newTokens) {
+              set((state) => ({
+                authUser: state.authUser
+                  ? { ...state.authUser, token: newTokens }
+                  : null,
+              }));
+            }
+            get().connectSocket();
+            return;
+          }
+        } catch (refreshErr) {
+          console.warn(
+            "[socket] Session refresh failed after connect_error:",
+            refreshErr?.message,
+          );
+        }
+
+        // Refresh failed: session was permanently revoked or expired
+        get().disconnectSocket();
+        set({ authUser: null });
+        try {
+          useAppearanceStore.getState().reset();
+          clearE2EECache();
+        } catch {
+          void 0;
+        }
+        toast.error(
+          "Your session has expired or was revoked. Please sign in again.",
+        );
+      }
+    });
 
     socket.on("getOnlineUsers", (payload) => {
       if (Array.isArray(payload)) {
@@ -483,5 +553,15 @@ export const useAuthStore = create((set, get) => ({
     }
     serverDisconnectRetries = 0;
     set({ socket: null, onlineUsers: [], hiddenUsers: [] });
+    import("./useChatStore.js")
+      .then(({ useChatStore }) =>
+        useChatStore.getState().unSubscribeFromMessage(),
+      )
+      .catch(() => {});
+    import("./useGroupStore.js")
+      .then(({ useGroupStore }) =>
+        useGroupStore.getState().unsubscribeFromGroups(),
+      )
+      .catch(() => {});
   },
 }));

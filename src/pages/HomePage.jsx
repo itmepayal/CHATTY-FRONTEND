@@ -29,8 +29,8 @@ const HomePage = () => {
     <div className="h-screen bg-base-200 flex items-center justify-center p-2 sm:p-4">
       <div className="container mx-auto h-full max-h-[900px]">
         <div className="bg-base-100 rounded-2xl shadow-xl border border-base-300 w-full h-full flex flex-col overflow-hidden">
-          <E2EEStatusBanner />
           <div className="flex flex-1 min-h-0 rounded-2xl overflow-hidden">
+            <E2EEStatusBanner />
             <Sidebar />
             {content}
 

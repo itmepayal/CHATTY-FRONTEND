@@ -50,7 +50,7 @@ const toIds = (arr) =>
   (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
 
 const SHOW_ONLY_CONTACTS = true;
-const KEEP_CONVERSATIONS = false;
+const KEEP_CONVERSATIONS = true;
 
 const TABS = [
   { key: "all", label: "All" },
@@ -146,7 +146,8 @@ const isFile = (m) =>
   !!(m.file || m.fileUrl || m.type === "file" || m.messageType === "file");
 
 const getBody = (m) => {
-  if (m.decryptFailed || (m.encrypted && !m.decrypted)) return "🔒 Encrypted message";
+  if (m.decryptFailed || (m.encrypted && !m.decrypted))
+    return "🔒 Encrypted message";
   if (m.text) return m.text;
   if (isLocation(m)) return "📍 Location";
   if (isVideo(m)) return "🎥 Video";
@@ -331,7 +332,7 @@ const Row = ({
         type="button"
         onClick={onClick}
         aria-current={selected ? "true" : undefined}
-        className={`relative flex h-[68px] w-full items-center gap-3 rounded-lg px-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50 ${
+        className={`relative flex h-[68px] w-full items-center gap-3 rounded-lg px-3 text-left transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
           selected ? "" : "hover:bg-base-200 active:bg-base-200"
         }`}
       >
@@ -485,7 +486,7 @@ const HeaderButton = ({ icon: Icon, label, onClick }) => (
     onClick={onClick}
     aria-label={label}
     title={label}
-    className="grid size-9 place-items-center rounded-lg text-base-content/70 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50"
+    className="grid size-9 place-items-center rounded-lg text-base-content/70 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary/50"
   >
     <Icon className="size-[18px]" />
   </button>
@@ -565,7 +566,7 @@ const FooterAction = ({
     aria-label={label}
     title={label}
     aria-current={active ? "page" : undefined}
-    className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary/50 ${
+    className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
       danger
         ? "text-base-content/60 hover:bg-error/10 hover:text-error"
         : active
@@ -682,7 +683,6 @@ const Sidebar = () => {
     setSelectedUser,
     isUsersLoading,
     subscribeToMessage,
-    unSubscribeFromMessage,
     setArchive,
   } = useChatStore();
 
@@ -693,7 +693,6 @@ const Sidebar = () => {
     closeGroup,
     fetchGroups,
     subscribeToGroups,
-    unsubscribeFromGroups,
     archiveGroup,
     unarchiveGroup,
   } = useGroupStore();
@@ -741,17 +740,7 @@ const Sidebar = () => {
     if (!socket) return;
     subscribeToMessage();
     subscribeToGroups();
-    return () => {
-      unSubscribeFromMessage();
-      unsubscribeFromGroups();
-    };
-  }, [
-    socket,
-    subscribeToMessage,
-    unSubscribeFromMessage,
-    subscribeToGroups,
-    unsubscribeFromGroups,
-  ]);
+  }, [socket, subscribeToMessage, subscribeToGroups]);
 
   if (isUsersLoading || !contactsLoaded) return <SidebarSkeleton />;
 

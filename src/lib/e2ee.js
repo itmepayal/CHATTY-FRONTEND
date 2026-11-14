@@ -7,6 +7,7 @@ import {
   fetchActiveDevicesForUsers,
   clearDeviceCache,
 } from "./e2ee/e2eeDevice.js";
+import toast from "react-hot-toast";
 
 const subtle = globalThis.crypto?.subtle;
 const enc = new TextEncoder();
@@ -14,6 +15,19 @@ const dec = new TextDecoder();
 const ECDH = {
   name: CRYPTO_PARAMS.ECDH_NAME,
   namedCurve: CRYPTO_PARAMS.ECDH_CURVE,
+};
+
+export const assertCryptoSubtle = () => {
+  if (!globalThis.crypto?.subtle) {
+    const msg =
+      "Encryption needs HTTPS. Open the app over https (use ngrok/cloudflared tunnel or deploy)";
+    try {
+      toast?.error?.(msg, { id: "e2ee-unsupported-https", duration: 8000 });
+    } catch {
+      // ignore in headless/test environments
+    }
+    throw new Error(msg);
+  }
 };
 
 export const b64 = (buf) => {
@@ -65,11 +79,13 @@ const clearDerived = () => {
 export { getDeviceId };
 
 export const initE2EE = (userId) => {
+  assertCryptoSubtle();
   clearDerived();
   return e2eeManager.init(userId);
 };
 
 export const resetE2EEKeys = async (userId, password) => {
+  assertCryptoSubtle();
   clearDerived();
   return e2eeManager.resetIdentity(password);
 };
@@ -87,6 +103,9 @@ const importPublic = (jwk) =>
     true,
     [],
   );
+
+const importPublicRaw = (raw) =>
+  subtle.importKey("raw", raw, ECDH, true, []);
 
 const fetchPeer = (userId) => {
   const id = String(userId);
@@ -159,20 +178,19 @@ const pairKey = (userId) => {
 };
 
 export const encryptFor = async (peerId, plaintext) => {
+  assertCryptoSubtle();
   await e2eeManager.whenReady();
   const me = e2eeManager.me;
   if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
     throw new Error("e2ee-not-ready");
   }
 
-  // 1. Generate random 256-bit AES message key
+  // 1. Random 32-byte AES-GCM message key, encrypt plaintext with a random 12-byte IV
   const msgKeyRaw = crypto.getRandomValues(new Uint8Array(32));
   const msgKey = await subtle.importKey("raw", msgKeyRaw, "AES-GCM", false, [
     "encrypt",
     "decrypt",
   ]);
-
-  // 2. Encrypt plaintext with random message key and 12-byte IV
   const msgIv = randomIv();
   const ct = await subtle.encrypt(
     { name: "AES-GCM", iv: msgIv },
@@ -180,16 +198,16 @@ export const encryptFor = async (peerId, plaintext) => {
     enc.encode(plaintext),
   );
 
-  // 3. Query all active devices of recipient and sender
+  // 2. Gather active devices of peer + me via fetchActiveDevicesForUsers([peerId, me.userId])
   const destDevices = await fetchActiveDevicesForUsers([peerId, me.userId]);
 
-  // Ensure recipient has at least one device entry
+  // Fall back to fetchPeer(peerId) public key as deviceId "default" if peer has no device entries
   const hasPeerDevice = destDevices.some(
     (d) => String(d.userId) === String(peerId),
   );
   if (!hasPeerDevice) {
     const peer = await fetchPeer(peerId);
-    if (!peer) {
+    if (!peer?.jwk) {
       throw new Error("peer-has-no-key");
     }
     destDevices.push({
@@ -199,7 +217,7 @@ export const encryptFor = async (peerId, plaintext) => {
     });
   }
 
-  // Ensure sender's current device has an envelope
+  // ALWAYS add my current device (getDeviceId(), me.publicJwk)
   const myDeviceId = getDeviceId();
   const hasMyDevice = destDevices.some(
     (d) => String(d.userId) === String(me.userId) && d.deviceId === myDeviceId,
@@ -212,22 +230,51 @@ export const encryptFor = async (peerId, plaintext) => {
     });
   }
 
-  // 4. Wrap message key separately for each destination device
+  // Deduplicate target devices by userId:deviceId
+  const seenDev = new Set();
+  const uniqueDevices = [];
+  for (const d of destDevices) {
+    if (!d || !d.publicKey || !d.deviceId || !d.userId) continue;
+    const key = `${d.userId}:${d.deviceId}`;
+    if (!seenDev.has(key)) {
+      seenDev.add(key);
+      uniqueDevices.push(d);
+    }
+  }
+
+  // Throw "peer-has-no-key" if no envelope exists for the peer
+  const peerExists = uniqueDevices.some(
+    (d) => String(d.userId) === String(peerId),
+  );
+  if (!peerExists) {
+    throw new Error("peer-has-no-key");
+  }
+
+  // 3. Generate ONE ephemeral ECDH key pair per message
+  const ephemeralPair = await subtle.generateKey(ECDH, true, ["deriveBits"]);
+  const ephemeralPublicRaw = await subtle.exportKey(
+    "raw",
+    ephemeralPair.publicKey,
+  );
+  const ephemeralPublicB64 = b64(ephemeralPublicRaw);
+
+  // For each target device: wrapKey = deriveShared(ephemeralPrivate, devicePublic); wrap message key with AES-GCM and fresh IV
   const keyEnvelopes = [];
-  for (const dev of destDevices) {
+  for (const dev of uniqueDevices) {
     try {
       const devPubKey = await importPublic(dev.publicKey);
-      const wrapKey = await deriveShared(me.privateKey, devPubKey);
+      const wrapKey = await deriveShared(ephemeralPair.privateKey, devPubKey);
       const wrapIv = randomIv();
       const wrapped = await subtle.encrypt(
         { name: "AES-GCM", iv: wrapIv },
         wrapKey,
         msgKeyRaw,
       );
+      // 4. envelope = { deviceId, userId, wrappedKey: "v2:" + base64(ephemeralPublicRaw) + ":" + base64(wrapped), iv }
       keyEnvelopes.push({
         deviceId: String(dev.deviceId),
         userId: String(dev.userId),
-        wrappedKey: b64(wrapped),
+        wrappedKey: `v2:${ephemeralPublicB64}:${b64(wrapped)}`,
         iv: b64(wrapIv),
       });
     } catch {
@@ -243,6 +290,7 @@ export const encryptFor = async (peerId, plaintext) => {
 };
 
 export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
+  assertCryptoSubtle();
   await e2eeManager.whenReady();
   const me = e2eeManager.me;
   if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
@@ -252,34 +300,66 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
   const myDeviceId = getDeviceId();
   const envelopes = message?.keyEnvelopes || [];
 
-  // Attempt multi-device envelope unwrapping if envelopes are available
+  // Take envelopes where userId === me.userId; try in order: my deviceId, "default", any other of mine
   if (Array.isArray(envelopes) && envelopes.length > 0) {
-    let env = envelopes.find((e) => e.deviceId === myDeviceId);
-    if (!env) {
-      env = envelopes.find(
-        (e) =>
-          e.deviceId === "default" && String(e.userId) === String(me.userId),
-      );
-    }
-    if (!env) {
-      env = envelopes.find((e) => String(e.userId) === String(me.userId));
+    const myEnvelopes = envelopes.filter(
+      (e) => String(e.userId) === String(me.userId),
+    );
+
+    const orderedEnvelopes = [];
+    const directDevEnv = myEnvelopes.find((e) => e.deviceId === myDeviceId);
+    if (directDevEnv) orderedEnvelopes.push(directDevEnv);
+
+    const defaultDevEnv = myEnvelopes.find(
+      (e) => e.deviceId === "default" && e !== directDevEnv,
+    );
+    if (defaultDevEnv) orderedEnvelopes.push(defaultDevEnv);
+
+    for (const e of myEnvelopes) {
+      if (!orderedEnvelopes.includes(e)) {
+        orderedEnvelopes.push(e);
+      }
     }
 
-    if (env) {
+    for (const env of orderedEnvelopes) {
       try {
-        const isMyOwnMessage =
-          message?.senderId != null &&
-          String(message.senderId) === String(me.userId);
-        const senderUserId = isMyOwnMessage ? me.userId : peerId;
-        const senderPeer = await fetchPeer(senderUserId);
+        let rawMsgKey = null;
 
-        if (senderPeer?.key) {
-          const wrapKey = await deriveShared(me.privateKey, senderPeer.key);
-          const rawMsgKey = await subtle.decrypt(
-            { name: "AES-GCM", iv: unb64(env.iv) },
-            wrapKey,
-            unb64(env.wrappedKey),
-          );
+        // if wrappedKey starts with "v2:": import ephemeral public key (raw, ECDH curve), derive shared with my private key, unwrap
+        if (
+          typeof env.wrappedKey === "string" &&
+          env.wrappedKey.startsWith("v2:")
+        ) {
+          const parts = env.wrappedKey.split(":");
+          if (parts.length === 3) {
+            const ephemPubRaw = unb64(parts[1]);
+            const wrappedBytes = unb64(parts[2]);
+            const ephemPubKey = await importPublicRaw(ephemPubRaw);
+            const wrapKey = await deriveShared(me.privateKey, ephemPubKey);
+            rawMsgKey = await subtle.decrypt(
+              { name: "AES-GCM", iv: unb64(env.iv) },
+              wrapKey,
+              wrappedBytes,
+            );
+          }
+        } else {
+          // else (legacy envelope): old logic with sender identity public key
+          const isMyOwnMessage =
+            message?.senderId != null &&
+            String(message.senderId) === String(me.userId);
+          const senderUserId = isMyOwnMessage ? me.userId : peerId;
+          const senderPeer = await fetchPeer(senderUserId);
+          if (senderPeer?.key) {
+            const wrapKey = await deriveShared(me.privateKey, senderPeer.key);
+            rawMsgKey = await subtle.decrypt(
+              { name: "AES-GCM", iv: unb64(env.iv) },
+              wrapKey,
+              unb64(env.wrappedKey),
+            );
+          }
+        }
+
+        if (rawMsgKey) {
           const msgKey = await subtle.importKey(
             "raw",
             rawMsgKey,
@@ -295,12 +375,12 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
           return dec.decode(pt);
         }
       } catch {
-        // Fallback to pairwise on envelope failure
+        // Continue to next envelope on error
       }
     }
   }
 
-  // Fallback to legacy pairwise decrypt
+  // if all fail: legacy pairwise decrypt (pairKey) with one cache-clear retry
   const runPairwise = async () => {
     const key = await pairKey(peerId);
     const pt = await subtle.decrypt(
@@ -316,7 +396,22 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
   } catch {
     peerCache.delete(String(peerId));
     sharedCache.delete(String(peerId));
-    return runPairwise();
+    try {
+      return await runPairwise();
+    } catch {
+      // Check if message had envelopes but not for this device
+      if (Array.isArray(envelopes) && envelopes.length > 0) {
+        const hasMyEnvelope = envelopes.some(
+          (e) =>
+            String(e.userId) === String(me.userId) &&
+            (e.deviceId === myDeviceId || e.deviceId === "default"),
+        );
+        if (!hasMyEnvelope) {
+          throw new Error("Sent before this device was added");
+        }
+      }
+      throw new Error("Decryption failed");
+    }
   }
 };
 
@@ -326,6 +421,7 @@ const importGroupKey = (raw) =>
   subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
 
 export const wrapGroupKey = async (raw, userId) => {
+  assertCryptoSubtle();
   const key = await pairKey(userId);
   const iv = randomIv();
   const ct = await subtle.encrypt({ name: "AES-GCM", iv }, key, raw);
@@ -333,6 +429,7 @@ export const wrapGroupKey = async (raw, userId) => {
 };
 
 export const buildGroupKeyEntries = async (userIds, version) => {
+  assertCryptoSubtle();
   const ids = [...new Set(userIds.map(String))];
   const raw = crypto.getRandomValues(new Uint8Array(32));
   const entries = await Promise.all(
@@ -417,6 +514,7 @@ export const exportGroupKeyRaw = async (groupId, version) => {
 };
 
 export const encryptGroupText = async (groupId, plaintext) => {
+  assertCryptoSubtle();
   await e2eeManager.whenReady();
   const id = String(groupId);
   let version = groupLatest.get(id);
@@ -439,6 +537,7 @@ export const encryptGroupText = async (groupId, plaintext) => {
 };
 
 export const decryptGroupText = async (groupId, version, cipherB64, ivB64) => {
+  assertCryptoSubtle();
   await e2eeManager.whenReady();
   const key = await getGroupKey(String(groupId), Number(version));
   if (!key) throw new Error("no-group-key");
