@@ -784,7 +784,7 @@ const renderStatus = (message, mine, s, showSeen = true) => {
   return (
     <span className="inline-flex items-center gap-1">
       {label}
-      <AnimatedTicks status={message.status} showSeen={showSeen} />
+      <AnimatedTicks status={message?.status} showSeen={showSeen} />
     </span>
   );
 };
@@ -1225,9 +1225,6 @@ const ChatInput = () => {
   } = useChatStore();
   const authUser = useAuthStore((st) => st.authUser);
   const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
-  const myReadReceipts =
-    usePrivacyStore((st) => st.privacy.readReceipts) !== false;
-  const showSeen = myReadReceipts && selectedUser?.readReceipts !== false;
   // Chat prefs are backend-authoritative
   const { enterToSend } = useChatPrefsStore((st) => st.prefs);
   const isTouch = useIsTouch();
@@ -1962,7 +1959,7 @@ const MessageRow = memo(function MessageRow({
   reactOpen,
   menuOpen,
   highlighted,
-  showSeen,
+  showSeen = true,
   h,
 }) {
   const isMine = sameId(m.senderId, myId);
@@ -2350,6 +2347,13 @@ const ChatContainer = () => {
   const isTouch = useIsTouch();
 
   const { autoScroll, largeEmoji } = useChatPrefsStore((st) => st.prefs);
+
+  const myReadReceipts =
+    usePrivacyStore((st) => st.privacy.readReceipts) !== false;
+  const peerReadReceipts =
+    selectedUser?.readReceipts !== false &&
+    selectedUser?.privacy?.readReceipts !== false;
+  const showSeen = Boolean(myReadReceipts && peerReadReceipts);
 
   const peerIsTyping = Boolean(
     selectedUser && typingFrom[String(selectedUser.id)],
