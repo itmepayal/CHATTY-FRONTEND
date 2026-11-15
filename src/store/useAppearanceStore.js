@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { THEME } from "../constants/index.js";
 
 const VALID_THEMES = new Set(THEME);

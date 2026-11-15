@@ -51,7 +51,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
 import { useGroupStore } from "../../store/useGroupStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -1187,7 +1187,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ voice }),
-    onError: (msg) => toast.error(msg),
+    onError: (msg) => customToast.error(msg),
   });
   const recorderBusy = recorder.state !== "idle";
 
@@ -1453,7 +1453,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       await whenE2EEReady();
       await refreshGroupKeys(group.id);
     } catch {
-      toast.error("Couldn't refresh encryption keys. Try again.");
+      customToast.error("Couldn't refresh encryption keys. Try again.");
     } finally {
       setRetryingKeys(false);
     }
@@ -1562,7 +1562,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       const ok = await fn(coords);
       if (ok) setLocationOpen(false);
     } catch (e) {
-      toast.error(e?.message || "Couldn't get your location.");
+      customToast.error(e?.message || "Couldn't get your location.");
     } finally {
       setLocBusy(false);
     }
@@ -1579,7 +1579,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const id = shareId || myShare?.shareId;
     if (!id) return false;
     const ok = await stopLiveLocation(group.id, id);
-    if (ok) toast.success("Live location stopped");
+    if (ok) customToast.success("Live location stopped");
     return ok;
   };
 
@@ -1606,9 +1606,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       await navigator.clipboard.writeText(
         mapsUrl(Number(m.location?.lat), Number(m.location?.lng)),
       );
-      toast.success("Location link copied");
+      customToast.success("Location link copied");
     } catch {
-      toast.error("Couldn't copy link");
+      customToast.error("Couldn't copy link");
     }
   };
 
@@ -1637,50 +1637,50 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     closePopover();
     // E2EE: never copy the placeholder / empty text of a locked message
     if (m.decryptFailed || !m.text) {
-      toast.error("This message is still encrypted");
+      customToast.error("This message is still encrypted");
       return;
     }
     const ok = await copyMessageText(m.text);
-    ok ? toast.success("Text copied") : toast.error("Couldn't copy text");
+    ok ? customToast.success("Text copied") : customToast.error("Couldn't copy text");
   };
   const handleCopyImage = async (m) => {
     closePopover();
     const result = await copyMessageImage(m.image?.url);
-    if (result === "image") toast.success("Image copied");
+    if (result === "image") customToast.success("Image copied");
     else if (result === "url")
-      toast.success("Image copy isn't supported here — link copied");
-    else toast.error("Couldn't copy image");
+      customToast.success("Image copy isn't supported here — link copied");
+    else customToast.error("Couldn't copy image");
   };
   const handleCopyLink = async (m) => {
     closePopover();
     const ok = await copyImageLink(m.image?.url);
-    ok ? toast.success("Image link copied") : toast.error("Couldn't copy link");
+    ok ? customToast.success("Image link copied") : customToast.error("Couldn't copy link");
   };
   const handleCopyFileLink = async (m) => {
     closePopover();
     try {
       await navigator.clipboard.writeText(m.file?.url || "");
-      toast.success("File link copied");
+      customToast.success("File link copied");
     } catch {
-      toast.error("Couldn't copy link");
+      customToast.error("Couldn't copy link");
     }
   };
   const handleCopyAudioLink = async (m) => {
     closePopover();
     try {
       await navigator.clipboard.writeText(m.audio?.url || "");
-      toast.success("Voice message link copied");
+      customToast.success("Voice message link copied");
     } catch {
-      toast.error("Couldn't copy link");
+      customToast.error("Couldn't copy link");
     }
   };
   const handleCopyVideoLink = async (m) => {
     closePopover();
     try {
       await navigator.clipboard.writeText(m.video?.url || "");
-      toast.success("Video link copied");
+      customToast.success("Video link copied");
     } catch {
-      toast.error("Couldn't copy link");
+      customToast.error("Couldn't copy link");
     }
   };
 
@@ -1733,22 +1733,22 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const vid = isVideoFile(f);
 
     if (kind === "image" && !img) {
-      toast.error("Only images are allowed here. Use the paperclip for files.");
+      customToast.error("Only images are allowed here. Use the paperclip for files.");
       return;
     }
     if (kind === "file" && img) {
-      toast.error("Images can't be sent as a file. Use the image button.");
+      customToast.error("Images can't be sent as a file. Use the image button.");
       return;
     }
 
     const limitMb = img ? MAX_IMAGE_MB : vid ? MAX_VIDEO_MB : MAX_FILE_MB;
 
     if (f.size === 0) {
-      toast.error("This file is empty");
+      customToast.error("This file is empty");
       return;
     }
     if (f.size > limitMb * 1024 * 1024) {
-      toast.error(
+      customToast.error(
         `${img ? "Image" : vid ? "Video" : "File"} must be smaller than ${limitMb} MB`,
       );
       return;
@@ -1950,7 +1950,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100">
         {/* ---------------- Header ---------------- */}
-        <div className="flex items-center gap-1 sm:gap-3 px-2 sm:px-4 py-2 sm:py-3 border-b border-base-300 bg-base-100">
+        <div className="h-16 shrink-0 flex items-center gap-1 sm:gap-3 px-3 sm:px-4 border-b border-base-300 bg-base-100/90 backdrop-blur-xl shadow-xs">
           {/* back (phones / tablets: sidebar is hidden while a chat is open) */}
           <button
             type="button"
@@ -2069,9 +2069,10 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
           <button
             type="button"
-            className="btn btn-ghost btn-sm btn-circle xl:hidden shrink-0"
+            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
             onClick={onToggleInfo}
             aria-label="Group info"
+            title="Group info"
           >
             <Info className="size-5" />
           </button>

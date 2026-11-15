@@ -106,9 +106,9 @@ export default function LiveChatPreview({
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
             <Sparkles className="size-5" aria-hidden="true" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base sm:text-lg font-bold tracking-tight text-base-content truncate">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <h3 className="text-base sm:text-lg font-bold tracking-tight text-base-content break-words">
                 Live Chat Preview
               </h3>
               <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 text-[10px] font-semibold shrink-0">
@@ -116,7 +116,7 @@ export default function LiveChatPreview({
                 Live
               </span>
             </div>
-            <p className="text-xs text-base-content/60 truncate">
+            <p className="text-xs text-base-content/60 leading-relaxed break-words">
               {isSaving
                 ? "Saving appearance to your account…"
                 : "Real-time preview of your selected theme and typography"}

@@ -23,13 +23,14 @@ export default function AiSection({
         <SettingsRow
           title="Enable AI assistant"
           desc="Display the ✨ AI assist button directly in the chat composer bar"
-        >
-          <SettingsToggle
-            checked={settings.aiEnabled}
-            onChange={(v) => setSetting("aiEnabled", v)}
-            label="Enable AI assistant"
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={settings.aiEnabled}
+              onChange={(v) => setSetting("aiEnabled", v)}
+              label="Enable AI assistant"
+            />
+          }
+        />
 
         <SettingsRow
           title="Default rewrite tone"
@@ -38,7 +39,7 @@ export default function AiSection({
           wide
         >
           <select
-            className="select select-bordered select-sm w-full sm:w-44 rounded-xl text-xs font-semibold"
+            className="select select-bordered select-sm w-full sm:w-48 rounded-xl text-xs font-semibold min-h-[44px] sm:min-h-[36px]"
             value={settings.aiDefaultTone}
             disabled={!settings.aiEnabled}
             onChange={(e) => setSetting("aiDefaultTone", e.target.value)}
@@ -56,14 +57,15 @@ export default function AiSection({
           title="Highlight grammar corrections"
           desc="Visually highlight words that were corrected by the AI grammar tool"
           disabled={!settings.aiEnabled}
-        >
-          <SettingsToggle
-            checked={settings.aiShowChanges}
-            onChange={(v) => setSetting("aiShowChanges", v)}
-            label="Highlight grammar corrections"
-            disabled={!settings.aiEnabled}
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={settings.aiShowChanges}
+              onChange={(v) => setSetting("aiShowChanges", v)}
+              label="Highlight grammar corrections"
+              disabled={!settings.aiEnabled}
+            />
+          }
+        />
       </SettingsCard>
 
       <div className="rounded-2xl sm:rounded-3xl border border-base-300 bg-base-100 p-4 sm:p-5 shadow-sm">
@@ -113,24 +115,26 @@ export default function AiSection({
         <SettingsRow
           title="Reduce motion"
           desc="Disables non-essential looping animations and spring transitions across the app"
-        >
-          <SettingsToggle
-            checked={settings.reduceMotion}
-            onChange={(v) => setSetting("reduceMotion", v)}
-            label="Reduce motion"
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={settings.reduceMotion}
+              onChange={(v) => setSetting("reduceMotion", v)}
+              label="Reduce motion"
+            />
+          }
+        />
 
         <SettingsRow
           title="Large text mode"
           desc="Quick shortcut to set your global message font size to Large"
-        >
-          <SettingsToggle
-            checked={appearance.fontSize === "lg"}
-            onChange={(v) => setAppearance("fontSize", v ? "lg" : "md")}
-            label="Large text mode"
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={appearance.fontSize === "lg"}
+              onChange={(v) => setAppearance("fontSize", v ? "lg" : "md")}
+              label="Large text mode"
+            />
+          }
+        />
       </SettingsCard>
 
       <SettingsCard
@@ -144,7 +148,7 @@ export default function AiSection({
           <button
             type="button"
             onClick={exportSettings}
-            className="btn btn-outline btn-sm rounded-xl gap-2 font-semibold text-xs"
+            className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 font-semibold text-xs w-full sm:w-auto"
           >
             <Download className="size-3.5" />
             <span>Export JSON</span>
@@ -158,7 +162,7 @@ export default function AiSection({
           <button
             type="button"
             onClick={handleReset}
-            className={`btn btn-sm rounded-xl gap-2 font-semibold text-xs ${
+            className={`btn btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 font-semibold text-xs w-full sm:w-auto ${
               confirmReset ? "btn-error shadow-sm" : "btn-outline btn-error"
             }`}
           >

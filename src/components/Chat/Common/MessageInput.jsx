@@ -8,7 +8,7 @@ import {
 import { useChatStore } from "../../../store/useChatStore";
 import { Paperclip, SendHorizontal, Smile, X } from "lucide-react";
 import EmojiPicker from "emoji-picker-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../toast";
 import { formatFileSize, getFileIcon } from "./FileAttachment";
 
 const MAX_IMAGE_MB = 5;
@@ -69,13 +69,13 @@ const MessageInput = () => {
     const limitMb = img ? MAX_IMAGE_MB : MAX_FILE_MB;
 
     if (file.size > limitMb * 1024 * 1024) {
-      toast.error(
+      customToast.error(
         `${img ? "Image" : "File"} must be smaller than ${limitMb} MB`,
       );
       return;
     }
     if (file.size === 0) {
-      toast.error("This file is empty");
+      customToast.error("This file is empty");
       return;
     }
 

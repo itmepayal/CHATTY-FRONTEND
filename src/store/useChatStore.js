@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js";
 import { encryptFor, decryptFrom, whenE2EEReady } from "../lib/e2ee.js";
 import {
@@ -13,7 +13,7 @@ import {
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useContactStore } from "../store/useContactStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
-import { playMessageSound, showDesktopNotification } from "../services/notificationService.js";
+import notificationService from "../services/notificationService.js";
 
 const ATTACHMENT_FIELD = "image";
 
@@ -664,7 +664,7 @@ export const useChatStore = create((set, get) => {
               unreadCount:
                 typeof u.unreadCount === "number"
                   ? u.unreadCount
-                  : (user.unreadCount || 0),
+                  : user.unreadCount || 0,
               lastMessage: u.lastMessage ?? user.lastMessage,
               lastMessageAt: u.lastMessageAt ?? user.lastMessageAt,
               ts: u.ts ?? Date.now(),
@@ -844,11 +844,12 @@ export const useChatStore = create((set, get) => {
             const contactUser = useContactStore
               .getState()
               .contacts?.find((c) => sameId(c.id, otherUserId));
-            const newUnread = isCurrentOpenChat && isTabVisible()
-              ? 0
-              : sameId(incoming.senderId, me)
+            const newUnread =
+              isCurrentOpenChat && isTabVisible()
                 ? 0
-                : 1;
+                : sameId(incoming.senderId, me)
+                  ? 0
+                  : 1;
             const newUser = {
               id: String(otherUserId),
               fullName:
@@ -875,11 +876,12 @@ export const useChatStore = create((set, get) => {
           }
           const updatedUsers = st.users.map((u) => {
             if (!sameId(u.id, otherUserId)) return u;
-            const newUnread = isCurrentOpenChat && isTabVisible()
-              ? 0
-              : sameId(incoming.senderId, me)
-                ? (u.unreadCount || 0)
-                : (u.unreadCount || 0) + 1;
+            const newUnread =
+              isCurrentOpenChat && isTabVisible()
+                ? 0
+                : sameId(incoming.senderId, me)
+                  ? u.unreadCount || 0
+                  : (u.unreadCount || 0) + 1;
             return {
               ...u,
               unreadCount: newUnread,
@@ -902,60 +904,53 @@ export const useChatStore = create((set, get) => {
           };
         });
 
-        // 3.5. Trigger notification sound and desktop notification if eligible
-        const isOwn = Boolean(me && sameId(incoming.senderId, me));
-        if (!isOwn) {
-          const notifSettings = useNotificationSettings.getState().settings;
+        // 3.5. Single source of truth notification handling
+        const isChatActiveAndFocused =
+          Boolean(isCurrentOpenChat) &&
+          isTabVisible() &&
+          (typeof document !== "undefined" &&
+          typeof document.hasFocus === "function"
+            ? document.hasFocus()
+            : true);
 
-          if (notifSettings.soundEnabled) {
-            playMessageSound({
-              volume: notifSettings.soundVolume,
-              soundEnabled: true,
-              messageId: incoming.id,
-            });
-          }
+        const senderUser =
+          get().users.find((u) => sameId(u.id, incoming.senderId)) ||
+          useContactStore
+            .getState()
+            .contacts?.find((c) => sameId(c.id, incoming.senderId));
+        const senderName =
+          senderUser?.fullName || incoming.sender?.fullName || "User";
+        const avatar = senderUser?.avatar || incoming.sender?.avatar || "";
 
-          const isChatActiveAndFocused =
-            Boolean(isCurrentOpenChat) &&
-            isTabVisible() &&
-            (typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : true);
-
-          if (notifSettings.desktopNotifications && !isChatActiveAndFocused) {
-            const senderUser =
-              get().users.find((u) => sameId(u.id, incoming.senderId)) ||
-              useContactStore.getState().contacts?.find((c) => sameId(c.id, incoming.senderId));
-            const senderName = senderUser?.fullName || incoming.sender?.fullName || "User";
-            const avatar = senderUser?.avatar || incoming.sender?.avatar || "";
-
-            showDesktopNotification({
-              senderName,
-              text: incoming.text,
-              chatId: String(otherUserId),
-              avatar,
-              messageType: incoming.file ? "file" : incoming.image ? "image" : incoming.video ? "video" : incoming.audio ? "audio" : incoming.location ? "location" : "text",
-              hasImage: Boolean(incoming.image?.url || incoming.image),
-              hasVideo: Boolean(incoming.video?.url || incoming.video),
-              hasAudio: Boolean(incoming.audio?.url || incoming.audio),
-              hasFile: Boolean(incoming.file?.url || incoming.file),
-              hasLocation: Boolean(incoming.location?.lat),
-              messageId: incoming.id,
-              showPreview: notifSettings.showPreview,
-              desktopNotifications: true,
-              onNotificationClick: (targetChatId) => {
-                const targetUser = get().users.find((u) => sameId(u.id, targetChatId));
-                if (targetUser) {
-                  get().setSelectedUser(targetUser);
-                } else {
-                  get().setSelectedUser({ id: targetChatId, fullName: senderName, avatar });
-                }
-                if (typeof window !== "undefined" && window.location.pathname !== "/chat") {
-                  window.history.pushState(null, "", "/chat");
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }
-              },
-            });
-          }
-        }
+        notificationService.handleIncomingMessage({
+          ...incoming,
+          chatId: String(otherUserId),
+          senderName,
+          avatar,
+          currentUserId: me,
+          isFocusedSameChat: isChatActiveAndFocused,
+          onNotificationClick: (targetChatId) => {
+            const targetUser = get().users.find((u) =>
+              sameId(u.id, targetChatId),
+            );
+            if (targetUser) {
+              get().setSelectedUser(targetUser);
+            } else {
+              get().setSelectedUser({
+                id: targetChatId,
+                fullName: senderName,
+                avatar,
+              });
+            }
+            if (
+              typeof window !== "undefined" &&
+              window.location.pathname !== "/chat"
+            ) {
+              window.history.pushState(null, "", "/chat");
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }
+          },
+        });
 
         // 4. Asynchronously decrypt encrypted messages without blocking the UI
         if (isEncrypted) {
@@ -1078,7 +1073,8 @@ export const useChatStore = create((set, get) => {
       const onMessagesSeen = ({ messageIds }) => {
         set((s) => ({
           messages: s.messages.map((m) =>
-            Array.isArray(messageIds) && messageIds.some((id) => sameId(id, m.id))
+            Array.isArray(messageIds) &&
+            messageIds.some((id) => sameId(id, m.id))
               ? upgradeStatus(m, "seen")
               : m,
           ),
@@ -1214,6 +1210,7 @@ export const useChatStore = create((set, get) => {
         }));
       };
 
+      socket.off("newMessage");
       socket.on("newMessage", onNewMessage);
       socket.on("conversationUpdated", onConversationUpdated);
       socket.on("connect", onReconnect);
@@ -1244,12 +1241,11 @@ export const useChatStore = create((set, get) => {
         const uid = detail?.userId;
         if (!uid) return;
         const current = get().selectedUser;
-        const updatedLastSeen =
-          detail.isOnline
-            ? current?.lastSeen
-            : detail.lastSeen !== undefined
-              ? detail.lastSeen
-              : current?.lastSeen;
+        const updatedLastSeen = detail.isOnline
+          ? current?.lastSeen
+          : detail.lastSeen !== undefined
+            ? detail.lastSeen
+            : current?.lastSeen;
         if (current && sameId(current.id ?? current._id, uid)) {
           set((s) => ({
             selectedUser: s.selectedUser
@@ -1268,12 +1264,11 @@ export const useChatStore = create((set, get) => {
             sameId(u.id ?? u._id, uid)
               ? {
                   ...u,
-                  lastSeen:
-                    detail.isOnline
-                      ? u.lastSeen
-                      : detail.lastSeen !== undefined
-                        ? detail.lastSeen
-                        : u.lastSeen,
+                  lastSeen: detail.isOnline
+                    ? u.lastSeen
+                    : detail.lastSeen !== undefined
+                      ? detail.lastSeen
+                      : u.lastSeen,
                 }
               : u,
           ),
@@ -1315,6 +1310,7 @@ export const useChatStore = create((set, get) => {
       typingTimers.forEach((_, k) => clearTypingTimer(k));
 
       if (socket) {
+        socket.off("newMessage");
         if (s._onNewMessage) socket.off("newMessage", s._onNewMessage);
         if (s._onConversationUpdated)
           socket.off("conversationUpdated", s._onConversationUpdated);
@@ -1340,10 +1336,16 @@ export const useChatStore = create((set, get) => {
         document.removeEventListener("visibilitychange", s._onVisibilityChange);
       }
       if (s._onProfileUpdated) {
-        window.removeEventListener("chatty:profile-updated", s._onProfileUpdated);
+        window.removeEventListener(
+          "chatty:profile-updated",
+          s._onProfileUpdated,
+        );
       }
       if (s._onPresenceUpdated) {
-        window.removeEventListener("chatty:presence-updated", s._onPresenceUpdated);
+        window.removeEventListener(
+          "chatty:presence-updated",
+          s._onPresenceUpdated,
+        );
       }
 
       set({
@@ -1378,7 +1380,8 @@ export const useChatStore = create((set, get) => {
         if (u) {
           set((s) => ({
             selectedUser:
-              s.selectedUser && sameId(s.selectedUser.id ?? s.selectedUser._id, uid)
+              s.selectedUser &&
+              sameId(s.selectedUser.id ?? s.selectedUser._id, uid)
                 ? { ...s.selectedUser, ...u }
                 : s.selectedUser,
             users: s.users.map((usr) =>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Loader2, MapPin, Radio } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../toast";
 import { useChatStore } from "../../store/useChatStore";
 import { Modal, springSnappy } from "../Chat/chatMotionKit";
 
@@ -21,7 +21,7 @@ const ShareLocationModal = ({ name, onClose }) => {
 
   const submit = async () => {
     if (!window.isSecureContext) {
-      return toast.error("Location needs a secure (https) connection");
+      return customToast.error("Location needs a secure (https) connection");
     }
     setBusy(true);
     const ok = await shareLocation(receiverId, { mode, durationMin });

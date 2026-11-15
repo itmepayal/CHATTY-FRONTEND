@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import { CustomToastContainer } from "./components/toast";
 
 import Navbar from "./components/Navbar";
 import HomePage from "./pages/HomePage";
@@ -41,6 +41,10 @@ const App = () => {
     if (!socket || !authUser) return;
     useChatStore.getState().subscribeToMessage();
     useGroupStore.getState().subscribeToGroups();
+    return () => {
+      useChatStore.getState().unSubscribeFromMessage();
+      useGroupStore.getState().unsubscribeFromGroups();
+    };
   }, [socket, authUser]);
 
   useGroupCallListeners();
@@ -114,7 +118,7 @@ const App = () => {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
 
-        <Toaster position="top-center" reverseOrder={false} />
+        <CustomToastContainer position="top-right" />
 
         {authUser && (
           <>

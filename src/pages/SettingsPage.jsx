@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import toast from "react-hot-toast";
+import { customToast } from "../components/toast";
 import {
   AnimatePresence,
   MotionConfig,
@@ -210,7 +210,7 @@ export default function SettingsPage() {
     resetNotificationSettings?.();
     setConfirmResetModal(false);
 
-    toast(
+    customToast(
       (t) => (
         <div className="flex items-center justify-between gap-4 w-full">
           <span className="text-xs sm:text-sm font-medium text-base-content">
@@ -238,8 +238,8 @@ export default function SettingsPage() {
                   );
                 }
               }
-              toast.dismiss(t.id);
-              toast.success("Settings restored!");
+              customToast.dismiss(t.id);
+              customToast.success("Settings restored!");
             }}
             className="btn btn-warning btn-xs rounded-lg font-bold shadow-xs shrink-0"
           >
@@ -268,7 +268,7 @@ export default function SettingsPage() {
     a.download = `chatty-settings-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Settings exported successfully");
+    customToast.success("Settings exported successfully");
   };
 
   const currentSectionMeta =
@@ -331,7 +331,7 @@ export default function SettingsPage() {
           }
         />
 
-        <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 sm:py-7 relative z-10 space-y-6 sm:space-y-7">
+        <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 sm:py-7 relative z-10 space-y-6 sm:space-y-7 min-w-0 overflow-x-hidden">
           <SettingsNavigation
             sections={SECTIONS}
             activeSection={activeSection}

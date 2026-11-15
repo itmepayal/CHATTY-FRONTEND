@@ -32,7 +32,7 @@ export default function SettingsSegmented({
               disabled={disabled}
               onClick={() => onChange(option.value)}
               whileTap={disabled ? undefined : { scale: 0.95 }}
-              className={`relative flex-1 sm:flex-none shrink-0 flex items-center justify-center gap-1.5 rounded-lg sm:rounded-xl px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-primary select-none ${
+              className={`relative flex-1 sm:flex-none shrink-0 flex items-center justify-center gap-1.5 rounded-lg sm:rounded-xl px-2.5 sm:px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-primary select-none ${
                 active
                   ? "text-primary"
                   : "text-base-content/65 hover:text-base-content"

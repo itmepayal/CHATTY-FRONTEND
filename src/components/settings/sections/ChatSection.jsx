@@ -26,38 +26,41 @@ export default function ChatSection({
         <SettingsRow
           title="Enter to send"
           desc="Press Enter to send messages immediately. When off, Enter creates a new line and Ctrl+Enter sends."
-        >
-          <SettingsToggle
-            checked={chatPrefs.enterToSend}
-            onChange={(v) => setChatPref("enterToSend", v)}
-            label="Enter to send"
-            disabled={chatPrefsLoading}
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={chatPrefs.enterToSend}
+              onChange={(v) => setChatPref("enterToSend", v)}
+              label="Enter to send"
+              disabled={chatPrefsLoading}
+            />
+          }
+        />
 
         <SettingsRow
           title="Large emoji"
           desc="Show messages containing only emojis in an enlarged display style"
-        >
-          <SettingsToggle
-            checked={chatPrefs.largeEmoji}
-            onChange={(v) => setChatPref("largeEmoji", v)}
-            label="Large emoji"
-            disabled={chatPrefsLoading}
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={chatPrefs.largeEmoji}
+              onChange={(v) => setChatPref("largeEmoji", v)}
+              label="Large emoji"
+              disabled={chatPrefsLoading}
+            />
+          }
+        />
 
         <SettingsRow
           title="Auto-scroll to new messages"
           desc="Automatically scroll to the bottom when receiving new incoming messages"
-        >
-          <SettingsToggle
-            checked={chatPrefs.autoScroll}
-            onChange={(v) => setChatPref("autoScroll", v)}
-            label="Auto-scroll"
-            disabled={chatPrefsLoading}
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={chatPrefs.autoScroll}
+              onChange={(v) => setChatPref("autoScroll", v)}
+              label="Auto-scroll"
+              disabled={chatPrefsLoading}
+            />
+          }
+        />
       </SettingsCard>
     </div>
   );

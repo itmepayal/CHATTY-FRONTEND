@@ -134,10 +134,10 @@ export function E2EESettingsSection() {
               <ShieldCheck className="size-5" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm sm:text-base font-semibold text-base-content truncate">
+              <h3 className="text-sm sm:text-base font-semibold text-base-content break-words">
                 Encryption Status
               </h3>
-              <p className="text-xs text-base-content/60 truncate">
+              <p className="text-xs text-base-content/60 break-words">
                 End-to-end encryption identity on this device
               </p>
             </div>
@@ -216,7 +216,7 @@ export function E2EESettingsSection() {
             </div>
             <button
               onClick={() => setRestoreModalOpen(true)}
-              className="btn btn-warning btn-xs shrink-0 font-semibold rounded-lg"
+              className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg w-full sm:w-auto"
             >
               Restore Now
             </button>
@@ -234,7 +234,7 @@ export function E2EESettingsSection() {
             </div>
             <button
               onClick={() => setSetupModalOpen(true)}
-              className="btn btn-primary btn-xs shrink-0 font-semibold rounded-lg"
+              className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg w-full sm:w-auto"
             >
               Enable E2EE
             </button>
@@ -270,7 +270,7 @@ export function E2EESettingsSection() {
             {isReady && (
               <button
                 onClick={() => setChangePassModalOpen(true)}
-                className="btn btn-outline btn-sm rounded-xl gap-2 text-xs font-semibold"
+                className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
               >
                 <Key className="size-3.5" />
                 Change Recovery Passphrase
@@ -280,7 +280,7 @@ export function E2EESettingsSection() {
             {isRestoreRequired && (
               <button
                 onClick={() => setRestoreModalOpen(true)}
-                className="btn btn-warning btn-sm rounded-xl gap-2 text-xs font-semibold"
+                className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
               >
                 <KeyRound className="size-3.5" />
                 Restore from Backup
@@ -290,7 +290,7 @@ export function E2EESettingsSection() {
             {isNotConfigured && (
               <button
                 onClick={() => setSetupModalOpen(true)}
-                className="btn btn-primary btn-sm rounded-xl gap-2 text-xs font-semibold"
+                className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
               >
                 <Lock className="size-3.5" />
                 Create Key & Backup
@@ -329,7 +329,7 @@ export function E2EESettingsSection() {
           <div className="pt-2">
             <button
               onClick={() => setResetModalOpen(true)}
-              className="btn btn-error btn-outline btn-sm rounded-xl gap-2 text-xs font-semibold"
+              className="btn btn-error btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
             >
               <RotateCcw className="size-3.5" />
               Reset Encryption Identity

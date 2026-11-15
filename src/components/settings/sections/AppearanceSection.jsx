@@ -231,13 +231,14 @@ export default function AppearanceSection({
         <SettingsRow
           title="Show message timestamps"
           desc="Display the sent/delivered time under each message bubble"
-        >
-          <SettingsToggle
-            checked={appearance.showTimestamps}
-            onChange={(v) => setAppearance("showTimestamps", v)}
-            label="Show message timestamps"
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={appearance.showTimestamps}
+              onChange={(v) => setAppearance("showTimestamps", v)}
+              label="Show message timestamps"
+            />
+          }
+        />
 
         <SettingsRow
           title="Time format"

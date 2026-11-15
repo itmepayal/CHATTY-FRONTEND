@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js";
 
 export const AI_MAX_TEXT_LENGTH = 2000;

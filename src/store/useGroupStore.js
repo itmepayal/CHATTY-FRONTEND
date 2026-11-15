@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js";
 import {
   encryptGroupText,
@@ -20,7 +20,7 @@ import {
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
-import { playMessageSound, showDesktopNotification } from "../services/notificationService.js";
+import notificationService from "../services/notificationService.js";
 
 const sameId = (a, b) => String(a) === String(b);
 const idOf = (v) => String(v?._id ?? v?.id ?? v ?? "");
@@ -139,6 +139,7 @@ const seenInFlight = new Set();
 const seenDirty = new Set();
 const groupTypingTimers = new Map(); // `${groupId}:${userId}` -> timeout
 const watchers = new Map(); // shareId -> { watchId, last }
+const prepareInFlight = new Map(); // groupId -> Promise<void>
 
 export const useGroupStore = create((set, get) => ({
   groups: [],
@@ -155,7 +156,7 @@ export const useGroupStore = create((set, get) => ({
    * ===================================================== */
 
   // Create + upload a NEW key version for the given users.
-  // POST /groups/:id/keys  { version, entries: [{ userId, version, wrappedKey, iv }] }
+  // POST /groups/:id/keys  { version, keys: entries, entries }
   provisionGroupKey: async (groupId, userIds, version = 1) => {
     try {
       if (!(await e2eeReady())) return false;
@@ -164,7 +165,11 @@ export const useGroupStore = create((set, get) => ({
       // I must be able to read it myself
       if (!entries.some((e) => sameId(e.userId, myId()))) return false;
 
-      await axiosInstance.post(`/groups/${groupId}/keys`, { version, entries });
+      await axiosInstance.post(`/groups/${groupId}/keys`, {
+        version,
+        keys: entries,
+        entries,
+      });
       await cacheGroupKeyRaw(groupId, version, raw);
 
       if (skipped.length) {
@@ -172,6 +177,10 @@ export const useGroupStore = create((set, get) => ({
       }
       return true;
     } catch (e) {
+      if (e?.response?.status === 409) {
+        await loadGroupKeys(groupId, { force: true }).catch(() => 0);
+        return true;
+      }
       console.error("provisionGroupKey failed:", e?.response?.data || e);
       return false;
     }
@@ -198,6 +207,7 @@ export const useGroupStore = create((set, get) => ({
       if (!entries.length) return false;
       await axiosInstance.post(`/groups/${groupId}/keys`, {
         version: latest,
+        keys: entries,
         entries,
       });
       return true;
@@ -212,7 +222,8 @@ export const useGroupStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get(`/groups/${groupId}/keys/pending`);
       const d = unwrap(res);
-      const list = Array.isArray(d) ? d : d?.members || d?.userIds || [];
+      const list =
+        Array.isArray(d) ? d : d?.pending || d?.members || d?.userIds || [];
       const ids = list.map((x) => idOf(x?.userId ?? x)).filter(Boolean);
       if (ids.length) await get().shareKeyWith(groupId, ids);
     } catch {
@@ -222,20 +233,28 @@ export const useGroupStore = create((set, get) => ({
 
   // load keys; if the group has none yet, try to create version 1; else resolve pending members
   prepareGroupKeys: async (groupId) => {
-    try {
-      if (!(await e2eeReady())) return;
-      const latest = await loadGroupKeys(groupId, { force: true });
-      if (!latest) {
-        const group = get().groups.find((g) => sameId(g.id, groupId));
-        if (group) {
-          await get().provisionGroupKey(groupId, memberIdsOf(group), 1);
+    const gid = String(groupId);
+    if (prepareInFlight.has(gid)) return prepareInFlight.get(gid);
+    const p = (async () => {
+      try {
+        if (!(await e2eeReady())) return;
+        const latest = await loadGroupKeys(gid, { force: true });
+        if (!latest) {
+          const group = get().groups.find((g) => sameId(g.id, gid));
+          if (group) {
+            await get().provisionGroupKey(gid, memberIdsOf(group), 1);
+          }
+        } else {
+          get().syncPendingGroupKeys(gid);
         }
-      } else {
-        get().syncPendingGroupKeys(groupId);
+      } catch {
+        /* silent */
       }
-    } catch {
-      /* silent */
-    }
+    })().finally(() => {
+      prepareInFlight.delete(gid);
+    });
+    prepareInFlight.set(gid, p);
+    return p;
   },
 
   // re-try messages that couldn't be decrypted (call after keys arrive)
@@ -982,6 +1001,18 @@ export const useGroupStore = create((set, get) => ({
       // OPTIONAL: emit this from the server after POST /groups/:id/keys
       // so members who were waiting for a key can decrypt immediately.
       "group:keysUpdated": ({ groupId }) => get().refreshGroupKeys(groupId),
+      "group:keysNeeded": ({ groupId, userIds }) => {
+        if (groupId && Array.isArray(userIds) && userIds.length) {
+          get().shareKeyWith(groupId, userIds);
+        } else if (groupId) {
+          get().syncPendingGroupKeys(groupId);
+        }
+      },
+      "group:keyRotationRequired": ({ groupId }) => {
+        if (groupId) {
+          get().rotateGroupKey(groupId);
+        }
+      },
 
       "group:archiveChanged": ({ groupId, archived }) =>
         get().setGroupArchived(groupId, Boolean(archived)),
@@ -1015,77 +1046,49 @@ export const useGroupStore = create((set, get) => ({
           get().markSeen(msg.groupId);
         }
 
-        const isOwn = sameId(msg.senderId, myId());
-        if (!isOwn) {
-          const notifSettings = useNotificationSettings.getState().settings;
-          if (notifSettings.soundEnabled) {
-            playMessageSound({
-              volume: notifSettings.soundVolume,
-              soundEnabled: true,
-              messageId: msg.id,
-            });
-          }
+        const isGroupActiveAndFocused =
+          Boolean(open) &&
+          visible() &&
+          (typeof document !== "undefined" && typeof document.hasFocus === "function"
+            ? document.hasFocus()
+            : true);
 
-          const isGroupActiveAndFocused =
-            Boolean(open) &&
-            visible() &&
-            (typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : true);
+        const currentGroup = get().groups.find((g) => sameId(g.id, msg.groupId));
+        const senderMember = currentGroup?.members?.find((m) =>
+          sameId(m.userId?._id || m.userId, msg.senderId),
+        );
+        const senderName =
+          msg.sender?.fullName ||
+          senderMember?.userId?.fullName ||
+          "Group Member";
+        const groupTitle = currentGroup?.name
+          ? `${senderName} (${currentGroup.name})`
+          : senderName;
 
-          if (notifSettings.desktopNotifications && !isGroupActiveAndFocused) {
-            const currentGroup = get().groups.find((g) => sameId(g.id, msg.groupId));
-            const senderMember = currentGroup?.members?.find((m) =>
-              sameId(m.userId?._id || m.userId, msg.senderId),
+        notificationService.handleIncomingMessage({
+          ...msg,
+          groupId: msg.groupId,
+          chatId: String(msg.groupId),
+          senderName: groupTitle,
+          avatar: currentGroup?.avatar?.url || currentGroup?.avatar || "",
+          currentUserId: myId(),
+          isFocusedSameChat: isGroupActiveAndFocused,
+          onNotificationClick: (targetGroupId) => {
+            const targetG = get().groups.find((g) =>
+              sameId(g.id, targetGroupId),
             );
-            const senderName =
-              msg.sender?.fullName ||
-              senderMember?.userId?.fullName ||
-              "Group Member";
-            const groupTitle = currentGroup?.name
-              ? `${senderName} (${currentGroup.name})`
-              : senderName;
-
-            showDesktopNotification({
-              senderName: groupTitle,
-              text: msg.text,
-              chatId: String(msg.groupId),
-              avatar: currentGroup?.avatar?.url || currentGroup?.avatar || "",
-              messageType: msg.file
-                ? "file"
-                : msg.image
-                  ? "image"
-                  : msg.video
-                    ? "video"
-                    : msg.audio
-                      ? "audio"
-                      : msg.location
-                        ? "location"
-                        : "text",
-              hasImage: Boolean(msg.image?.url || msg.image),
-              hasVideo: Boolean(msg.video?.url || msg.video),
-              hasAudio: Boolean(msg.audio?.url || msg.audio),
-              hasFile: Boolean(msg.file?.url || msg.file),
-              hasLocation: Boolean(msg.location?.lat),
-              messageId: msg.id,
-              showPreview: notifSettings.showPreview,
-              desktopNotifications: true,
-              onNotificationClick: (targetGroupId) => {
-                const targetG = get().groups.find((g) =>
-                  sameId(g.id, targetGroupId),
-                );
-                if (targetG) {
-                  get().setSelectedGroup(targetG);
-                }
-                if (
-                  typeof window !== "undefined" &&
-                  window.location.pathname !== "/chat"
-                ) {
-                  window.history.pushState(null, "", "/chat");
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }
-              },
-            });
-          }
-        }
+            if (targetG) {
+              get().setSelectedGroup(targetG);
+            }
+            if (
+              typeof window !== "undefined" &&
+              window.location.pathname !== "/chat"
+            ) {
+              window.history.pushState(null, "", "/chat");
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }
+          },
+        });
       },
 
       "group:conversationUpdated": async (u) => {
@@ -1189,6 +1192,7 @@ export const useGroupStore = create((set, get) => ({
       },
     };
 
+    Object.keys(h).forEach((ev) => socket.off(ev));
     Object.entries(h).forEach(([ev, fn]) => socket.on(ev, fn));
     handlers = h;
     subscribedGroupSocket = socket;

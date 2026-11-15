@@ -1,4 +1,4 @@
-import { Loader2, ShieldCheck, Eye, EyeOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import SettingsCard from "../common/SettingsCard";
 import SettingsRow from "../common/SettingsRow";
 import SettingsSegmented from "../common/SettingsSegmented";
@@ -137,26 +137,28 @@ export default function PrivacySection({
             <SettingsRow
               title="Read receipts"
               desc="Show blue checkmarks when messages have been viewed. Note: if turned off, you will also not see read receipts from others."
-            >
-              <SettingsToggle
-                checked={privacy.readReceipts}
-                onChange={(v) => setPrivacy("readReceipts", v)}
-                label="Read receipts"
-                disabled={privacySaving}
-              />
-            </SettingsRow>
+              toggle={
+                <SettingsToggle
+                  checked={privacy.readReceipts}
+                  onChange={(v) => setPrivacy("readReceipts", v)}
+                  label="Read receipts"
+                  disabled={privacySaving}
+                />
+              }
+            />
 
             <SettingsRow
               title="Typing indicator"
               desc="Transmit a real-time typing bubble to the other user when you are composing text."
-            >
-              <SettingsToggle
-                checked={privacy.typingIndicator}
-                onChange={(v) => setPrivacy("typingIndicator", v)}
-                label="Typing indicator"
-                disabled={privacySaving}
-              />
-            </SettingsRow>
+              toggle={
+                <SettingsToggle
+                  checked={privacy.typingIndicator}
+                  onChange={(v) => setPrivacy("typingIndicator", v)}
+                  label="Typing indicator"
+                  disabled={privacySaving}
+                />
+              }
+            />
           </>
         )}
       </SettingsCard>

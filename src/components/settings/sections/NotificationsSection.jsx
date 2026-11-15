@@ -12,7 +12,7 @@ import {
   AlertCircle,
   HelpCircle,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../toast";
 import SettingsCard from "../common/SettingsCard";
 import SettingsRow from "../common/SettingsRow";
 import SettingsToggle from "../common/SettingsToggle";
@@ -65,14 +65,14 @@ export default function NotificationsSection() {
     const currentPerm = getPermissionState();
 
     if (currentPerm === "unsupported") {
-      toast.error(
+      customToast.error(
         "This browser does not support native desktop notifications.",
       );
       return;
     }
 
     if (currentPerm === "denied") {
-      toast.error(
+      customToast.error(
         "Notifications are blocked in your browser settings. Please allow notifications for this site to enable this feature.",
         { duration: 5000 },
       );
@@ -85,13 +85,13 @@ export default function NotificationsSection() {
 
       if (result === "granted") {
         await updateSetting("desktopNotifications", true);
-        toast.success("Desktop notifications enabled!");
+        customToast.success("Desktop notifications enabled!");
       } else if (result === "denied") {
-        toast.error(
+        customToast.error(
           "Notification permission was denied. Please allow notifications in your browser address bar.",
         );
       } else {
-        toast("Notification permission was dismissed.");
+        customToast.info("Notification permission was dismissed.");
       }
       return;
     }
@@ -131,20 +131,17 @@ export default function NotificationsSection() {
         desktopNotifications: true,
         force: true,
       });
-      toast.success("Test notification dispatched!");
+      customToast.success("Test notification dispatched!");
     } else if (perm === "denied") {
-      toast.error(
+      customToast.error(
         "Sound played. Desktop notifications could not be shown because browser permission is blocked.",
       );
     } else if (!settings.desktopNotifications) {
-      toast(
+      customToast.info(
         "Audio chime played. Enable desktop notifications to see system alerts.",
-        {
-          icon: "🔔",
-        },
       );
     } else {
-      toast(
+      customToast.info(
         "Audio chime played. Grant browser notification permission to view system banners.",
       );
     }
@@ -178,34 +175,47 @@ export default function NotificationsSection() {
           title="Message incoming sound"
           desc="Play an audio chime whenever a message is received in an active chat"
           icon={settings.soundEnabled ? Volume2 : VolumeX}
-        >
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleVolumePreview(settings.soundVolume)}
-              disabled={!settings.soundEnabled || loading}
-              className="btn btn-ghost btn-xs rounded-lg gap-1 border border-base-300 text-xs font-medium"
-              title="Preview chime"
-            >
-              <Volume2 className="size-3 text-primary" />
-              <span>Preview</span>
-            </button>
+          toggle={
             <SettingsToggle
               checked={settings.soundEnabled}
               onChange={(val) => updateSetting("soundEnabled", val)}
               disabled={loading || saving}
               label="Message incoming sound"
             />
-          </div>
+          }
+        >
+          <button
+            type="button"
+            onClick={() => handleVolumePreview(settings.soundVolume)}
+            disabled={!settings.soundEnabled || loading}
+            className="btn btn-ghost btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 border border-base-300 text-xs font-semibold px-3 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            title="Preview chime"
+            aria-label="Preview message sound"
+          >
+            <Volume2
+              className={`size-4 ${
+                settings.soundEnabled ? "text-primary" : "text-base-content/40"
+              }`}
+            />
+            <span>Preview</span>
+          </button>
         </SettingsRow>
 
         <SettingsRow
           title="Sound volume"
           desc="Adjust the playback loudness of audio chimes"
+          icon={settings.soundVolume > 0 ? Volume2 : VolumeX}
           stack
           disabled={!settings.soundEnabled || loading}
+          badge={`${settings.soundVolume}%`}
         >
-          <div className="flex items-center gap-3">
+          <div className="w-full space-y-2 pt-1">
+            <div className="flex items-center justify-between text-xs font-semibold text-base-content/70">
+              <span>Volume level</span>
+              <span className="font-mono tabular-nums text-primary">
+                {settings.soundVolume}%
+              </span>
+            </div>
             <input
               type="range"
               min={0}
@@ -218,12 +228,9 @@ export default function NotificationsSection() {
               }
               onMouseUp={() => handleVolumePreview(settings.soundVolume)}
               onTouchEnd={() => handleVolumePreview(settings.soundVolume)}
-              className="range range-primary range-xs flex-1 disabled:opacity-40"
+              className="range range-primary range-sm w-full disabled:opacity-40 cursor-pointer"
               aria-label="Sound volume"
             />
-            <span className="w-12 text-right font-mono text-xs tabular-nums text-base-content/75 font-semibold">
-              {settings.soundVolume}%
-            </span>
           </div>
         </SettingsRow>
 
@@ -231,16 +238,17 @@ export default function NotificationsSection() {
           title="Desktop push notifications"
           desc="Receive native system notifications when Chatty is in the background or minimized"
           icon={settings.desktopNotifications ? Bell : BellOff}
-        >
-          <SettingsToggle
-            checked={
-              settings.desktopNotifications && permissionState !== "denied"
-            }
-            onChange={handleToggleDesktopNotifications}
-            disabled={loading || saving || permissionState === "unsupported"}
-            label="Desktop push notifications"
-          />
-        </SettingsRow>
+          toggle={
+            <SettingsToggle
+              checked={
+                settings.desktopNotifications && permissionState !== "denied"
+              }
+              onChange={handleToggleDesktopNotifications}
+              disabled={loading || saving || permissionState === "unsupported"}
+              label="Desktop push notifications"
+            />
+          }
+        />
 
         {isPermissionRevoked && (
           <div className="rounded-xl bg-error/10 border border-error/20 p-3 text-xs text-error flex items-start gap-2.5 my-2">
@@ -278,39 +286,35 @@ export default function NotificationsSection() {
           }
           icon={settings.showPreview ? Eye : EyeOff}
           disabled={!settings.desktopNotifications}
+          toggle={
+            <SettingsToggle
+              checked={settings.showPreview}
+              onChange={(val) => updateSetting("showPreview", val)}
+              disabled={loading || saving || !settings.desktopNotifications}
+              label="Show message preview snippet"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Test notification"
+          desc="Verify your current audio chime and desktop notification settings"
+          icon={Send}
         >
-          <SettingsToggle
-            checked={settings.showPreview}
-            onChange={(val) => updateSetting("showPreview", val)}
-            disabled={loading || saving}
-            label="Show message preview snippet"
-          />
-        </SettingsRow>
-
-        <div className="py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4">
-          <div className="space-y-0.5">
-            <span className="text-sm font-medium text-base-content">
-              Test notification
-            </span>
-            <p className="text-xs text-base-content/60">
-              Verify your current audio chime and desktop notification settings
-            </p>
-          </div>
-
           <button
             type="button"
             onClick={handleSendTestNotification}
             disabled={isTesting || loading}
-            className="btn btn-primary btn-sm rounded-xl gap-2 shadow-sm font-semibold self-start sm:self-auto"
+            className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 shadow-sm font-semibold w-full sm:w-auto"
           >
             {isTesting ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Send className="size-3.5" />
+              <Send className="size-4" />
             )}
             <span>Send test notification</span>
           </button>
-        </div>
+        </SettingsRow>
       </SettingsCard>
     </div>
   );

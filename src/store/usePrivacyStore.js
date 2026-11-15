@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { useAuthStore } from "./useAuthStore.js";
 
 export const PRIVACY_BOOL_KEYS = [

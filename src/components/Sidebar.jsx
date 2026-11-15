@@ -739,11 +739,7 @@ const Sidebar = () => {
     fetchGroupCalls();
   }, [mode, fetchCalls, fetchGroupCalls]);
 
-  useEffect(() => {
-    if (!socket) return;
-    subscribeToMessage();
-    subscribeToGroups();
-  }, [socket, subscribeToMessage, subscribeToGroups]);
+
 
   if (isUsersLoading || !contactsLoaded) return <SidebarSkeleton />;
 

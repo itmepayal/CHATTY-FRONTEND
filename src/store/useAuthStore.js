@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { io } from "socket.io-client";
 import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatPrefsStore } from "./useChatPrefsStore.js";
@@ -400,7 +400,7 @@ export const useAuthStore = create((set, get) => ({
   connectSocket: () => {
     const { authUser, socket: existing } = get();
     if (!authUser) return;
-    if (existing?.connected) return;
+    if (existing && (existing.connected || existing.active)) return;
 
     existing?.removeAllListeners();
     existing?.disconnect();

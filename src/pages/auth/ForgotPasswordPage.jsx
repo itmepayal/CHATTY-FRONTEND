@@ -13,7 +13,7 @@ import {
   MailCheck,
   Loader2,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../components/toast";
 import {
   LazyMotion,
   domAnimation,
@@ -55,7 +55,7 @@ const requestReset = async (email) => {
     });
     return true;
   } catch (err) {
-    toast.error(
+    customToast.error(
       err?.response?.data?.message ??
         "Couldn't send the reset link. Please try again.",
     );
@@ -162,7 +162,7 @@ const ResendButton = ({ email }) => {
     const ok = await requestReset(email);
     setIsLoading(false);
     if (ok) {
-      toast.success("Reset link sent again.");
+      customToast.success("Reset link sent again.");
       setCooldown(RESEND_COOLDOWN);
     }
   };

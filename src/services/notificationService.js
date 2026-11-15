@@ -1,62 +1,281 @@
 /**
- * Notification Service
- * Manages audio chime playback, Web Audio API synthesis fallback,
- * native desktop notifications, and multi-tab notification deduplication.
+ * Centralized Notification Service
+ * Single source of truth for:
+ * - Audio chime playback (throttled, soft chime support)
+ * - Native desktop notifications (with chat-${chatId} tag and renotify: false)
+ * - In-app fallback toasts
+ * - Message ID deduplication (last 200 message IDs)
+ * - Multi-tab coordination via BroadcastChannel & localStorage
+ * - Channel resolution per message (focused-same-chat vs. background vs. different chat)
  */
 
-// In-memory cache of recently notified message IDs to prevent duplicate notifications in this tab
-const handledMessageIds = new Map(); // id -> timestamp
+import { customToast } from "../components/toast/customToastService.js";
+import {
+  useNotificationSettingsStore,
+  NOTIFICATION_SETTINGS_DEFAULTS,
+} from "../store/useNotificationSettingsStore.js";
+
+// Bounded LRU-style set for deduplicating message IDs
+export class MessageDeduplicator {
+  constructor(maxSize = 200) {
+    this.maxSize = maxSize;
+    this.ids = new Set();
+    this.queue = [];
+  }
+
+  has(id) {
+    if (!id) return false;
+    return this.ids.has(String(id));
+  }
+
+  add(id) {
+    if (!id) return;
+    const str = String(id);
+    if (this.ids.has(str)) return;
+    this.ids.add(str);
+    this.queue.push(str);
+    if (this.queue.length > this.maxSize) {
+      const oldest = this.queue.shift();
+      this.ids.delete(oldest);
+    }
+  }
+
+  clear() {
+    this.ids.clear();
+    this.queue = [];
+  }
+}
+
+export const messageDeduplicator = new MessageDeduplicator(200);
+
+// In-memory cache of recently handled action keys
+const handledActionKeys = new Map();
 const NOTIFICATION_DEDUP_WINDOW_MS = 15000;
 const SOUND_THROTTLE_MS = 1000;
 
 let lastSoundPlayedAt = 0;
 let cachedAudioElement = null;
 
-// Multi-tab coordination via BroadcastChannel
+// Multi-tab coordination constants and state
+export const TAB_ID =
+  "tab_" + Math.random().toString(36).slice(2, 9) + "_" + Date.now();
+const LEADER_KEY = "chatty_notification_leader";
+const FOCUSED_KEY = "chatty_notification_focused_tab";
+const HEARTBEAT_INTERVAL_MS = 1500;
+const LEADER_EXPIRY_MS = 3500;
+const FOCUSED_EXPIRY_MS = 3000;
+
+let isLeader = false;
+let leaderCheckTimer = null;
 let broadcastChannel = null;
+
+// Initialize BroadcastChannel
 try {
   if (typeof window !== "undefined" && "BroadcastChannel" in window) {
     broadcastChannel = new BroadcastChannel("chatty_notification_coordinator");
     broadcastChannel.onmessage = (event) => {
-      const { type, messageId } = event.data || {};
-      if (messageId && (type === "notification_claimed" || type === "sound_claimed")) {
-        handledMessageIds.set(`${type}:${messageId}`, Date.now());
+      const { type, messageId, tabId } = event.data || {};
+      if (type === "MESSAGE_NOTIFIED" && messageId) {
+        messageDeduplicator.add(messageId);
+      } else if (
+        messageId &&
+        (type === "notification_claimed" || type === "sound_claimed")
+      ) {
+        handledActionKeys.set(`${type}:${messageId}`, Date.now());
+      } else if (type === "LEADER_CLAIMED" && tabId !== TAB_ID) {
+        isLeader = false;
+      } else if (type === "LEADER_RESIGNED" && tabId !== TAB_ID) {
+        checkLeadership();
       }
     };
   }
 } catch (e) {
-  console.warn("[notificationService] BroadcastChannel not supported:", e?.message);
+  // BroadcastChannel not available in environment
 }
 
-// Clean up expired entries periodically
+// Clean up expired action keys periodically
 if (typeof window !== "undefined") {
   const cleanupTimer = setInterval(() => {
     const now = Date.now();
-    for (const [key, ts] of handledMessageIds.entries()) {
+    for (const [key, ts] of handledActionKeys.entries()) {
       if (now - ts > NOTIFICATION_DEDUP_WINDOW_MS) {
-        handledMessageIds.delete(key);
+        handledActionKeys.delete(key);
       }
     }
   }, 10000);
   cleanupTimer?.unref?.();
 }
 
+// Leader election & heartbeat check
+export const checkLeadership = () => {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") {
+    isLeader = true;
+    return true;
+  }
+
+  const now = Date.now();
+  try {
+    const raw = localStorage.getItem(LEADER_KEY);
+    if (!raw) {
+      localStorage.setItem(
+        LEADER_KEY,
+        JSON.stringify({ tabId: TAB_ID, heartbeat: now }),
+      );
+      isLeader = true;
+      try {
+        broadcastChannel?.postMessage?.({
+          type: "LEADER_CLAIMED",
+          tabId: TAB_ID,
+        });
+      } catch {}
+      return true;
+    }
+
+    const current = JSON.parse(raw);
+    if (current.tabId === TAB_ID) {
+      localStorage.setItem(
+        LEADER_KEY,
+        JSON.stringify({ tabId: TAB_ID, heartbeat: now }),
+      );
+      isLeader = true;
+      return true;
+    }
+
+    if (now - (current.heartbeat || 0) > LEADER_EXPIRY_MS) {
+      localStorage.setItem(
+        LEADER_KEY,
+        JSON.stringify({ tabId: TAB_ID, heartbeat: now }),
+      );
+      isLeader = true;
+      try {
+        broadcastChannel?.postMessage?.({
+          type: "LEADER_CLAIMED",
+          tabId: TAB_ID,
+        });
+      } catch {}
+      return true;
+    }
+
+    isLeader = false;
+    return false;
+  } catch {
+    isLeader = true;
+    return true;
+  }
+};
+
+// Start leader heartbeat & window event listeners
+if (typeof window !== "undefined") {
+  checkLeadership();
+  leaderCheckTimer = setInterval(checkLeadership, HEARTBEAT_INTERVAL_MS);
+  leaderCheckTimer?.unref?.();
+
+  const updateFocus = (focused) => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        if (focused) {
+          localStorage.setItem(
+            FOCUSED_KEY,
+            JSON.stringify({ tabId: TAB_ID, ts: Date.now() }),
+          );
+        } else {
+          const current = localStorage.getItem(FOCUSED_KEY);
+          if (current) {
+            const parsed = JSON.parse(current);
+            if (parsed.tabId === TAB_ID) {
+              localStorage.removeItem(FOCUSED_KEY);
+            }
+          }
+        }
+      }
+    } catch {}
+  };
+
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("focus", () => updateFocus(true));
+    window.addEventListener("blur", () => updateFocus(false));
+  }
+  if (
+    typeof document !== "undefined" &&
+    typeof document.addEventListener === "function"
+  ) {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        updateFocus(false);
+      } else if (
+        typeof document.hasFocus === "function" &&
+        document.hasFocus()
+      ) {
+        updateFocus(true);
+      }
+    });
+  }
+
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("beforeunload", () => {
+      try {
+        if (isLeader && typeof localStorage !== "undefined") {
+          localStorage.removeItem(LEADER_KEY);
+          broadcastChannel?.postMessage?.({
+            type: "LEADER_RESIGNED",
+            tabId: TAB_ID,
+          });
+        }
+      } catch {}
+    });
+  }
+}
+
 /**
- * Checks whether an action (notification or sound) for this messageId was already claimed.
- * Uses in-memory Map, BroadcastChannel, and short-lived localStorage timestamp locks.
+ * Checks if this tab is currently the designated tab responsible for notifying.
+ * Rule: Focused tab has priority; if no tab is focused, the leader tab notifies.
+ */
+export const isDesignatedNotifierTab = () => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return true; // Test/Node default
+  }
+
+  // 1. If this tab has document focus, it is the designated tab
+  const hasFocus =
+    typeof document.hasFocus === "function" ? document.hasFocus() : false;
+  if (hasFocus) {
+    return true;
+  }
+
+  // 2. If another tab currently has focus, this tab must NOT notify
+  try {
+    if (typeof localStorage !== "undefined") {
+      const raw = localStorage.getItem(FOCUSED_KEY);
+      if (raw) {
+        const focused = JSON.parse(raw);
+        const now = Date.now();
+        if (
+          focused.tabId !== TAB_ID &&
+          now - (focused.ts || 0) < FOCUSED_EXPIRY_MS
+        ) {
+          return false;
+        }
+      }
+    }
+  } catch {}
+
+  // 3. If no tab has focus, the leader tab notifies
+  return isLeader;
+};
+
+/**
+ * Checks whether an action for messageId was already claimed.
  */
 export const claimAction = (actionType, messageId) => {
-  if (!messageId) return true; // Cannot deduplicate without an ID, proceed
+  if (!messageId) return true;
 
   const key = `${actionType}:${messageId}`;
   const now = Date.now();
 
-  // 1. Check in-memory Map for this tab
-  if (handledMessageIds.has(key)) {
+  if (handledActionKeys.has(key)) {
     return false;
   }
 
-  // 2. Check localStorage cross-tab lock fallback
   try {
     if (typeof localStorage !== "undefined") {
       const lockKey = `chatty_lock_${key}`;
@@ -64,7 +283,7 @@ export const claimAction = (actionType, messageId) => {
       if (existing) {
         const lockTs = Number(existing);
         if (now - lockTs < NOTIFICATION_DEDUP_WINDOW_MS) {
-          handledMessageIds.set(key, lockTs);
+          handledActionKeys.set(key, lockTs);
           return false;
         }
       }
@@ -72,20 +291,14 @@ export const claimAction = (actionType, messageId) => {
       const timer = setTimeout(() => {
         try {
           localStorage.removeItem(lockKey);
-        } catch {
-          /* ignore */
-        }
+        } catch {}
       }, NOTIFICATION_DEDUP_WINDOW_MS);
       timer?.unref?.();
     }
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 
-  // 3. Mark as claimed in this tab
-  handledMessageIds.set(key, now);
+  handledActionKeys.set(key, now);
 
-  // 4. Notify other tabs via BroadcastChannel
   try {
     if (broadcastChannel) {
       broadcastChannel.postMessage({
@@ -93,9 +306,7 @@ export const claimAction = (actionType, messageId) => {
         messageId,
       });
     }
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 
   return true;
 };
@@ -112,7 +323,7 @@ export const getPermissionState = () => {
 };
 
 /**
- * Requests Notification API permission from direct user interaction.
+ * Requests Notification API permission from user gesture.
  */
 export const requestPermission = async () => {
   if (typeof window === "undefined" || !("Notification" in window)) {
@@ -128,7 +339,7 @@ export const requestPermission = async () => {
 };
 
 /**
- * Plays a clean, pleasant two-tone Web Audio API chime as fallback.
+ * Plays a two-tone Web Audio API chime as fallback.
  */
 const playWebAudioChime = (volumeFraction) => {
   try {
@@ -143,12 +354,10 @@ const playWebAudioChime = (volumeFraction) => {
     const osc2 = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
-    // Volume scaling (safe range: 0.0 to 0.4 max master gain)
     const masterGain = Math.max(0, Math.min(1, volumeFraction)) * 0.35;
     gainNode.gain.setValueAtTime(masterGain, now);
     gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
 
-    // Warm double-bell chime: F#5 (740Hz) followed by B5 (987Hz)
     osc1.type = "sine";
     osc1.frequency.setValueAtTime(740, now);
     osc1.frequency.exponentialRampToValueAtTime(880, now + 0.12);
@@ -169,17 +378,18 @@ const playWebAudioChime = (volumeFraction) => {
     osc2.onended = () => {
       try {
         ctx.close();
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     };
   } catch (err) {
-    console.warn("[notificationService] Web Audio fallback failed:", err?.message);
+    console.warn(
+      "[notificationService] Web Audio fallback failed:",
+      err?.message,
+    );
   }
 };
 
 /**
- * Plays message chime respecting volume, throttle, and mute rules.
+ * Plays message chime respecting volume, throttle, mute, and soft chime options.
  */
 export const playMessageSound = ({
   volume = 60,
@@ -188,18 +398,17 @@ export const playMessageSound = ({
   isMuted = false,
   isDnd = false,
   force = false,
+  soft = false,
 } = {}) => {
   if (!force) {
     if (!soundEnabled) return;
     if (isMuted || isDnd) return;
 
-    // Throttle check
     const now = Date.now();
     if (now - lastSoundPlayedAt < SOUND_THROTTLE_MS) {
       return;
     }
 
-    // Cross-tab claim: only one tab chimes for a given message
     if (messageId && !claimAction("sound", messageId)) {
       return;
     }
@@ -207,10 +416,10 @@ export const playMessageSound = ({
     lastSoundPlayedAt = now;
   }
 
-  const volumeFraction = Math.max(0, Math.min(100, Number(volume) || 0)) / 100;
+  const baseFraction = Math.max(0, Math.min(100, Number(volume) || 0)) / 100;
+  const volumeFraction = baseFraction * (soft ? 0.35 : 1.0);
   if (volumeFraction <= 0) return;
 
-  // Try playing audio file first
   try {
     if (!cachedAudioElement) {
       cachedAudioElement = new Audio("/sounds/message.mp3");
@@ -223,7 +432,6 @@ export const playMessageSound = ({
     const playPromise = cachedAudioElement.play();
     if (playPromise !== undefined) {
       playPromise.catch(() => {
-        // Autoplay policy or asset failure -> fallback to Web Audio
         playWebAudioChime(volumeFraction);
       });
     }
@@ -255,18 +463,18 @@ export const formatNotificationPreview = ({
 
   const title = senderName ? String(senderName).trim() : "Chatty";
 
-  // Media description fallback
   let previewText = typeof text === "string" ? text.trim() : "";
   if (!previewText) {
     if (messageType === "image" || hasImage) previewText = "📷 Photo";
     else if (messageType === "video" || hasVideo) previewText = "📹 Video";
-    else if (messageType === "audio" || hasAudio) previewText = "🎤 Voice message";
+    else if (messageType === "audio" || hasAudio)
+      previewText = "🎤 Voice message";
     else if (messageType === "file" || hasFile) previewText = "📎 File";
-    else if (messageType === "location" || hasLocation) previewText = "📍 Location";
+    else if (messageType === "location" || hasLocation)
+      previewText = "📍 Location";
     else previewText = "New message";
   }
 
-  // Truncate to ~100 characters safely
   if (previewText.length > 100) {
     previewText = previewText.slice(0, 97) + "…";
   }
@@ -279,6 +487,7 @@ export const formatNotificationPreview = ({
 
 /**
  * Triggers a native desktop notification if permitted and eligible.
+ * Uses tag: chat-${chatId} with renotify: false to collapse multiple messages.
  */
 export const showDesktopNotification = ({
   senderName = "User",
@@ -308,7 +517,6 @@ export const showDesktopNotification = ({
     if (Notification.permission !== "granted") return null;
     if (isMuted || isDnd) return null;
 
-    // Cross-tab claim: only one tab produces the desktop notification
     if (messageId && !claimAction("notification", messageId)) {
       return null;
     }
@@ -326,8 +534,9 @@ export const showDesktopNotification = ({
     hasLocation,
   });
 
-  const iconUrl = avatar && avatar.startsWith("http") ? avatar : "/chatty-favicon.png";
-  const tag = chatId ? `chatty_chat_${chatId}` : `chatty_msg_${Date.now()}`;
+  const iconUrl =
+    avatar && avatar.startsWith("http") ? avatar : "/chatty-favicon.png";
+  const tag = `chat-${chatId || "general"}`;
 
   try {
     const notification = new Notification(title, {
@@ -335,16 +544,14 @@ export const showDesktopNotification = ({
       icon: iconUrl,
       badge: "/chatty-favicon.png",
       tag,
-      renotify: true,
+      renotify: false, // Collapse repeats from same chat without re-alerting
       silent: true, // Audio chime is managed independently by playMessageSound
     });
 
     notification.onclick = () => {
       try {
         window.focus();
-      } catch {
-        /* ignore */
-      }
+      } catch {}
 
       if (typeof onNotificationClick === "function") {
         onNotificationClick(chatId);
@@ -355,16 +562,205 @@ export const showDesktopNotification = ({
 
     return notification;
   } catch (err) {
-    console.error("[notificationService] Notification constructor failed:", err);
+    console.error(
+      "[notificationService] Notification constructor failed:",
+      err,
+    );
     return null;
   }
 };
 
+/**
+ * SINGLE SOURCE OF TRUTH:
+ * Handles incoming messages across direct and group chats.
+ * Manages deduplication, multi-tab coordination, sound playback,
+ * native desktop notifications, and fallback in-app toasts.
+ */
+export const handleIncomingMessage = (message, options = {}) => {
+  if (!message) return null;
+
+  // 1. Extract unique message ID
+  const msgId = String(message.id || message._id || message.clientId || "");
+  if (!msgId) return null;
+
+  // 2. Ignore non-message events (edits, reactions, system updates)
+  if (message.isEdited || message.isReaction || message.type === "system") {
+    return null;
+  }
+
+  // 3. Never notify for current user's own messages
+  const currentUserId = options.currentUserId || message.currentUserId;
+  const senderId = String(
+    message.senderId || message.sender?._id || message.sender?.id || "",
+  );
+  if (
+    currentUserId &&
+    senderId &&
+    String(currentUserId) === String(senderId)
+  ) {
+    return null;
+  }
+
+  // 4. Message ID deduplication (Set/LRU of last 200 IDs)
+  if (messageDeduplicator.has(msgId)) {
+    return null;
+  }
+  messageDeduplicator.add(msgId);
+
+  // Broadcast to other tabs that this message was notified
+  try {
+    if (broadcastChannel) {
+      broadcastChannel.postMessage({
+        type: "MESSAGE_NOTIFIED",
+        messageId: msgId,
+      });
+    }
+  } catch {}
+
+  // 5. Multi-tab coordination:
+  // Exactly ONE tab (the focused one, otherwise the leader tab) notifies. Other tabs stay silent.
+  const designated =
+    typeof options.isDesignatedNotifier === "boolean"
+      ? options.isDesignatedNotifier
+      : isDesignatedNotifierTab();
+
+  if (!designated) {
+    return null;
+  }
+
+  // 6. Fetch user notification settings
+  const settings =
+    options.settings ||
+    useNotificationSettingsStore.getState()?.settings ||
+    NOTIFICATION_SETTINGS_DEFAULTS;
+
+  // 7. Check if user is currently focused on the same chat
+  const isFocusedSameChat = Boolean(
+    options.isFocusedSameChat !== undefined
+      ? options.isFocusedSameChat
+      : message.isFocusedSameChat,
+  );
+
+  const result = {
+    messageId: msgId,
+    soundPlayed: false,
+    desktopShown: false,
+    toastShown: false,
+    channel: null,
+  };
+
+  // 8. Sound playback: optional soft sound when focused on same chat
+  if (settings.soundEnabled) {
+    playMessageSound({
+      volume: settings.soundVolume,
+      soundEnabled: true,
+      messageId: msgId,
+      soft: isFocusedSameChat,
+    });
+    result.soundPlayed = true;
+  }
+
+  // 9. Visual notification channel decision:
+  // - If focused on same chat: no desktop notification, no in-app toast
+  if (isFocusedSameChat) {
+    result.channel = "focused_chat_sound_only";
+    return result;
+  }
+
+  // - If tab is hidden/unfocused or different chat:
+  // Show ONE desktop notification if enabled & granted, otherwise ONE in-app toast. Never both.
+  const permission = getPermissionState();
+  const canShowDesktop =
+    settings.desktopNotifications && permission === "granted";
+
+  const chatId = String(
+    message.chatId || message.groupId || senderId || "general",
+  );
+  const senderName =
+    message.senderName || message.sender?.fullName || "User";
+  const avatar = message.avatar || message.sender?.avatar || "";
+
+  if (canShowDesktop) {
+    const notif = showDesktopNotification({
+      senderName,
+      text: message.text,
+      chatId,
+      avatar,
+      messageType: message.file
+        ? "file"
+        : message.image
+          ? "image"
+          : message.video
+            ? "video"
+            : message.audio
+              ? "audio"
+              : message.location
+                ? "location"
+                : "text",
+      hasImage: Boolean(message.image?.url || message.image),
+      hasVideo: Boolean(message.video?.url || message.video),
+      hasAudio: Boolean(message.audio?.url || message.audio),
+      hasFile: Boolean(message.file?.url || message.file),
+      hasLocation: Boolean(message.location?.lat),
+      messageId: msgId,
+      showPreview: settings.showPreview,
+      desktopNotifications: true,
+      onNotificationClick:
+        options.onNotificationClick || message.onNotificationClick,
+    });
+    result.desktopShown = Boolean(notif);
+    result.channel = "desktop";
+  } else {
+    // In-app fallback toast
+    const { title, body } = formatNotificationPreview({
+      text: message.text,
+      showPreview: settings.showPreview,
+      senderName,
+      messageType: message.file
+        ? "file"
+        : message.image
+          ? "image"
+          : message.video
+            ? "video"
+            : message.audio
+              ? "audio"
+              : message.location
+                ? "location"
+                : "text",
+      hasImage: Boolean(message.image?.url || message.image),
+      hasVideo: Boolean(message.video?.url || message.video),
+      hasAudio: Boolean(message.audio?.url || message.audio),
+      hasFile: Boolean(message.file?.url || message.file),
+      hasLocation: Boolean(message.location?.lat),
+    });
+
+    try {
+      customToast(body, {
+        title,
+        duration: 4000,
+        id: `toast-${msgId}`,
+      });
+      result.toastShown = true;
+      result.channel = "toast";
+    } catch (err) {
+      console.warn(
+        "[notificationService] In-app toast failed:",
+        err?.message,
+      );
+    }
+  }
+
+  return result;
+};
+
 export default {
+  handleIncomingMessage,
   getPermissionState,
   requestPermission,
   playMessageSound,
   showDesktopNotification,
   formatNotificationPreview,
   claimAction,
+  isDesignatedNotifierTab,
+  messageDeduplicator,
 };

@@ -10,7 +10,7 @@ export default function SettingsToggle({
 }) {
   return (
     <div
-      className={`relative flex items-center justify-center p-1 ${className}`}
+      className={`relative inline-flex min-h-[44px] min-w-[44px] items-center justify-center p-1 ${className}`}
     >
       <motion.button
         type="button"

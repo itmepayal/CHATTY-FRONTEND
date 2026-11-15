@@ -544,17 +544,19 @@ const UserInfoPanel = ({ open, onToggle }) => {
         aria-hidden="true"
       />
 
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto xl:w-80 xl:max-w-none xl:shadow-none">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto xl:w-80 lg:w-[320px] xl:w-[360px] xl:max-w-none xl:shadow-none transition-all duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-base-300 px-5 py-4">
-          <div className="flex items-center gap-2 font-semibold">
-            <Info className="size-5 text-base-content/60" />
+        <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
+          <div className="flex items-center gap-2.5 font-bold tracking-tight text-base text-base-content/90">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-200/80 text-base-content/60">
+              <Info className="size-4.5" />
+            </span>
             <span>Contact info</span>
           </div>
           <button
             type="button"
             onClick={onToggle}
-            className="btn btn-ghost btn-sm btn-circle"
+            className="btn btn-ghost btn-sm btn-circle hover:bg-base-200"
             aria-label="Close contact info"
           >
             <X className="size-4" />

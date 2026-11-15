@@ -9,6 +9,7 @@ import UserInfoPanel from "../components/Chat/UserInfoPanel";
 import GroupInfoPanel from "../components/group/GroupInfoPanel";
 import GroupInfoModal from "../components/modal/GroupInfoModel";
 import E2EEStatusBanner from "../components/e2ee/E2EEStatusBanner";
+import { ChatLayout } from "../components/chat-ui";
 
 const HomePage = () => {
   const { selectedUser } = useChatStore();
@@ -17,46 +18,50 @@ const HomePage = () => {
   const [showInfo, setShowInfo] = useState(true);
   const [showGroupInfo, setShowGroupInfo] = useState(true);
   const [showGroupModal, setShowGroupModal] = useState(false);
+
   let content;
-  if (selectedGroup)
+  if (selectedGroup) {
     content = (
       <GroupChatContainer onToggleInfo={() => setShowGroupInfo((v) => !v)} />
     );
-  else if (selectedUser) content = <ChatContainer />;
-  else content = <NoChatSelected />;
+  } else if (selectedUser) {
+    content = (
+      <ChatContainer onToggleInfo={() => setShowInfo((v) => !v)} />
+    );
+  } else {
+    content = <NoChatSelected />;
+  }
 
   return (
-    <div className="h-screen h-[100dvh] bg-base-200 flex items-center justify-center p-0 sm:p-2 md:p-4 overscroll-none">
-      <div className="container mx-auto h-full max-h-none sm:max-h-[900px]">
-        <div className="bg-base-100 sm:rounded-2xl shadow-xl sm:border border-base-300 w-full h-full flex flex-col overflow-hidden">
-          <E2EEStatusBanner />
-          <div className="flex flex-1 min-h-0 overflow-hidden relative">
-            <Sidebar />
-            {content}
+    <ChatLayout
+      banner={<E2EEStatusBanner />}
+      sidebar={<Sidebar />}
+      content={content}
+      infoPanel={
+        <>
+          {selectedUser && !selectedGroup && (
+            <UserInfoPanel
+              open={showInfo}
+              onToggle={() => setShowInfo((v) => !v)}
+            />
+          )}
 
-            {selectedUser && !selectedGroup && (
-              <UserInfoPanel
-                open={showInfo}
-                onToggle={() => setShowInfo((v) => !v)}
-              />
-            )}
-
-            {selectedGroup && (
-              <GroupInfoPanel
-                open={showGroupInfo}
-                onToggle={() => setShowGroupInfo((v) => !v)}
-                onManage={() => setShowGroupModal(true)}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      <GroupInfoModal
-        open={showGroupModal}
-        onClose={() => setShowGroupModal(false)}
-      />
-    </div>
+          {selectedGroup && (
+            <GroupInfoPanel
+              open={showGroupInfo}
+              onToggle={() => setShowGroupInfo((v) => !v)}
+              onManage={() => setShowGroupModal(true)}
+            />
+          )}
+        </>
+      }
+      modal={
+        <GroupInfoModal
+          open={showGroupModal}
+          onClose={() => setShowGroupModal(false)}
+        />
+      }
+    />
   );
 };
 

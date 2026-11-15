@@ -10,7 +10,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../toast";
 import { AI_TONES, useAiStore } from "../../store/useAiStore";
 import { useSettingsStore } from "../../store/UseSettingsStore";
 
@@ -204,9 +204,9 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
   const copyResult = async () => {
     try {
       await navigator.clipboard.writeText(result.value);
-      toast.success("Copied");
+      customToast.success("Copied");
     } catch {
-      toast.error("Couldn't copy");
+      customToast.error("Couldn't copy");
     }
   };
 

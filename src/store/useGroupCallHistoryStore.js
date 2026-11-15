@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import toast from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js"; // <- apne axios instance ka path
 
 // apne app.use("/api/...", groupCallRoutes) ke hisaab se badlo

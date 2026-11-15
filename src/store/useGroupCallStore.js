@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import toast from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 import { useAuthStore } from "./useAuthStore.js";
 import {
   ICE_SERVERS,

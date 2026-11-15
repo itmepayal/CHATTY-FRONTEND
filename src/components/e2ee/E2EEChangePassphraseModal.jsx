@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { customToast } from "../toast";
 import { Key, Lock, Eye, EyeOff, AlertCircle, Loader2, X } from "lucide-react";
 import { e2eeManager } from "../../lib/e2ee/e2eeManager.js";
 import { getE2EEErrorMessage } from "../../lib/e2ee/e2eeErrors.js";
@@ -35,7 +35,7 @@ export function E2EEChangePassphraseModal({ isOpen, onClose }) {
     setLoading(true);
     try {
       await e2eeManager.changePassphrase(currentPassphrase, newPassphrase);
-      toast.success("Recovery passphrase rotated successfully!");
+      customToast.success("Recovery passphrase rotated successfully!");
       setCurrentPassphrase("");
       setNewPassphrase("");
       setConfirmPassphrase("");
@@ -46,7 +46,7 @@ export function E2EEChangePassphraseModal({ isOpen, onClose }) {
         "Failed to update recovery passphrase.",
       );
       setError(msg);
-      toast.error(msg);
+      customToast.error(msg);
     } finally {
       setLoading(false);
     }

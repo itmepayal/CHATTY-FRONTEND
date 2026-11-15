@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { MotionConfig, motion, AnimatePresence } from "framer-motion";
-import { toast } from "react-hot-toast";
+import { customToast } from "../components/toast";
 import { useAuthStore } from "../store/useAuthStore";
 import { useSecurityStore } from "../store/useSecurityStore";
 import { axiosInstance } from "../lib/axios.js";
@@ -408,11 +408,11 @@ export default function ProfilePage() {
   const processFile = (selectedFile) => {
     if (!selectedFile) return;
     if (!AVATAR_TYPES.includes(selectedFile.type)) {
-      toast.error("Only JPG, PNG, and WEBP formats are allowed.");
+      customToast.error("Only JPG, PNG, and WEBP formats are allowed.");
       return;
     }
     if (selectedFile.size > AVATAR_MAX_MB * 1024 * 1024) {
-      toast.error(`File size should be under ${AVATAR_MAX_MB}MB.`);
+      customToast.error(`File size should be under ${AVATAR_MAX_MB}MB.`);
       return;
     }
     setFile(selectedFile);
@@ -438,7 +438,7 @@ export default function ProfilePage() {
   };
 
   const handleImageUpload = async () => {
-    if (!file) return toast.error("Please select a file first");
+    if (!file) return customToast.error("Please select a file first");
     const formData = new FormData();
     formData.append("avatar", file);
 
@@ -491,7 +491,7 @@ export default function ProfilePage() {
 
   const handleSaveProfile = async (e) => {
     e?.preventDefault?.();
-    if (!validate()) return toast.error("Please fix the highlighted fields");
+    if (!validate()) return customToast.error("Please fix the highlighted fields");
     if (!isDirty) {
       setIsEditDrawerOpen(false);
       return;
@@ -500,7 +500,7 @@ export default function ProfilePage() {
     try {
       await updateProfile(buildUpdatePayload(form));
       setIsEditDrawerOpen(false);
-      toast.success("Profile updated successfully");
+      customToast.success("Profile updated successfully");
     } catch (err) {
       console.error("Update profile error:", err);
     }
@@ -518,9 +518,9 @@ export default function ProfilePage() {
   const copyText = async (text, label) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(`${label} copied to clipboard`);
+      customToast.success(`${label} copied to clipboard`);
     } catch {
-      toast.error("Couldn't copy to clipboard");
+      customToast.error("Couldn't copy to clipboard");
     }
   };
 

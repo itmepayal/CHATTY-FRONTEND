@@ -78,6 +78,8 @@ const {
   claimAction,
   playMessageSound,
   showDesktopNotification,
+  handleIncomingMessage,
+  messageDeduplicator,
 } = await import("../src/services/notificationService.js");
 
 const {
@@ -277,7 +279,8 @@ test("15. showDesktopNotification creates notification with collapsed tag based 
   assert.ok(notif);
   assert.equal(notif.title, "Alice");
   assert.equal(notif.options.body, "Hey there!");
-  assert.equal(notif.options.tag, `chatty_chat_${chatId}`);
+  assert.equal(notif.options.tag, `chat-${chatId}`);
+  assert.equal(notif.options.renotify, false);
 });
 
 test("16. useNotificationSettingsStore handles defaults and resetSettings on logout", () => {
@@ -302,4 +305,229 @@ test("16. useNotificationSettingsStore handles defaults and resetSettings on log
     useNotificationSettingsStore.getState().settings,
     NOTIFICATION_SETTINGS_DEFAULTS,
   );
+});
+
+test("17. handleIncomingMessage deduplicates incoming messages by message ID", () => {
+  messageDeduplicator.clear();
+  MockNotification.permission = "granted";
+  MockNotification.instances = [];
+
+  const msgId = `dedup_test_${Date.now()}`;
+  const incoming = {
+    id: msgId,
+    senderId: "user_alice",
+    text: "First time message",
+    chatId: "user_alice",
+  };
+
+  const firstCall = handleIncomingMessage(incoming, {
+    currentUserId: "user_bob",
+    isDesignatedNotifier: true,
+    isFocusedSameChat: false,
+    settings: {
+      soundEnabled: true,
+      soundVolume: 50,
+      desktopNotifications: true,
+      showPreview: true,
+    },
+  });
+
+  assert.ok(firstCall, "First invocation must process notification");
+  assert.equal(firstCall.messageId, msgId);
+  assert.equal(firstCall.desktopShown, true);
+
+  const secondCall = handleIncomingMessage(incoming, {
+    currentUserId: "user_bob",
+    isDesignatedNotifier: true,
+    isFocusedSameChat: false,
+  });
+
+  assert.equal(
+    secondCall,
+    null,
+    "Second invocation with identical ID must be deduplicated and skipped",
+  );
+});
+
+test("18. Listener registered once: mock socket and count handlers", () => {
+  const listeners = new Map();
+  const mockSocket = {
+    on: (event, handler) => {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(handler);
+    },
+    off: (event, handler) => {
+      if (!listeners.has(event)) return;
+      if (!handler) {
+        listeners.delete(event);
+      } else {
+        const arr = listeners.get(event).filter((h) => h !== handler);
+        listeners.set(event, arr);
+      }
+    },
+    listeners: (event) => listeners.get(event) || [],
+  };
+
+  const handler1 = () => {};
+  const handler2 = () => {};
+
+  // Single source registration pattern: clean up before registering
+  mockSocket.off("newMessage");
+  mockSocket.on("newMessage", handler1);
+  assert.equal(mockSocket.listeners("newMessage").length, 1);
+
+  // StrictMode simulate: unmount and remount with off before on
+  mockSocket.off("newMessage", handler1);
+  assert.equal(mockSocket.listeners("newMessage").length, 0);
+
+  mockSocket.off("newMessage");
+  mockSocket.on("newMessage", handler2);
+  assert.equal(mockSocket.listeners("newMessage").length, 1);
+
+  // Even if called repeatedly with cleanup protection:
+  mockSocket.off("newMessage");
+  mockSocket.on("newMessage", handler2);
+  assert.equal(mockSocket.listeners("newMessage").length, 1);
+});
+
+test("19. formatNotificationPreview and handleIncomingMessage respect showPreview on/off", () => {
+  const onPreview = formatNotificationPreview({
+    senderName: "Devi",
+    text: "Confidential deployment plan",
+    showPreview: true,
+  });
+  assert.equal(onPreview.title, "Devi");
+  assert.equal(onPreview.body, "Confidential deployment plan");
+
+  const offPreview = formatNotificationPreview({
+    senderName: "Devi",
+    text: "Confidential deployment plan",
+    showPreview: false,
+  });
+  assert.equal(offPreview.title, "Chatty");
+  assert.equal(offPreview.body, "New message");
+});
+
+test("20. focused-same-chat rule: soft sound only, no desktop or toast", () => {
+  messageDeduplicator.clear();
+  MockNotification.instances = [];
+
+  const msgId = `focused_test_${Date.now()}`;
+  const res = handleIncomingMessage(
+    {
+      id: msgId,
+      senderId: "user_charlie",
+      text: "Are you free?",
+      chatId: "user_charlie",
+    },
+    {
+      currentUserId: "user_me",
+      isDesignatedNotifier: true,
+      isFocusedSameChat: true,
+      settings: {
+        soundEnabled: true,
+        soundVolume: 50,
+        desktopNotifications: true,
+        showPreview: true,
+      },
+    },
+  );
+
+  assert.ok(res);
+  assert.equal(res.channel, "focused_chat_sound_only");
+  assert.equal(res.soundPlayed, true);
+  assert.equal(res.desktopShown, false);
+  assert.equal(res.toastShown, false);
+  assert.equal(MockNotification.instances.length, 0);
+});
+
+test("21. Unfocused or different chat: desktop notification if permitted, otherwise in-app toast (never both)", () => {
+  messageDeduplicator.clear();
+  MockNotification.permission = "granted";
+  MockNotification.instances = [];
+
+  // Case A: Desktop notifications enabled & granted -> desktop only
+  const msgA = `unfocused_desktop_${Date.now()}`;
+  const resA = handleIncomingMessage(
+    {
+      id: msgA,
+      senderId: "user_david",
+      text: "Check this out",
+      chatId: "user_david",
+    },
+    {
+      currentUserId: "user_me",
+      isDesignatedNotifier: true,
+      isFocusedSameChat: false,
+      settings: {
+        soundEnabled: true,
+        soundVolume: 50,
+        desktopNotifications: true,
+        showPreview: true,
+      },
+    },
+  );
+
+  assert.equal(resA.channel, "desktop");
+  assert.equal(resA.desktopShown, true);
+  assert.equal(resA.toastShown, false);
+
+  // Case B: Desktop notifications disabled/denied -> in-app toast only
+  MockNotification.permission = "denied";
+  const msgB = `unfocused_toast_${Date.now()}`;
+  const resB = handleIncomingMessage(
+    {
+      id: msgB,
+      senderId: "user_david",
+      text: "Fallback note",
+      chatId: "user_david",
+    },
+    {
+      currentUserId: "user_me",
+      isDesignatedNotifier: true,
+      isFocusedSameChat: false,
+      settings: {
+        soundEnabled: true,
+        soundVolume: 50,
+        desktopNotifications: false,
+        showPreview: true,
+      },
+    },
+  );
+
+  assert.equal(resB.channel, "toast");
+  assert.equal(resB.desktopShown, false);
+  assert.equal(resB.toastShown, true);
+});
+
+test("22. Multi-tab suppression and own message exclusion", () => {
+  messageDeduplicator.clear();
+
+  // Multi-tab: non-designated tab must stay completely silent
+  const nonDesignated = handleIncomingMessage(
+    {
+      id: `silent_tab_${Date.now()}`,
+      senderId: "user_other",
+      text: "Hello",
+    },
+    {
+      currentUserId: "user_me",
+      isDesignatedNotifier: false,
+    },
+  );
+  assert.equal(nonDesignated, null);
+
+  // Own message: never notify
+  const ownMsg = handleIncomingMessage(
+    {
+      id: `own_msg_${Date.now()}`,
+      senderId: "user_me",
+      text: "Sent by me",
+    },
+    {
+      currentUserId: "user_me",
+      isDesignatedNotifier: true,
+    },
+  );
+  assert.equal(ownMsg, null);
 });

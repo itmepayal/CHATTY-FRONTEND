@@ -424,7 +424,7 @@ const AddContactModal = ({ open, onClose }) => {
               role="dialog"
               aria-modal="true"
               aria-labelledby={`${uid}-title`}
-              className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-base-300 bg-base-100 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-md sm:rounded-3xl sm:p-6"
+              className="flex max-h-[90dvh] sm:max-h-[85vh] w-full flex-col overflow-hidden rounded-t-2xl border border-base-300 bg-base-100 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-md sm:rounded-2xl sm:p-6"
               initial={{ opacity: 0, y: 40, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 24, scale: 0.97 }}
@@ -452,14 +452,14 @@ const AddContactModal = ({ open, onClose }) => {
               {/* header */}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-primary to-secondary text-primary-content shadow-lg shadow-primary/30">
-                    <UserPlus className="size-5" />
-                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-semibold shadow-2xs">
+                    <UserPlus className="size-5" aria-hidden="true" />
+                  </span>
                   <div className="min-w-0 leading-tight">
-                    <h3 id={`${uid}-title`} className="text-base font-semibold">
+                    <h3 id={`${uid}-title`} className="text-base sm:text-lg font-bold tracking-tight text-base-content/90">
                       Add contacts
                     </h3>
-                    <p className="mt-0.5 text-xs text-base-content/50">
+                    <p className="mt-0.5 text-xs text-base-content/55">
                       {contacts.length}{" "}
                       {contacts.length === 1 ? "contact" : "contacts"} saved
                     </p>

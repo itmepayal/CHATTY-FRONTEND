@@ -52,7 +52,7 @@ import {
   SmilePlus,
   Video,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
 import { useChatStore } from "../../store/useChatStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -799,7 +799,7 @@ const ScheduleModal = ({ text, onClose, onConfirm }) => {
 
   const submit = async () => {
     const when = new Date(value);
-    if (Number.isNaN(when.getTime())) return toast.error("Pick a valid time");
+    if (Number.isNaN(when.getTime())) return customToast.error("Pick a valid time");
     setBusy(true);
     const ok = await onConfirm(when.toISOString());
     setBusy(false);
@@ -928,7 +928,7 @@ const ForwardModal = ({ users, myId, onClose, onConfirm }) => {
       if (cur.some((x) => sameId(x, id)))
         return cur.filter((x) => !sameId(x, id));
       if (cur.length >= MAX_FORWARD_TARGETS) {
-        toast.error(`You can pick up to ${MAX_FORWARD_TARGETS} chats`);
+        customToast.error(`You can pick up to ${MAX_FORWARD_TARGETS} chats`);
         return cur;
       }
       return [...cur, id];
@@ -1247,13 +1247,13 @@ const ChatInput = () => {
 
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ text: "", voice }),
-    onError: (msg) => toast.error(msg),
+    onError: (msg) => customToast.error(msg),
   });
   const recorderBusy = recorder.state !== "idle";
 
   const videoRec = useVideoRecorder({
     onComplete: (video) => sendMessage({ text: "", video }),
-    onError: (msg) => toast.error(msg),
+    onError: (msg) => customToast.error(msg),
   });
   const videoBusy = videoRec.state !== "idle";
   const busy = recorderBusy || videoBusy;
@@ -1376,28 +1376,28 @@ const ChatInput = () => {
   const selectFile = (f, kind = "any") => {
     if (!f) return;
     if (isEditing) {
-      toast.error("Finish editing before attaching a file");
+      customToast.error("Finish editing before attaching a file");
       return;
     }
     const img = isImageFile(f);
 
     if (kind === "image" && !img) {
-      toast.error("Only images are allowed here. Use the paperclip for files.");
+      customToast.error("Only images are allowed here. Use the paperclip for files.");
       return;
     }
     if (kind === "file" && img) {
-      toast.error("Images can't be sent as a file. Use the image button.");
+      customToast.error("Images can't be sent as a file. Use the image button.");
       return;
     }
 
     const limitMb = img ? MAX_IMAGE_MB : MAX_FILE_MB;
 
     if (f.size === 0) {
-      toast.error("This file is empty");
+      customToast.error("This file is empty");
       return;
     }
     if (f.size > limitMb * 1024 * 1024) {
-      toast.error(
+      customToast.error(
         `${img ? "Image" : "File"} must be smaller than ${limitMb} MB`,
       );
       return;
@@ -1412,7 +1412,7 @@ const ChatInput = () => {
     // ---- edit mode: save (re-encrypted by the store) instead of sending ----
     if (editingMessage) {
       const trimmed = text.trim();
-      if (!trimmed) return toast.error("Message can't be empty");
+      if (!trimmed) return customToast.error("Message can't be empty");
       if (trimmed === (editingMessage.text || "").trim()) return cancelEdit();
       const ok = await editMessage(editingMessage.id, trimmed);
       if (ok) cancelEdit();
@@ -2291,7 +2291,7 @@ const MessageRow = memo(function MessageRow({
 /* ------------------------------------------------------------------ */
 /*  ChatContainer                                                      */
 /* ------------------------------------------------------------------ */
-const ChatContainer = () => {
+const ChatContainer = ({ onToggleInfo }) => {
   const {
     messages,
     users,
@@ -2473,7 +2473,7 @@ const ChatContainer = () => {
       await whenE2EEReady();
       await redecryptFailed();
     } catch {
-      toast.error("Couldn't refresh encryption keys. Try again.");
+      customToast.error("Couldn't refresh encryption keys. Try again.");
     } finally {
       setRetryingKeys(false);
     }
@@ -2569,7 +2569,7 @@ const ChatContainer = () => {
   const scrollToMessage = useCallback((id) => {
     const el = document.getElementById(`msg-${id}`);
     if (!el) {
-      toast.error("Message not found in this chat");
+      customToast.error("Message not found in this chat");
       return;
     }
     stickToBottomRef.current = false;
@@ -2588,11 +2588,10 @@ const ChatContainer = () => {
         socket?.emit?.("chat:open", selectedUser.id);
       }
     }
-    subscribeToMessage();
     return () => {
       socket?.emit?.("chat:close");
     };
-  }, [selectedUser?.id, socket, getMessage, subscribeToMessage]);
+  }, [selectedUser?.id, socket, getMessage]);
 
   useEffect(() => {
     if (!selectedUser?.id) return;
@@ -2723,36 +2722,36 @@ const ChatContainer = () => {
     closePopover();
     // E2EE: never copy the placeholder / empty text of a locked message
     if (message.decryptFailed || !message.text) {
-      toast.error("This message is still encrypted");
+      customToast.error("This message is still encrypted");
       return;
     }
     const ok = await copyMessageText(message.text);
-    ok ? toast.success("Text copied") : toast.error("Couldn't copy text");
+    ok ? customToast.success("Text copied") : customToast.error("Couldn't copy text");
   };
 
   // NOTE: copyMessageImage must be called right inside the click handler
   const handleCopyImage = async (message) => {
     closePopover();
     const result = await copyMessageImage(message.image?.url);
-    if (result === "image") toast.success("Image copied");
+    if (result === "image") customToast.success("Image copied");
     else if (result === "url")
-      toast.success("Image copy isn't supported here — link copied");
-    else toast.error("Couldn't copy image");
+      customToast.success("Image copy isn't supported here — link copied");
+    else customToast.error("Couldn't copy image");
   };
 
   const handleCopyLink = async (message) => {
     closePopover();
     const ok = await copyImageLink(message.image?.url);
-    ok ? toast.success("Image link copied") : toast.error("Couldn't copy link");
+    ok ? customToast.success("Image link copied") : customToast.error("Couldn't copy link");
   };
 
   const copyUrl = (getUrl, okMsg) => async (message) => {
     closePopover();
     try {
       await navigator.clipboard.writeText(getUrl(message) || "");
-      toast.success(okMsg);
+      customToast.success(okMsg);
     } catch {
-      toast.error("Couldn't copy link");
+      customToast.error("Couldn't copy link");
     }
   };
   const handleCopyFileLink = copyUrl((m) => m.file?.url, "File link copied");
@@ -2775,7 +2774,7 @@ const ChatContainer = () => {
   const handleTogglePin = (message) => {
     closePopover();
     if (!message.isPinned && pinned.length >= MAX_PINS) {
-      toast.error(`You can pin up to ${MAX_PINS} messages`);
+      customToast.error(`You can pin up to ${MAX_PINS} messages`);
       return;
     }
     togglePin(message.id);
@@ -2861,7 +2860,7 @@ const ChatContainer = () => {
     return (
       <MotionConfig reducedMotion={motionMode}>
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
-          <ChatHeader />
+          <ChatHeader onToggleInfo={onToggleInfo} />
           <MessageSkeleton />
           {inputArea}
         </div>
@@ -3012,7 +3011,7 @@ const ChatContainer = () => {
   return (
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
-        <ChatHeader />
+        <ChatHeader onToggleInfo={onToggleInfo} />
 
         {/* Toolbar: search + scheduled + disappearing + location (+ archive/report in "More") */}
         <ChatToolbar

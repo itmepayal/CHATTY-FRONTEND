@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { ArrowLeft, EyeOff, Phone, Video, X } from "lucide-react";
+import { ArrowLeft, EyeOff, Info, Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../../../store/useChatStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
@@ -74,7 +74,7 @@ const STATUS = {
 /* ------------------------------------------------------------------ */
 /*  ChatHeader                                                         */
 /* ------------------------------------------------------------------ */
-const ChatHeader = () => {
+const ChatHeader = ({ onToggleInfo }) => {
   const { selectedUser, setSelectedUser, typingFrom } = useChatStore();
 
   const hiddenUsers = useAuthStore((st) => st.hiddenUsers);
@@ -157,7 +157,7 @@ const ChatHeader = () => {
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 28 }}
-        className="relative z-10 border-b border-base-300 bg-base-100/80 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:px-4 sm:py-3"
+        className="relative z-10 h-16 shrink-0 border-b border-base-300 bg-base-100/90 px-3 shadow-xs backdrop-blur-xl sm:px-4 flex items-center justify-between"
       >
         {/* colour wash */}
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-primary/[0.07] via-transparent to-secondary/[0.07]" />
@@ -262,12 +262,23 @@ const ChatHeader = () => {
             </div>
 
             {/* ---------- name + morphing status pill ---------- */}
-            <div className="min-w-0">
+            <div
+              className={`min-w-0 ${onToggleInfo ? "cursor-pointer select-none" : ""}`}
+              onClick={onToggleInfo}
+              role={onToggleInfo ? "button" : undefined}
+              tabIndex={onToggleInfo ? 0 : undefined}
+              onKeyDown={(e) => {
+                if (onToggleInfo && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  onToggleInfo();
+                }
+              }}
+            >
               <motion.h3
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.05 }}
-                className="truncate text-[15px] font-semibold leading-tight tracking-tight sm:text-base"
+                className="truncate text-[15px] font-semibold leading-tight tracking-tight sm:text-base hover:text-primary transition-colors"
               >
                 {selectedUser.fullName}
               </motion.h3>
@@ -328,6 +339,21 @@ const ChatHeader = () => {
             >
               <Video className="size-4" />
             </motion.button>
+
+            {onToggleInfo && (
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.88 }}
+                transition={{ type: "spring", stiffness: 400, damping: 18 }}
+                className="btn btn-ghost btn-circle btn-sm hover:bg-primary/10 hover:text-primary"
+                onClick={onToggleInfo}
+                aria-label="Contact info"
+                title="Contact info"
+              >
+                <Info className="size-4" />
+              </motion.button>
+            )}
 
             <motion.button
               type="button"

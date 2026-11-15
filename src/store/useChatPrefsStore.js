@@ -15,7 +15,7 @@
  */
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
-import { toast } from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 
 const CHAT_PREF_KEYS = ["enterToSend", "largeEmoji", "autoScroll"];
 

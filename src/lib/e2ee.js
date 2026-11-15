@@ -7,7 +7,7 @@ import {
   fetchActiveDevicesForUsers,
   clearDeviceCache,
 } from "./e2ee/e2eeDevice.js";
-import toast from "react-hot-toast";
+import { customToast as toast } from "../components/toast/customToastService.js";
 
 const subtle = globalThis.crypto?.subtle;
 const enc = new TextEncoder();
@@ -113,7 +113,7 @@ const fetchPeer = (userId) => {
 
   const p = (async () => {
     const me = e2eeManager.me;
-    if (me && id === me.userId) {
+    if (me && id === String(me.userId)) {
       return { jwk: me.publicJwk, key: await importPublic(me.publicJwk) };
     }
     try {
@@ -518,11 +518,15 @@ export const encryptGroupText = async (groupId, plaintext) => {
   await e2eeManager.whenReady();
   const id = String(groupId);
   let version = groupLatest.get(id);
-  if (version == null) version = await loadGroupKeys(id);
+  if (!version) version = await loadGroupKeys(id, { force: true });
   if (!version) {
     throw new Error("group-not-encrypted");
   }
-  const key = await getGroupKey(id, version);
+  let key = await getGroupKey(id, version);
+  if (!key) {
+    version = await loadGroupKeys(id, { force: true });
+    if (version) key = await getGroupKey(id, version);
+  }
   if (!key) {
     throw new Error("no-group-key");
   }

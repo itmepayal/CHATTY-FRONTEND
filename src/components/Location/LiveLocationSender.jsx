@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import toast from "react-hot-toast";
+import { customToast } from "../toast";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useChatStore } from "../../store/useChatStore";
 
@@ -79,7 +79,7 @@ const LiveLocationSender = () => {
       },
       (err) => {
         if (err.code === 1) {
-          toast.error("Location permission denied. Live sharing can't update.");
+          customToast.error("Location permission denied. Live sharing can't update.");
         }
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },

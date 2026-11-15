@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { customToast } from "../toast";
 import {
   ShieldCheck,
   Key,
@@ -38,14 +38,14 @@ export function E2EESetupModal({ isOpen, onClose }) {
     setLoading(true);
     try {
       await e2eeManager.setupIdentity(passphrase);
-      toast.success("End-to-End Encryption enabled successfully!");
+      customToast.success("End-to-End Encryption enabled successfully!");
       setPassphrase("");
       setConfirmPassphrase("");
       if (onClose) onClose();
     } catch (err) {
       const msg = getE2EEErrorMessage(err, "Failed to enable encryption.");
       setError(msg);
-      toast.error(msg);
+      customToast.error(msg);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { customToast } from "../toast";
 import {
   AlertTriangle,
   RotateCcw,
@@ -37,7 +37,7 @@ export function E2EEResetModal({ isOpen, onClose }) {
     setLoading(true);
     try {
       await e2eeManager.resetIdentity(password);
-      toast.success("Encryption identity reset successfully.");
+      customToast.success("Encryption identity reset successfully.");
       setPassword("");
       setConfirmKeyword("");
       if (onClose) onClose();
@@ -47,7 +47,7 @@ export function E2EEResetModal({ isOpen, onClose }) {
         "Failed to reset encryption identity.",
       );
       setError(msg);
-      toast.error(msg);
+      customToast.error(msg);
     } finally {
       setLoading(false);
     }

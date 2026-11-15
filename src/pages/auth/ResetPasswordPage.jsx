@@ -11,7 +11,7 @@ import {
   ArrowRight,
   Check,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../components/toast";
 import {
   LazyMotion,
   m,
@@ -261,7 +261,7 @@ const ResetPasswordPage = () => {
       if (err?.response?.status === 400 && TOKEN_ERR_RE.test(msg)) {
         setStatus("invalid");
       } else {
-        toast.error(msg);
+        customToast.error(msg);
         shakeForm();
       }
     } finally {

@@ -10,7 +10,7 @@ import {
   AlertCircle,
   ShieldCheck,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../components/toast";
 import {
   LazyMotion,
   domAnimation,
@@ -122,7 +122,7 @@ const LoginForm = () => {
     } catch (error) {
       console.error(error);
       shakeForm();
-      toast.error("Login failed. Please try again.");
+      customToast.error("Login failed. Please try again.");
     }
   };
 

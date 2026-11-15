@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "react-hot-toast";
+import { customToast } from "../toast";
 import {
   KeyRound,
   Lock,
@@ -33,7 +33,7 @@ export function E2EERestoreModal({ isOpen, onClose, onOpenReset }) {
     setLoading(true);
     try {
       await e2eeManager.restoreIdentity(passphrase.trim());
-      toast.success("Encryption keys restored successfully!");
+      customToast.success("Encryption keys restored successfully!");
       setPassphrase("");
       if (onClose) onClose();
     } catch (err) {
@@ -42,7 +42,7 @@ export function E2EERestoreModal({ isOpen, onClose, onOpenReset }) {
         "Failed to restore encryption keys.",
       );
       setError(msg);
-      toast.error(msg);
+      customToast.error(msg);
     } finally {
       setLoading(false);
     }

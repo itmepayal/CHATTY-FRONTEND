@@ -22,7 +22,7 @@ import {
   Check,
   AtSign,
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { customToast } from "../../components/toast";
 import {
   LazyMotion,
   domAnimation,
@@ -178,11 +178,11 @@ const AvatarPicker = memo(({ file, onFile }) => {
   const processFile = (f) => {
     if (!f) return;
     if (!ALLOWED_TYPES.includes(f.type)) {
-      toast.error("Only JPG, PNG, and WEBP images are allowed.");
+      customToast.error("Only JPG, PNG, and WEBP images are allowed.");
       return;
     }
     if (f.size > MAX_SIZE_MB * 1024 * 1024) {
-      toast.error(`Image must be under ${MAX_SIZE_MB} MB.`);
+      customToast.error(`Image must be under ${MAX_SIZE_MB} MB.`);
       return;
     }
     onFile(f);
@@ -343,7 +343,7 @@ const RegisterForm = () => {
     } catch (error) {
       console.error(error);
       shakeForm();
-      toast.error(
+      customToast.error(
         error?.response?.data?.message ||
           "Couldn't create your account. Check your details and try again.",
       );

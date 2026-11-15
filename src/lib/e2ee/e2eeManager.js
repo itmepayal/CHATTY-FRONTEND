@@ -24,7 +24,7 @@ import {
   getUserPublicKeyApi,
 } from "./e2ee.api.js";
 import { registerCurrentDevice } from "./e2eeDevice.js";
-import toast from "react-hot-toast";
+import { customToast as toast } from "../../components/toast/customToastService.js";
 
 const subtle = globalThis.crypto?.subtle;
 const ECDH_ALGO = {
