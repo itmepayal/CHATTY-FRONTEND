@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ArrowLeft, EyeOff, Phone, Video, X } from "lucide-react";
 import { useChatStore } from "../../../store/useChatStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
-import { useVisibleOnlineUsers } from "../../../hooks/useVisibleOnlineUsers";
 import { useCall } from "../../../context/CallContext";
-import { axiosInstance } from "../../../lib/axios";
+import { useLastSeen } from "../../../hooks/useLastSeen.js";
+import ProfileImageViewer from "./ProfileImageViewer.jsx";
 
 const SPRING = { type: "spring", stiffness: 420, damping: 28 };
 
@@ -48,42 +47,6 @@ const OutlineDot = () => (
 
 const HiddenIcon = () => <EyeOff className="size-3 shrink-0" />;
 
-const formatLastSeen = (d) => {
-  if (!d) return "Offline";
-  try {
-    const date = new Date(d);
-    if (Number.isNaN(date.getTime())) return "Offline";
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-
-    if (diffMin < 1) return "Last seen just now";
-    if (diffMin < 60) return `Last seen ${diffMin}m ago`;
-
-    const isToday = date.toDateString() === now.toDateString();
-    const timeStr = date.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    if (isToday) return `Last seen today at ${timeStr}`;
-
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Last seen yesterday at ${timeStr}`;
-    }
-
-    const dateStr = date.toLocaleDateString([], {
-      day: "numeric",
-      month: "short",
-    });
-    return `Last seen ${dateStr} at ${timeStr}`;
-  } catch {
-    return "Offline";
-  }
-};
-
 // one entry per visual state
 const STATUS = {
   typing: {
@@ -92,7 +55,7 @@ const STATUS = {
     Icon: TypingDots,
   },
   hidden: {
-    label: "Status hidden",
+    label: "Online status is unavailable",
     pill: "bg-base-200 text-base-content/60",
     Icon: HiddenIcon,
   },
@@ -102,7 +65,7 @@ const STATUS = {
     Icon: PulseDot,
   },
   offline: {
-    label: "Offline",
+    label: "Last seen information is unavailable",
     pill: "bg-base-200 text-base-content/50",
     Icon: OutlineDot,
   },
@@ -114,7 +77,6 @@ const STATUS = {
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, typingFrom } = useChatStore();
 
-  const onlineUsers = useVisibleOnlineUsers();
   const hiddenUsers = useAuthStore((st) => st.hiddenUsers);
 
   // MY own privacy settings (reciprocal: if I hide mine, I can't see
@@ -126,6 +88,9 @@ const ChatHeader = () => {
   const { startCall, status: callStatus } = useCall();
 
   const [viewAvatar, setViewAvatar] = useState(false);
+
+  const { text: lastSeenText, isOnline, isLoading: isPresenceLoading } =
+    useLastSeen(selectedUser?.id);
 
   // close the photo viewer when the chat changes
   useEffect(() => {
@@ -140,27 +105,19 @@ const ChatHeader = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewAvatar]);
 
-  // Sync profile when other user updates privacy or details
+  // Sync profile when other user updates privacy or details, or on chat open
   useEffect(() => {
     if (!selectedUser?.id) return;
-    const handler = async (e) => {
+    useChatStore.getState().fetchUserProfile(selectedUser.id);
+
+    const handler = (e) => {
       if (String(e.detail?.userId) === String(selectedUser.id)) {
-        try {
-          const res = await axiosInstance.get(
-            `/users/${selectedUser.id}/profile`,
-          );
-          const updated = res.data?.data?.user;
-          if (updated) {
-            setSelectedUser({ ...selectedUser, ...updated });
-          }
-        } catch {
-          // ignore
-        }
+        useChatStore.getState().fetchUserProfile(selectedUser.id);
       }
     };
     window.addEventListener("chatty:profile-updated", handler);
     return () => window.removeEventListener("chatty:profile-updated", handler);
-  }, [selectedUser?.id, setSelectedUser]);
+  }, [selectedUser?.id]);
 
   if (!selectedUser) return null;
 
@@ -168,9 +125,9 @@ const ChatHeader = () => {
   const avatar =
     selectedUser.avatar?.url || selectedUser.avatar || "/avatar.png";
 
-  const theirStatusHidden = hiddenUsers.includes(uid);
+  const theirStatusHidden =
+    hiddenUsers.includes(uid) || selectedUser.isOnlineRestricted;
   const statusHidden = theirStatusHidden || !myStatusVisible;
-  const isOnline = !statusHidden && onlineUsers.includes(uid);
   const isTyping = Boolean(typingEnabled && typingFrom?.[uid]);
 
   const statusKey = isTyping
@@ -181,14 +138,11 @@ const ChatHeader = () => {
         ? "online"
         : "offline";
   const status = STATUS[statusKey];
-  const displayLabel =
-    statusKey === "offline" && selectedUser.lastSeen
-      ? formatLastSeen(selectedUser.lastSeen)
-      : status.label;
+  const displayLabel = isTyping ? "typing" : lastSeenText;
 
   const hiddenReason = !myStatusVisible
     ? "You turned off your online status, so you can't see theirs"
-    : "This person hides their online status";
+    : "Online status is unavailable.";
 
   const showRing = isOnline || isTyping;
 
@@ -325,17 +279,21 @@ const ChatHeader = () => {
                 className={`mt-1 inline-flex h-5 items-center overflow-hidden rounded-full px-2.5 text-[11px] font-medium transition-colors duration-300 sm:text-xs ${status.pill}`}
               >
                 <AnimatePresence mode="wait" initial={false}>
-                  <motion.span
-                    key={`${statusKey}-${displayLabel}`}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.16 }}
-                    className="inline-flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <status.Icon />
-                    {displayLabel}
-                  </motion.span>
+                  {displayLabel ? (
+                    <motion.span
+                      key={`${statusKey}-${displayLabel}`}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.16 }}
+                      className="inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <status.Icon />
+                      {displayLabel}
+                    </motion.span>
+                  ) : isPresenceLoading ? (
+                    <span className="inline-block h-2.5 w-16 animate-pulse rounded bg-base-content/20" />
+                  ) : null}
                 </AnimatePresence>
               </motion.div>
             </div>
@@ -387,62 +345,12 @@ const ChatHeader = () => {
         </div>
       </motion.header>
 
-      {/* ---------- photo viewer (shared-element transition) ---------- */}
-      {createPortal(
-        <AnimatePresence>
-          {viewAvatar && (
-            <motion.div
-              className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-5 bg-black/70 p-4 backdrop-blur-md"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setViewAvatar(false)}
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${selectedUser.fullName} photo`}
-            >
-              <motion.img
-                layoutId={`chat-avatar-${uid}`}
-                src={avatar}
-                alt={selectedUser.fullName}
-                transition={SPRING}
-                onClick={(e) => e.stopPropagation()}
-                className="max-h-[65vh] w-[min(88vw,26rem)] rounded-3xl object-cover shadow-2xl ring-1 ring-white/20"
-              />
-
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ delay: 0.12 }}
-                className="text-center text-white"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <p className="text-lg font-semibold tracking-tight">
-                  {selectedUser.fullName}
-                </p>
-                <p className="mt-0.5 text-sm text-white/70">{status.label}</p>
-              </motion.div>
-
-              <motion.button
-                type="button"
-                initial={{ opacity: 0, scale: 0.7 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.7 }}
-                whileHover={{ rotate: 90, scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setViewAvatar(false)}
-                className="btn btn-circle btn-sm absolute right-4 top-4 border-0 bg-white/15 text-white hover:bg-white/25"
-                aria-label="Close photo"
-              >
-                <X className="size-4" />
-              </motion.button>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body,
-      )}
+      <ProfileImageViewer
+        isOpen={viewAvatar}
+        onClose={() => setViewAvatar(false)}
+        userId={selectedUser.id}
+        user={selectedUser}
+      />
     </MotionConfig>
   );
 };

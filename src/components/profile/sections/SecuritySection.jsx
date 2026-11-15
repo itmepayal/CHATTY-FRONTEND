@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Fingerprint,
@@ -195,7 +194,6 @@ export default function SecuritySection({
   togglePwShow,
   handlePasswordSubmit,
   isChangingPassword,
-  passedRules,
   strength,
   twoFA,
   openTwoFA,
@@ -215,7 +213,6 @@ export default function SecuritySection({
 
   return (
     <div className="flex flex-1 flex-col gap-5 sm:gap-6">
-      {/* 1. Security Checkup Card */}
       <ProfileCard
         icon={Fingerprint}
         title="Security checkup"
@@ -266,7 +263,6 @@ export default function SecuritySection({
         </div>
       </ProfileCard>
 
-      {/* 2. Change Password Card */}
       <ProfileCard
         icon={KeyRound}
         title="Change password"
@@ -395,14 +391,12 @@ export default function SecuritySection({
         </form>
       </ProfileCard>
 
-      {/* 3. Extra Protection Card */}
       <ProfileCard
         icon={ShieldCheck}
         title="Extra account protection"
         subtitle="Additional security safeguards to verify authorized logins and notify you of new sign-ins."
       >
         <div className="space-y-3">
-          {/* 2FA Row */}
           <SecurityRow
             icon={Smartphone}
             title="Two-step verification (2FA)"
@@ -441,7 +435,6 @@ export default function SecuritySection({
             )}
           </SecurityRow>
 
-          {/* 2FA Note */}
           <AnimatePresence>
             {twoFA && (
               <motion.div
@@ -470,7 +463,6 @@ export default function SecuritySection({
             )}
           </AnimatePresence>
 
-          {/* Login Alerts Row */}
           <SecurityRow
             icon={Bell}
             title="Login alerts"
@@ -500,7 +492,6 @@ export default function SecuritySection({
         </div>
       </ProfileCard>
 
-      {/* 4. Active Sessions Card */}
       <ProfileCard
         icon={Monitor}
         title="Where you're signed in"

@@ -1704,18 +1704,21 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   };
 
   const handleChange = (e) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
     if (!typingEnabled) return;
+
+    if (!val.trim()) {
+      stopTyping();
+      return;
+    }
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
       emitTyping(true);
     }
     clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => {
-      isTypingRef.current = false;
-      emitTyping(false);
-    }, 2000);
+    typingTimer.current = setTimeout(stopTyping, 2000);
   };
 
   const clearFile = () => {
@@ -1774,6 +1777,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
 
   const handleKeyDown = (e) => {
     if (e.key !== "Enter") return;
+    if (e.nativeEvent?.isComposing) return;
     // phones: Enter = new line, send with the button
     if (isTouch) return;
     const wantsSend = enterToSend ? !e.shiftKey : e.ctrlKey || e.metaKey;

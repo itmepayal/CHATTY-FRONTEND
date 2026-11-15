@@ -1,8 +1,3 @@
-/**
- * Centralized Design Tokens for Settings Module
- * Standardizes physics, spacing, transitions, and responsive limits.
- */
-
 export const SETTINGS_SPRING = {
   type: "spring",
   stiffness: 420,
@@ -48,45 +43,44 @@ export const THEME_CATEGORIES = [
   { id: "all", label: "All Themes" },
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
-  { id: "vibrant", label: "Color / Vibrant" },
+  { id: "cyber", label: "Cyber / Neon" },
+  { id: "minimal", label: "Minimal" },
 ];
 
 export const THEME_CATEGORY_MAP = {
-  // Dark themes
+  cyberpunk: "cyber",
+  synthwave: "cyber",
+  acid: "cyber",
+  night: "cyber",
+  retro: "cyber",
+  aqua: "cyber",
+
+  lofi: "minimal",
+  black: "minimal",
+  corporate: "minimal",
+  wireframe: "minimal",
+  business: "minimal",
+  nord: "minimal",
+
   dark: "dark",
-  synthwave: "dark",
   halloween: "dark",
   forest: "dark",
-  black: "dark",
   luxury: "dark",
   dracula: "dark",
-  business: "dark",
-  night: "dark",
   coffee: "dark",
   dim: "dark",
   sunset: "dark",
 
-  // Light themes
   light: "light",
   cupcake: "light",
   emerald: "light",
-  corporate: "light",
   garden: "light",
-  lofi: "light",
   pastel: "light",
   fantasy: "light",
-  wireframe: "light",
   cmyk: "light",
   autumn: "light",
-  acid: "light",
   lemonade: "light",
   winter: "light",
-  nord: "light",
-
-  // Vibrant / Stylized
-  bumblebee: "vibrant",
-  retro: "vibrant",
-  cyberpunk: "vibrant",
-  valentine: "vibrant",
-  aqua: "vibrant",
+  bumblebee: "light",
+  valentine: "light",
 };

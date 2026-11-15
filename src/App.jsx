@@ -25,8 +25,10 @@ import GroupCallModal from "./components/group/common/GroupCallModal.jsx";
 import IncomingGroupCall from "./components/group/common/IncomingGroupCall.jsx";
 
 import LiveLocationSender from "./components/Location/LiveLocationSender.jsx";
+import { useApplySettings } from "./hooks/useApplySettings.js";
 
 const App = () => {
+  useApplySettings();
   const { authUser, checkAuth, isCheckingAuth } = useAuthStore();
   const socket = useAuthStore((s) => s.socket);
   const { pathname } = useLocation();
@@ -83,6 +85,13 @@ const App = () => {
 
           <Route
             path="/settings"
+            element={
+              authUser ? <SettingsPage /> : <Navigate to="/login" replace />
+            }
+          />
+
+          <Route
+            path="/settings/:section"
             element={
               authUser ? <SettingsPage /> : <Navigate to="/login" replace />
             }

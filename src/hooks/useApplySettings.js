@@ -1,12 +1,44 @@
 import { useEffect } from "react";
 import { useSettingsStore } from "../store/UseSettingsStore.js";
+import { useAppearanceStore } from "../store/useAppearanceStore.js";
 
 export const useApplySettings = () => {
   const reduceMotion = useSettingsStore((st) => st.settings.reduceMotion);
+  const appearance = useAppearanceStore((st) => st.appearance);
 
   useEffect(() => {
     document.documentElement.dataset.reduceMotion = String(reduceMotion);
   }, [reduceMotion]);
+
+  useEffect(() => {
+    if (!appearance) return;
+    const root = document.documentElement;
+
+    // Font size variable
+    const fontSizeMap = { sm: "13px", md: "14px", lg: "16px" };
+    root.style.setProperty(
+      "--chat-font-size",
+      fontSizeMap[appearance.fontSize] || "14px",
+    );
+
+    // Bubble radius variable
+    const radiusMap = {
+      sharp: "0.25rem",
+      soft: "0.75rem",
+      rounded: "1.25rem",
+    };
+    root.style.setProperty(
+      "--bubble-radius",
+      radiusMap[appearance.bubbleStyle] || "1.25rem",
+    );
+
+    // Message gap variable
+    const gapMap = { compact: "0.375rem", comfortable: "0.75rem" };
+    root.style.setProperty(
+      "--message-gap",
+      gapMap[appearance.density] || "0.75rem",
+    );
+  }, [appearance]);
 };
 
 export const MESSAGE_SPACING = Object.freeze({

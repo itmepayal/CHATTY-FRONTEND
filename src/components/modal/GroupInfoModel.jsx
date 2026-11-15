@@ -66,7 +66,12 @@ const GroupInfoModal = ({ open, onClose }) => {
   const addable = useMemo(() => {
     if (!group) return [];
     const inGroup = new Set(group.members.map((m) => String(m.id)));
-    return users.filter((u) => !u.isBlocked && !inGroup.has(String(u.id)));
+    return users.filter(
+      (u) =>
+        !u.isBlocked &&
+        u.canAddToGroup !== false &&
+        !inGroup.has(String(u.id)),
+    );
   }, [users, group]);
 
   if (!open || !group) return null;

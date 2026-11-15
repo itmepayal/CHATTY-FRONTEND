@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
-import { Sparkles, Wand2, Download, RotateCcw } from "lucide-react";
-import toast from "react-hot-toast";
+import { Wand2, Download, RotateCcw } from "lucide-react";
 import { AI_TONES } from "../../../store/useAiStore";
 import SettingsCard from "../common/SettingsCard";
 import SettingsRow from "../common/SettingsRow";
@@ -17,7 +16,6 @@ export default function AiSection({
 }) {
   return (
     <div className="space-y-5">
-      {/* 1. AI Assistant Preferences */}
       <SettingsCard
         title="AI Assistant & Writing Tools"
         subtitle="Configure smart composer rewrites, tone suggestions, and grammar fixes."
@@ -68,7 +66,6 @@ export default function AiSection({
         </SettingsRow>
       </SettingsCard>
 
-      {/* 2. Live Grammar Demo Preview */}
       <div className="rounded-2xl sm:rounded-3xl border border-base-300 bg-base-100 p-4 sm:p-5 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <Wand2 className="size-4 text-primary" />
@@ -109,7 +106,6 @@ export default function AiSection({
         </div>
       </div>
 
-      {/* 3. Accessibility & Motion Preferences */}
       <SettingsCard
         title="Accessibility & Motion"
         subtitle="Control motion animations and font scaling preferences."
@@ -137,7 +133,6 @@ export default function AiSection({
         </SettingsRow>
       </SettingsCard>
 
-      {/* 4. Data Export & Reset */}
       <SettingsCard
         title="Data & Preferences Management"
         subtitle="Export your user preferences as JSON or reset to application defaults."

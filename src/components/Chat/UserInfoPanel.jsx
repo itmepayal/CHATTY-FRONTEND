@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   AtSign,
@@ -13,20 +13,31 @@ import {
   Info,
   Link2,
   Loader2,
+  Lock,
   Mail,
   MapPin,
   MessageSquare,
   MessageSquareText,
   PanelRightOpen,
   Phone,
+  Search,
+  ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Star,
   User,
   Users,
+  Video,
   X,
 } from "lucide-react";
 import { useChatStore } from "../../store/useChatStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { usePrivacyStore } from "../../store/usePrivacyStore";
+import { useCall } from "../../context/CallContext";
+import { axiosInstance } from "../../lib/axios";
+import { useLastSeen } from "../../hooks/useLastSeen.js";
+import { formatLastSeenTimestamp } from "../../lib/lastSeen";
+import ProfileImageViewer from "./Common/ProfileImageViewer.jsx";
 
 const LOCALE = "en-IN";
 const URL_RE = /https?:\/\/[^\s<>"')]+/gi;
@@ -42,30 +53,6 @@ const parseDate = (value) => {
 const formatDate = (value, opts) => {
   const d = parseDate(value);
   return d ? d.toLocaleDateString(LOCALE, opts) : "";
-};
-
-// "today, 10:57 PM" / "21 Oct, 10:57 PM" / "21 Oct 2025, 10:57 PM"
-const formatActivity = (value) => {
-  const d = parseDate(value);
-  if (!d) return "";
-  const now = new Date();
-  const time = d.toLocaleTimeString(LOCALE, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  if (d.toDateString() === now.toDateString()) return `today, ${time}`;
-
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString())
-    return `yesterday, ${time}`;
-
-  const date = d.toLocaleDateString(LOCALE, {
-    day: "numeric",
-    month: "short",
-    ...(d.getFullYear() !== now.getFullYear() && { year: "numeric" }),
-  });
-  return `${date}, ${time}`;
 };
 
 const calcAge = (dob) => {
@@ -120,15 +107,12 @@ const prettyLink = (url) => {
   }
 };
 
-// Mongo ObjectIds / populated objects -> plain string ids
 const toIds = (arr) =>
   (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
 
-// avatar can be a string URL or { url }
 const getAvatar = (avatar) =>
-  (typeof avatar === "string" ? avatar : avatar?.url) || "/avatar.png";
+  (typeof avatar === "string" ? avatar : avatar?.url) || "";
 
-// Short preview of the last message
 const previewLastMessage = (msg) => {
   if (!msg || msg.isDeleted) return "";
   const text = msg.text?.trim();
@@ -137,12 +121,14 @@ const previewLastMessage = (msg) => {
   return "";
 };
 
-/* ---------- small components ---------- */
+/* ---------- UI Subcomponents ---------- */
 
 const Section = ({ title, aside, children }) => (
   <section className="px-5 py-4">
     <div className="mb-2.5 flex items-center justify-between">
-      <h4 className="text-sm font-semibold">{title}</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
+        {title}
+      </h4>
       {aside !== undefined && aside !== null && (
         <span className="text-xs text-base-content/50">{aside}</span>
       )}
@@ -203,34 +189,35 @@ const ActionButton = ({
   onClick,
   filled,
   danger,
+  disabled,
   loading,
 }) => (
   <button
     type="button"
     onClick={onClick}
-    disabled={loading}
+    disabled={disabled || loading}
     aria-pressed={active}
-    className={`flex flex-col items-center gap-1.5 rounded-xl py-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl p-2.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
       active
         ? danger
-          ? "bg-error/10 text-error"
-          : "bg-primary/10 text-primary"
+          ? "bg-error/15 text-error"
+          : "bg-primary/15 text-primary"
         : danger
           ? "bg-base-200/70 text-base-content/70 hover:bg-error/10 hover:text-error"
           : "bg-base-200/70 text-base-content/70 hover:bg-base-200 hover:text-base-content"
     }`}
   >
     {loading ? (
-      <Loader2 className="size-5 animate-spin" />
+      <Loader2 className="size-4 sm:size-5 animate-spin" />
     ) : (
-      <Icon className={`size-5 ${active && filled ? "fill-current" : ""}`} />
+      <Icon
+        className={`size-4 sm:size-5 ${active && filled ? "fill-current" : ""}`}
+      />
     )}
-    {label}
+    <span className="truncate max-w-[5rem] text-[11px]">{label}</span>
   </button>
 );
 
-// Confirmation modal (rendered in document.body via portal so it always
-// covers the full screen, even inside transformed/overflow parents)
 const ConfirmModal = ({
   open,
   title,
@@ -300,7 +287,6 @@ const ConfirmModal = ({
         </div>
       </div>
 
-      {/* Click on backdrop closes the modal */}
       <div
         className="modal-backdrop bg-black/50"
         onClick={() => !loading && onCancel()}
@@ -310,12 +296,11 @@ const ConfirmModal = ({
   );
 };
 
-/* ---------- main ---------- */
+/* ---------- main UserInfoPanel component ---------- */
 
 const UserInfoPanel = ({ open, onToggle }) => {
   const { selectedUser, users, messages } = useChatStore();
   const {
-    onlineUsers,
     hiddenUsers,
     authUser,
     blockUser,
@@ -323,12 +308,15 @@ const UserInfoPanel = ({ open, onToggle }) => {
     toggleFavorite,
     fetchCurrentUser,
   } = useAuthStore();
+  const myStatusVisible = usePrivacyStore((st) => st.privacy.showOnlineStatus);
+  const { startCall, status: callStatus } = useCall();
 
-  // Which action is in flight: "favorite" | "block" | null
   const [pending, setPending] = useState(null);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [viewAvatar, setViewAvatar] = useState(false);
+  const [profileData, setProfileData] = useState(null);
+  const [imgError, setImgError] = useState(false);
 
-  // GET /users/me — keep favorites / blockedUsers fresh
   useEffect(() => {
     fetchCurrentUser();
   }, [fetchCurrentUser]);
@@ -339,17 +327,68 @@ const UserInfoPanel = ({ open, onToggle }) => {
     return () => clearInterval(t);
   }, []);
 
-  // Close the modal if the user switches to another chat
-  const currentId = selectedUser
+  const selectedId = selectedUser
     ? String(selectedUser.id ?? selectedUser._id)
     : null;
+
+  const {
+    text: lastSeenText,
+    isOnline: isUserOnline,
+    timestamp: userLastSeenTimestamp,
+    isLoading: isPresenceLoading,
+  } = useLastSeen(selectedId);
+
+  // Fetch full profile details whenever selectedUser changes
+  useEffect(() => {
+    if (!selectedId) return;
+    setImgError(false);
+    let active = true;
+    axiosInstance
+      .get(`/users/${selectedId}/profile`)
+      .then((res) => {
+        if (active && res.data?.data?.user) {
+          const u = res.data.data.user;
+          setProfileData(u);
+          useChatStore.setState((s) => ({
+            selectedUser:
+              s.selectedUser &&
+              (String(s.selectedUser.id) === selectedId ||
+                String(s.selectedUser._id) === selectedId)
+                ? { ...s.selectedUser, ...u }
+                : s.selectedUser,
+            users: s.users.map((usr) =>
+              String(usr.id) === selectedId || String(usr._id) === selectedId
+                ? { ...usr, ...u }
+                : usr,
+            ),
+          }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [selectedId]);
+
   useEffect(() => {
     setShowBlockModal(false);
-  }, [currentId]);
+  }, [selectedId]);
+
+  // Combine store data with detailed profile data
+  const targetUser = useMemo(() => {
+    const base = {
+      ...selectedUser,
+      ...(profileData || {}),
+    };
+    if (selectedUser?.lastSeen !== undefined) {
+      base.lastSeen = selectedUser.lastSeen;
+    }
+    return base;
+  }, [selectedUser, profileData]);
 
   if (!selectedUser) return null;
 
-  // Collapsed: thin strip so it can be reopened
+  // Collapsed desktop strip
   if (!open) {
     return (
       <div className="hidden xl:flex shrink-0 w-12 border-l border-base-300 bg-base-100 justify-center pt-4">
@@ -366,7 +405,7 @@ const UserInfoPanel = ({ open, onToggle }) => {
     );
   }
 
-  /* ----- derived data ----- */
+  /* ----- derived data & privacy computations ----- */
   const list = Array.isArray(messages) ? messages : [];
   const visible = list.filter((m) => !m.isDeleted);
   const photos = visible.filter((m) => m.image?.url);
@@ -392,19 +431,37 @@ const UserInfoPanel = ({ open, onToggle }) => {
       })
     : "";
 
-  const selectedId = String(selectedUser.id ?? selectedUser._id);
-  const online = toIds(onlineUsers).includes(selectedId);
   const hidden = toIds(hiddenUsers).includes(selectedId);
   const favorite = toIds(authUser?.favorites).includes(selectedId);
 
-  // authUser.blockedUsers is the source of truth; fall back to selectedUser.isBlocked
   const isBlocked = Array.isArray(authUser?.blockedUsers)
     ? toIds(authUser.blockedUsers).includes(selectedId)
-    : Boolean(selectedUser.isBlocked);
+    : Boolean(targetUser.isBlocked);
 
   const conversation = users?.find((u) => String(u.id ?? u._id) === selectedId);
   const unreadCount =
-    Number(conversation?.unreadCount ?? selectedUser.unreadCount) || 0;
+    Number(conversation?.unreadCount ?? targetUser.unreadCount) || 0;
+
+  const isOnlineRestricted = Boolean(
+    hidden || targetUser.isOnlineRestricted || !myStatusVisible,
+  );
+  const isOnlineActive = isUserOnline && !isBlocked;
+
+  const presenceStatusText = isBlocked ? "Blocked" : lastSeenText;
+
+  const isAboutRestricted = Boolean(targetUser.isAboutRestricted);
+  const isPhotoRestricted = Boolean(targetUser.isPhotoRestricted);
+
+  const rawAvatarUrl = getAvatar(targetUser.avatar);
+  const showPhoto = !isPhotoRestricted && !imgError && Boolean(rawAvatarUrl);
+
+  const initials = (targetUser.fullName || "User")
+    .split(" ")
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   const handleFavorite = async () => {
     if (pending) return;
@@ -416,7 +473,6 @@ const UserInfoPanel = ({ open, onToggle }) => {
     }
   };
 
-  // Actually block / unblock (called from modal confirm, or directly for unblock)
   const performBlockToggle = async () => {
     if (pending) return;
     setPending("block");
@@ -429,327 +485,460 @@ const UserInfoPanel = ({ open, onToggle }) => {
     }
   };
 
-  // Block button: open modal. Unblock: do it directly.
   const handleBlock = () => {
     if (pending) return;
     if (isBlocked) performBlockToggle();
     else setShowBlockModal(true);
   };
 
-  // Optional profile fields (shown only if backend sends them)
-  const age = calcAge(selectedUser.dob);
-  const bdayDays = daysUntilBirthday(selectedUser.dob);
-  const birthday = formatDate(selectedUser.dob, {
+  // Calling & Quick action helpers
+  const callPeer = {
+    id: selectedId,
+    fullName: targetUser.fullName || "Contact",
+  };
+  const canCall = callStatus === "idle" && !isBlocked;
+
+  const handleAudioCall = () => {
+    if (canCall) startCall(callPeer, "audio");
+  };
+
+  const handleVideoCall = () => {
+    if (canCall) startCall(callPeer, "video");
+  };
+
+  const handleMessageFocus = () => {
+    if (window.innerWidth < 1280) onToggle();
+    const input = document.querySelector(
+      'textarea, input[placeholder*="Type a message"], input[placeholder*="Type here"]',
+    );
+    input?.focus();
+  };
+
+  const handleSearchMessages = () => {
+    window.dispatchEvent(new CustomEvent("chatty:search-messages"));
+  };
+
+  // Optional profile details
+  const age = calcAge(targetUser.dob);
+  const bdayDays = daysUntilBirthday(targetUser.dob);
+  const birthday = formatDate(targetUser.dob, {
     day: "numeric",
     month: "long",
   });
-  const memberSince = formatDate(selectedUser.createdAt, {
+  const memberSince = formatDate(targetUser.createdAt, {
     month: "short",
     year: "numeric",
   });
-  const localTime = localTimeIn(selectedUser.timezone, now);
-  const website = selectedUser.website?.trim() || "";
+  const localTime = localTimeIn(targetUser.timezone, now);
+  const website = !isAboutRestricted ? targetUser.website?.trim() || "" : "";
   const websiteLabel = website.replace(/^https?:\/\//, "").replace(/\/$/, "");
-
-  // Fields available in the conversation-list response
-  const lastActivity = selectedUser.lastSeen
-    ? formatActivity(selectedUser.lastSeen)
-    : null;
-  const lastMessagePreview = previewLastMessage(selectedUser.lastMessage);
-
-  const statusText = online
-    ? "Online now"
-    : hidden
-      ? "Status hidden"
-      : lastActivity
-        ? `Last active ${lastActivity}`
-        : "Offline";
-
-  const hasDetails = Boolean(
-    selectedUser.username ||
-    selectedUser.email ||
-    selectedUser.phone ||
-    selectedUser.location ||
-    website ||
-    selectedUser.gender ||
-    birthday ||
-    localTime ||
-    memberSince ||
-    chattingSince ||
-    lastActivity ||
-    lastMessagePreview,
-  );
+  const location = !isAboutRestricted ? targetUser.location?.trim() || "" : "";
+  const lastMessagePreview = previewLastMessage(targetUser.lastMessage);
 
   return (
-    <aside className="hidden xl:flex flex-col w-80 shrink-0 border-l border-base-300 bg-base-100">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-base-300">
-        <div className="flex items-center gap-2 font-semibold">
-          <Info className="size-5 text-base-content/60" />
-          Contact info
-        </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="btn btn-ghost btn-sm btn-circle"
-          aria-label="Close contact info"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* Profile */}
-        <div className="flex flex-col items-center text-center px-5 pt-6 pb-4">
-          <div className="relative">
-            <img
-              src={getAvatar(selectedUser.avatar)}
-              alt={selectedUser.fullName}
-              onError={(e) => {
-                e.currentTarget.onerror = null;
-                e.currentTarget.src = "/avatar.png";
-              }}
-              className={`size-28 rounded-full object-cover ring-4 ring-base-200 ${
-                isBlocked ? "grayscale opacity-70" : ""
-              }`}
-            />
-            {online && !isBlocked && !hidden && (
-              <span className="absolute bottom-1.5 right-1.5 size-4 rounded-full bg-success ring-4 ring-base-100" />
-            )}
-          </div>
-
-          <h3 className="mt-3 text-lg font-semibold [overflow-wrap:anywhere]">
-            {selectedUser.fullName}
-          </h3>
-          {selectedUser.username && (
-            <p className="text-sm text-base-content/60 [overflow-wrap:anywhere]">
-              @{selectedUser.username}
-            </p>
-          )}
-
-          {isBlocked ? (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-error/10 px-3 py-1 text-xs font-medium text-error">
-              <Ban className="size-3" />
-              Blocked
-            </span>
-          ) : (
-            <span
-              className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                online
-                  ? "bg-success/10 text-success"
-                  : "bg-base-200 text-base-content/60"
-              }`}
-            >
-              <span
-                className={`size-1.5 rounded-full ${
-                  online ? "bg-success" : "bg-base-content/40"
-                }`}
-              />
-              {statusText}
-            </span>
-          )}
-
-          {unreadCount > 0 && !isBlocked && (
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <MessageSquare className="size-3" />
-              {unreadCount} unread {unreadCount === 1 ? "message" : "messages"}
-            </span>
-          )}
-
-          {selectedUser.bio && (
-            <p className="mt-3 text-sm text-base-content/70 [overflow-wrap:anywhere]">
-              {selectedUser.bio}
-            </p>
-          )}
-        </div>
-
-        {/* Quick actions */}
-        <div className="grid grid-cols-2 gap-2 px-5 pb-4">
-          <ActionButton
-            icon={Star}
-            label={favorite ? "Favorited" : "Favorite"}
-            active={favorite}
-            filled
-            loading={pending === "favorite"}
-            onClick={handleFavorite}
-          />
-          <ActionButton
-            icon={isBlocked ? ShieldCheck : Ban}
-            label={isBlocked ? "Unblock" : "Block"}
-            active={isBlocked}
-            danger
-            loading={pending === "block" && !showBlockModal}
-            onClick={handleBlock}
-          />
-        </div>
-
-        {/* Stats */}
-        <div className="flex gap-2 px-5 pb-4">
-          <Stat
-            icon={MessageSquareText}
-            value={visible.length}
-            label="Messages"
-          />
-          <Stat icon={ImageIcon} value={photos.length} label="Photos" />
-        </div>
-
-        <div className="border-t border-base-300" />
-
-        {/* Details */}
-        <Section title="Details">
-          <div className="divide-y divide-base-200">
-            <InfoRow
-              icon={Mail}
-              label="Email"
-              value={selectedUser.email}
-              href={selectedUser.email ? `mailto:${selectedUser.email}` : ""}
-            />
-            <InfoRow
-              icon={AtSign}
-              label="Username"
-              value={selectedUser.username}
-            />
-            <InfoRow
-              icon={Phone}
-              label="Phone"
-              value={selectedUser.phone}
-              href={
-                selectedUser.phone
-                  ? `tel:${String(selectedUser.phone).replace(/\s/g, "")}`
-                  : ""
-              }
-            />
-            <InfoRow icon={Users} label="Gender" value={selectedUser.gender} />
-            <InfoRow
-              icon={Cake}
-              label="Birthday"
-              value={birthday}
-              hint={birthdayHint(bdayDays)}
-            />
-            {age !== null && (
-              <InfoRow icon={CalendarDays} label="Age" value={`${age} years`} />
-            )}
-            <InfoRow
-              icon={MapPin}
-              label="Location"
-              value={selectedUser.location}
-            />
-            <InfoRow icon={Clock} label="Local time" value={localTime} />
-            <InfoRow
-              icon={Globe}
-              label="Website"
-              value={websiteLabel}
-              href={website}
-            />
-            <InfoRow
-              icon={History}
-              label={online ? "Active" : "Last active"}
-              value={online ? "Now" : hidden ? "—" : lastActivity}
-            />
-            <InfoRow
-              icon={MessageSquare}
-              label="Last message"
-              value={lastMessagePreview}
-            />
-            <InfoRow
-              icon={CalendarDays}
-              label="Chatting since"
-              value={chattingSince}
-            />
-            <InfoRow
-              icon={CalendarDays}
-              label="Member since"
-              value={memberSince}
-            />
-          </div>
-
-          {!hasDetails && (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <User className="size-6 text-base-content/30" />
-              <p className="text-sm text-base-content/50">
-                This person hasn't added any details yet.
-              </p>
-            </div>
-          )}
-        </Section>
-
-        {/* Shared photos */}
-        {recentPhotos.length > 0 && (
-          <>
-            <div className="border-t border-base-300" />
-            <Section title="Shared photos" aside={photos.length}>
-              <div className="grid grid-cols-3 gap-1.5">
-                {recentPhotos.map((m) => (
-                  <a
-                    key={m.clientId || m.id || m._id}
-                    href={m.image.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="block aspect-square overflow-hidden rounded-lg bg-base-200"
-                  >
-                    <img
-                      src={m.image.url}
-                      alt="Shared"
-                      loading="lazy"
-                      className="size-full object-cover transition-transform duration-200 hover:scale-105"
-                    />
-                  </a>
-                ))}
-              </div>
-            </Section>
-          </>
-        )}
-
-        {/* Shared links */}
-        {recentLinks.length > 0 && (
-          <>
-            <div className="border-t border-base-300" />
-            <Section title="Shared links" aside={uniqueLinks.length}>
-              <ul className="space-y-1.5">
-                {recentLinks.map((url) => {
-                  const { host, rest } = prettyLink(url);
-                  return (
-                    <li key={url}>
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="group flex items-center gap-3 rounded-xl bg-base-200/60 px-3 py-2.5 transition-colors hover:bg-base-200"
-                      >
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-100">
-                          <Link2 className="size-4 text-base-content/60" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{host}</p>
-                          {rest && (
-                            <p className="truncate text-xs text-base-content/50">
-                              {rest}
-                            </p>
-                          )}
-                        </div>
-                        <ExternalLink className="size-3.5 shrink-0 text-base-content/30 transition-colors group-hover:text-base-content/70" />
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Section>
-          </>
-        )}
-      </div>
-
-      {/* Block confirmation modal */}
-      <ConfirmModal
-        open={showBlockModal}
-        danger
-        title={`Block ${selectedUser.fullName}?`}
-        message="You won't be able to exchange messages with this person until you unblock them."
-        confirmLabel="Block"
-        loading={pending === "block"}
-        onConfirm={performBlockToggle}
-        onCancel={() => setShowBlockModal(false)}
+    <>
+      {/* Mobile Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 xl:hidden"
+        onClick={onToggle}
+        aria-hidden="true"
       />
-    </aside>
+
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto xl:w-80 xl:max-w-none xl:shadow-none">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-base-300 px-5 py-4">
+          <div className="flex items-center gap-2 font-semibold">
+            <Info className="size-5 text-base-content/60" />
+            <span>Contact info</span>
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="btn btn-ghost btn-sm btn-circle"
+            aria-label="Close contact info"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* ========================================================= */}
+          {/* SECTION A: PROFILE HEADER                                 */}
+          {/* ========================================================= */}
+          <div className="flex flex-col items-center px-5 pb-5 pt-6 text-center">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => showPhoto && setViewAvatar(true)}
+                className={`relative block rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                  showPhoto ? "cursor-pointer" : "cursor-default"
+                }`}
+                aria-label={
+                  showPhoto ? `View ${targetUser.fullName}'s photo` : undefined
+                }
+              >
+                {showPhoto ? (
+                  <img
+                    src={rawAvatarUrl}
+                    alt={targetUser.fullName}
+                    onError={() => setImgError(true)}
+                    className={`size-24 sm:size-28 rounded-full object-cover ring-4 ring-base-200 shadow-sm transition-transform duration-200 ${
+                      showPhoto ? "hover:scale-105" : ""
+                    } ${isBlocked ? "grayscale opacity-70" : ""}`}
+                  />
+                ) : (
+                  <div
+                    className={`flex size-24 sm:size-28 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold uppercase text-primary ring-4 ring-base-200 shadow-sm ${
+                      isBlocked ? "grayscale opacity-70" : ""
+                    }`}
+                  >
+                    {initials}
+                  </div>
+                )}
+              </button>
+
+              {/* Online indicator dot */}
+              {isOnlineActive && (
+                <span className="absolute bottom-1 right-1 size-4 rounded-full bg-success ring-4 ring-base-100" />
+              )}
+            </div>
+
+            <h3 className="mt-3 text-lg font-bold [overflow-wrap:anywhere]">
+              {targetUser.fullName}
+            </h3>
+            {targetUser.username && (
+              <p className="text-xs text-base-content/60 [overflow-wrap:anywhere]">
+                @{targetUser.username}
+              </p>
+            )}
+
+            {/* Privacy-authorized presence status badge */}
+            <div className="mt-2.5">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                  isBlocked
+                    ? "bg-error/10 text-error"
+                    : isOnlineActive
+                      ? "bg-success/10 text-success"
+                      : "bg-base-200 text-base-content/70"
+                }`}
+              >
+                {isBlocked ? (
+                  <Ban className="size-3" />
+                ) : (
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      isOnlineActive ? "bg-success" : "bg-base-content/40"
+                    }`}
+                  />
+                )}
+                {presenceStatusText ||
+                  (isPresenceLoading ? (
+                    <span className="inline-block h-3 w-16 animate-pulse rounded bg-base-content/20" />
+                  ) : null)}
+              </span>
+            </div>
+
+            {unreadCount > 0 && !isBlocked && (
+              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                <MessageSquare className="size-3" />
+                {unreadCount} unread{" "}
+                {unreadCount === 1 ? "message" : "messages"}
+              </span>
+            )}
+          </div>
+
+          {/* ========================================================= */}
+          {/* SECTION B: CONTACT ACTIONS                                */}
+          {/* ========================================================= */}
+          <div className="px-5 pb-4">
+            <div className="grid grid-cols-3 gap-2">
+              <ActionButton
+                icon={MessageSquare}
+                label="Message"
+                onClick={handleMessageFocus}
+              />
+              <ActionButton
+                icon={Phone}
+                label="Audio"
+                disabled={!canCall}
+                onClick={handleAudioCall}
+              />
+              <ActionButton
+                icon={Video}
+                label="Video"
+                disabled={!canCall}
+                onClick={handleVideoCall}
+              />
+              <ActionButton
+                icon={Search}
+                label="Search"
+                onClick={handleSearchMessages}
+              />
+              <ActionButton
+                icon={Star}
+                label={favorite ? "Favorited" : "Favorite"}
+                active={favorite}
+                filled
+                loading={pending === "favorite"}
+                onClick={handleFavorite}
+              />
+              <ActionButton
+                icon={isBlocked ? ShieldCheck : Ban}
+                label={isBlocked ? "Unblock" : "Block"}
+                active={isBlocked}
+                danger
+                loading={pending === "block" && !showBlockModal}
+                onClick={handleBlock}
+              />
+            </div>
+          </div>
+
+          {/* Statistics summary */}
+          <div className="flex gap-2 px-5 pb-4">
+            <Stat
+              icon={MessageSquareText}
+              value={visible.length}
+              label="Messages"
+            />
+            <Stat icon={ImageIcon} value={photos.length} label="Photos" />
+          </div>
+
+          <div className="border-t border-base-300" />
+
+          {/* ========================================================= */}
+          {/* SECTION C: PERSONAL INFORMATION (About & Custom Status)    */}
+          {/* ========================================================= */}
+          <Section title="Personal Information">
+            <div className="space-y-3">
+              {/* About Bio */}
+              <div className="rounded-xl bg-base-200/50 p-3.5 border border-base-300/40">
+                <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-base-content/60">
+                  <Info className="size-3.5" />
+                  <span>About Bio</span>
+                </div>
+                {isAboutRestricted ? (
+                  <div className="flex items-center gap-2 text-xs text-base-content/50 italic py-0.5">
+                    <ShieldAlert className="size-3.5 shrink-0 text-base-content/40" />
+                    <span>About information is unavailable.</span>
+                  </div>
+                ) : targetUser.bio ? (
+                  <p className="text-sm text-base-content/85 leading-relaxed [overflow-wrap:anywhere]">
+                    {targetUser.bio}
+                  </p>
+                ) : (
+                  <p className="text-xs text-base-content/45 italic py-0.5">
+                    No bio provided yet.
+                  </p>
+                )}
+              </div>
+
+              {/* Custom Status */}
+              <div className="rounded-xl bg-base-200/50 p-3.5 border border-base-300/40">
+                <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-base-content/60">
+                  <Sparkles className="size-3.5" />
+                  <span>Custom Status</span>
+                </div>
+                {isAboutRestricted ? (
+                  <div className="flex items-center gap-2 text-xs text-base-content/50 italic py-0.5">
+                    <Lock className="size-3.5 shrink-0 text-base-content/40" />
+                    <span>Status information is unavailable.</span>
+                  </div>
+                ) : targetUser.customStatus ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
+                    <Sparkles className="size-3.5 shrink-0" />
+                    <span className="[overflow-wrap:anywhere]">
+                      {targetUser.customStatus}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-base-content/60 py-0.5">
+                    <span className="size-2 rounded-full bg-success" />
+                    <span>Available</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Section>
+
+          <div className="border-t border-base-300" />
+
+          {/* ========================================================= */}
+          {/* SECTION D: DETAILS & CONTACT OVERVIEW                     */}
+          {/* ========================================================= */}
+          <Section title="Overview & Details">
+            <div className="divide-y divide-base-200">
+              <InfoRow
+                icon={Mail}
+                label="Email"
+                value={targetUser.email}
+                href={targetUser.email ? `mailto:${targetUser.email}` : ""}
+              />
+              <InfoRow
+                icon={AtSign}
+                label="Username"
+                value={targetUser.username ? `@${targetUser.username}` : ""}
+              />
+              <InfoRow
+                icon={Phone}
+                label="Phone"
+                value={targetUser.phone}
+                href={
+                  targetUser.phone
+                    ? `tel:${String(targetUser.phone).replace(/\s/g, "")}`
+                    : ""
+                }
+              />
+              <InfoRow icon={Users} label="Gender" value={targetUser.gender} />
+              <InfoRow
+                icon={Cake}
+                label="Birthday"
+                value={birthday}
+                hint={birthdayHint(bdayDays)}
+              />
+              {age !== null && (
+                <InfoRow
+                  icon={CalendarDays}
+                  label="Age"
+                  value={`${age} years`}
+                />
+              )}
+              {location && (
+                <InfoRow icon={MapPin} label="Location" value={location} />
+              )}
+              <InfoRow icon={Clock} label="Local time" value={localTime} />
+              {website && (
+                <InfoRow
+                  icon={Globe}
+                  label="Website"
+                  value={websiteLabel}
+                  href={website}
+                />
+              )}
+              <InfoRow
+                icon={History}
+                label={isOnlineActive ? "Active" : "Last active"}
+                value={
+                  isOnlineActive
+                    ? "Now"
+                    : isOnlineRestricted ||
+                        isBlocked ||
+                        !userLastSeenTimestamp ||
+                        targetUser.isLastSeenRestricted
+                      ? "Unavailable"
+                      : formatLastSeenTimestamp(userLastSeenTimestamp)?.replace(
+                          /^Last seen /,
+                          "",
+                        ) || "Unavailable"
+                }
+              />
+              <InfoRow
+                icon={MessageSquare}
+                label="Last message"
+                value={lastMessagePreview}
+              />
+              <InfoRow
+                icon={CalendarDays}
+                label="Chatting since"
+                value={chattingSince}
+              />
+              <InfoRow
+                icon={CalendarDays}
+                label="Member since"
+                value={memberSince}
+              />
+            </div>
+          </Section>
+
+          {/* ========================================================= */}
+          {/* SECTION E: SHARED MEDIA & LINKS                           */}
+          {/* ========================================================= */}
+          {recentPhotos.length > 0 && (
+            <>
+              <div className="border-t border-base-300" />
+              <Section title="Shared photos" aside={photos.length}>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {recentPhotos.map((m) => (
+                    <a
+                      key={m.clientId || m.id || m._id}
+                      href={m.image.url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="block aspect-square overflow-hidden rounded-lg bg-base-200"
+                    >
+                      <img
+                        src={m.image.url}
+                        alt="Shared"
+                        loading="lazy"
+                        className="size-full object-cover transition-transform duration-200 hover:scale-105"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </Section>
+            </>
+          )}
+
+          {recentLinks.length > 0 && (
+            <>
+              <div className="border-t border-base-300" />
+              <Section title="Shared links" aside={uniqueLinks.length}>
+                <ul className="space-y-1.5">
+                  {recentLinks.map((url) => {
+                    const { host, rest } = prettyLink(url);
+                    return (
+                      <li key={url}>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="group flex items-center gap-3 rounded-xl bg-base-200/60 px-3 py-2.5 transition-colors hover:bg-base-200"
+                        >
+                          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-100">
+                            <Link2 className="size-4 text-base-content/60" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {host}
+                            </p>
+                            {rest && (
+                              <p className="truncate text-xs text-base-content/50">
+                                {rest}
+                              </p>
+                            )}
+                          </div>
+                          <ExternalLink className="size-3.5 shrink-0 text-base-content/30 transition-colors group-hover:text-base-content/70" />
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Section>
+            </>
+          )}
+        </div>
+
+        {/* Block confirmation modal */}
+        <ConfirmModal
+          open={showBlockModal}
+          danger
+          title={`Block ${targetUser.fullName}?`}
+          message="You won't be able to exchange messages or make calls with this person until you unblock them."
+          confirmLabel="Block"
+          loading={pending === "block"}
+          onConfirm={performBlockToggle}
+          onCancel={() => setShowBlockModal(false)}
+        />
+
+        <ProfileImageViewer
+          isOpen={viewAvatar}
+          onClose={() => setViewAvatar(false)}
+          userId={selectedId}
+          user={targetUser}
+          imageUrl={rawAvatarUrl}
+        />
+      </aside>
+    </>
   );
 };
 

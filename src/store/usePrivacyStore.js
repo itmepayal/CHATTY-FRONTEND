@@ -72,12 +72,15 @@ export const usePrivacyStore = create((set, get) => ({
     if (isBool && typeof value !== "boolean") return;
     if (isVis && !VALID_VISIBILITY.includes(value)) return;
 
+    if (get().isSaving) return;
+
     const prev = get().privacy;
+    if (prev[key] === value) return;
+
     const next = { ...prev, [key]: value };
 
     // Optimistic update
-    set({ privacy: next });
-    set({ isSaving: true });
+    set({ privacy: next, isSaving: true });
 
     try {
       const res = await axiosInstance.patch("/users/privacy", { [key]: value });
@@ -145,6 +148,20 @@ export const usePrivacyStore = create((set, get) => ({
       get().fetchPrivacy();
       return;
     }
-    set({ privacy: cleanPrivacy(user) });
+    const next = cleanPrivacy(user);
+    set({ privacy: next });
+    if (next.typingIndicator === false) {
+      // If typing indicator was disabled on another device, stop any typing locally
+      import("./useChatStore.js")
+        .then(({ useChatStore }) => {
+          useChatStore.getState().emitTyping(false);
+        })
+        .catch(() => {});
+      import("./useGroupStore.js")
+        .then(({ useGroupStore }) => {
+          useGroupStore.getState().emitTyping(false);
+        })
+        .catch(() => {});
+    }
   },
 }));

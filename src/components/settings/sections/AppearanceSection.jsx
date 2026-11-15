@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { LayoutGroup, motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Palette, Sparkles } from "lucide-react";
+import { Check, Loader2, Palette, Sparkles, Search } from "lucide-react";
 import { THEME } from "../../../constants";
 import {
   SETTINGS_SPRING,
@@ -17,6 +17,7 @@ export default function AppearanceSection({
   appearance,
   setAppearance,
   isSaving = false,
+  onThemeHover = null,
 }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchTheme, setSearchTheme] = useState("");
@@ -36,7 +37,6 @@ export default function AppearanceSection({
 
   return (
     <div className="space-y-5">
-      {/* 1. Theme Palette Selector Card */}
       <SettingsCard
         title="Theme & Colors"
         subtitle="Choose from 35 handcrafted DaisyUI themes. Changes sync with your account."
@@ -54,8 +54,7 @@ export default function AppearanceSection({
         }
         divide={false}
       >
-        {/* Category Filter Pills */}
-        <div className="pt-3 pb-3">
+        <div className="pt-3 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
             {THEME_CATEGORIES.map((cat) => (
               <button
@@ -72,73 +71,109 @@ export default function AppearanceSection({
               </button>
             ))}
           </div>
+
+          <div className="relative shrink-0 w-full sm:w-auto">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-base-content/40" />
+            <input
+              type="text"
+              placeholder="Search themes…"
+              value={searchTheme}
+              onChange={(e) => setSearchTheme(e.target.value)}
+              className="input input-xs input-bordered w-full sm:w-36 pl-8 rounded-full text-xs"
+              aria-label="Search themes"
+            />
+          </div>
         </div>
 
-        {/* Theme Grid */}
         <LayoutGroup id="theme-selection-grid">
-          <motion.div
-            layoutScroll
-            variants={SETTINGS_VARIANTS.list}
-            initial="hidden"
-            animate="show"
-            className="grid max-h-72 grid-cols-2 min-[400px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 overflow-y-auto pr-1 py-1"
-          >
-            {filteredThemes.map((t) => {
-              const active = appearance.theme === t;
+          {filteredThemes.length === 0 ? (
+            <div className="py-10 text-center flex flex-col items-center justify-center">
+              <Palette className="size-8 text-base-content/30 mb-2" />
+              <p className="text-sm font-semibold text-base-content">
+                No themes found matching &ldquo;{searchTheme}&rdquo;
+              </p>
+              <p className="text-xs text-base-content/60 mt-1 mb-4">
+                Try searching for a different keyword or reset active category
+                filters.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTheme("");
+                  setSelectedCategory("all");
+                }}
+                className="btn btn-primary btn-xs rounded-full font-semibold px-4"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            <motion.div
+              variants={SETTINGS_VARIANTS.list}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-2 min-[380px]:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-2.5 py-1"
+            >
+              {filteredThemes.map((t) => {
+                const active = appearance.theme === t;
 
-              return (
-                <motion.button
-                  key={t}
-                  type="button"
-                  aria-pressed={active}
-                  variants={SETTINGS_VARIANTS.item}
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setAppearance("theme", t)}
-                  className={`group relative flex flex-col gap-1.5 rounded-xl p-1.5 text-left transition-all border ${
-                    active
-                      ? "bg-base-200/90 border-primary ring-2 ring-primary/40 shadow-md"
-                      : "bg-base-100 border-base-300/70 hover:bg-base-200/50 hover:border-base-content/20"
-                  }`}
-                >
-                  {/* Theme 4-Swatch Preview Box */}
-                  <div
-                    className="relative h-11 w-full overflow-hidden rounded-lg border border-base-content/10 bg-base-100 shadow-inner"
-                    data-theme={t}
+                return (
+                  <motion.button
+                    key={t}
+                    type="button"
+                    aria-pressed={active}
+                    variants={SETTINGS_VARIANTS.item}
+                    whileHover={{ y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    onMouseEnter={() => onThemeHover?.(t)}
+                    onMouseLeave={() => onThemeHover?.(null)}
+                    onClick={() => {
+                      setAppearance("theme", t);
+                      onThemeHover?.(null);
+                    }}
+                    className={`group relative flex flex-col gap-1.5 rounded-xl p-1.5 text-left transition-all border ${
+                      active
+                        ? "bg-base-200/90 border-primary ring-2 ring-primary/40 shadow-md"
+                        : "bg-base-100 border-base-300/70 hover:bg-base-200/50 hover:border-base-content/20"
+                    }`}
                   >
-                    <div className="absolute inset-0 grid grid-cols-4 gap-0.5 p-1.5">
-                      <div className="rounded bg-primary" />
-                      <div className="rounded bg-secondary" />
-                      <div className="rounded bg-accent" />
-                      <div className="rounded bg-neutral" />
+                    <div
+                      className="relative h-11 w-full overflow-hidden rounded-lg border border-base-content/10 bg-base-100 shadow-inner"
+                      data-theme={t}
+                    >
+                      <div className="absolute inset-0 grid grid-cols-4 gap-0.5 p-1.5">
+                        <div className="rounded bg-primary" />
+                        <div className="rounded bg-secondary" />
+                        <div className="rounded bg-accent" />
+                        <div className="rounded bg-neutral" />
+                      </div>
+
+                      <AnimatePresence>
+                        {active && (
+                          <motion.span
+                            initial={{ scale: 0, rotate: -90 }}
+                            animate={{ scale: 1, rotate: 0 }}
+                            exit={{ scale: 0 }}
+                            transition={SETTINGS_SPRING}
+                            className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-content shadow"
+                          >
+                            <Check className="size-3" strokeWidth={3} />
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
                     </div>
 
-                    <AnimatePresence>
-                      {active && (
-                        <motion.span
-                          initial={{ scale: 0, rotate: -90 }}
-                          animate={{ scale: 1, rotate: 0 }}
-                          exit={{ scale: 0 }}
-                          transition={SETTINGS_SPRING}
-                          className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-content shadow"
-                        >
-                          <Check className="size-3" strokeWidth={3} />
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  <span className="w-full truncate px-0.5 text-xs font-semibold capitalize text-base-content">
-                    {t}
-                  </span>
-                </motion.button>
-              );
-            })}
-          </motion.div>
+                    <span className="w-full truncate px-0.5 text-xs font-semibold capitalize text-base-content">
+                      {t}
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </motion.div>
+          )}
         </LayoutGroup>
       </SettingsCard>
 
-      {/* 2. Message Typography & Bubble Style Card */}
       <SettingsCard
         title="Chat Formatting"
         subtitle="Fine-tune font sizes, bubble contours, density, and timestamps."

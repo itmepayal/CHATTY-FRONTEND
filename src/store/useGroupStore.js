@@ -19,6 +19,8 @@ import {
   decryptGroupPreview,
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
+import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { playMessageSound, showDesktopNotification } from "../services/notificationService.js";
 
 const sameId = (a, b) => String(a) === String(b);
 const idOf = (v) => String(v?._id ?? v?.id ?? v ?? "");
@@ -84,7 +86,8 @@ const normalizeShare = (s) => ({
   expiresAt: s.expiresAt,
 });
 
-const visible = () => document.visibilityState === "visible";
+const visible = () =>
+  typeof document !== "undefined" ? document.visibilityState === "visible" : true;
 
 const revokeBlob = (url) => {
   if (typeof url === "string" && url.startsWith("blob:"))
@@ -134,6 +137,7 @@ let handlers = null;
 let subscribedGroupSocket = null;
 const seenInFlight = new Set();
 const seenDirty = new Set();
+const groupTypingTimers = new Map(); // `${groupId}:${userId}` -> timeout
 const watchers = new Map(); // shareId -> { watchId, last }
 
 export const useGroupStore = create((set, get) => ({
@@ -1010,6 +1014,78 @@ export const useGroupStore = create((set, get) => ({
         if (open && visible() && !sameId(msg.senderId, myId())) {
           get().markSeen(msg.groupId);
         }
+
+        const isOwn = sameId(msg.senderId, myId());
+        if (!isOwn) {
+          const notifSettings = useNotificationSettings.getState().settings;
+          if (notifSettings.soundEnabled) {
+            playMessageSound({
+              volume: notifSettings.soundVolume,
+              soundEnabled: true,
+              messageId: msg.id,
+            });
+          }
+
+          const isGroupActiveAndFocused =
+            Boolean(open) &&
+            visible() &&
+            (typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : true);
+
+          if (notifSettings.desktopNotifications && !isGroupActiveAndFocused) {
+            const currentGroup = get().groups.find((g) => sameId(g.id, msg.groupId));
+            const senderMember = currentGroup?.members?.find((m) =>
+              sameId(m.userId?._id || m.userId, msg.senderId),
+            );
+            const senderName =
+              msg.sender?.fullName ||
+              senderMember?.userId?.fullName ||
+              "Group Member";
+            const groupTitle = currentGroup?.name
+              ? `${senderName} (${currentGroup.name})`
+              : senderName;
+
+            showDesktopNotification({
+              senderName: groupTitle,
+              text: msg.text,
+              chatId: String(msg.groupId),
+              avatar: currentGroup?.avatar?.url || currentGroup?.avatar || "",
+              messageType: msg.file
+                ? "file"
+                : msg.image
+                  ? "image"
+                  : msg.video
+                    ? "video"
+                    : msg.audio
+                      ? "audio"
+                      : msg.location
+                        ? "location"
+                        : "text",
+              hasImage: Boolean(msg.image?.url || msg.image),
+              hasVideo: Boolean(msg.video?.url || msg.video),
+              hasAudio: Boolean(msg.audio?.url || msg.audio),
+              hasFile: Boolean(msg.file?.url || msg.file),
+              hasLocation: Boolean(msg.location?.lat),
+              messageId: msg.id,
+              showPreview: notifSettings.showPreview,
+              desktopNotifications: true,
+              onNotificationClick: (targetGroupId) => {
+                const targetG = get().groups.find((g) =>
+                  sameId(g.id, targetGroupId),
+                );
+                if (targetG) {
+                  get().setSelectedGroup(targetG);
+                }
+                if (
+                  typeof window !== "undefined" &&
+                  window.location.pathname !== "/chat"
+                ) {
+                  window.history.pushState(null, "", "/chat");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }
+              },
+            });
+          }
+        }
       },
 
       "group:conversationUpdated": async (u) => {
@@ -1046,13 +1122,35 @@ export const useGroupStore = create((set, get) => ({
               },
         ),
 
-      "group:typing": ({ groupId, userId, fullName, isTyping }) =>
+      "group:typing": ({ groupId, userId, fullName, isTyping }) => {
+        const key = `${groupId}:${userId}`;
+        if (groupTypingTimers.has(key)) {
+          clearTimeout(groupTypingTimers.get(key));
+          groupTypingTimers.delete(key);
+        }
+
+        if (isTyping) {
+          groupTypingTimers.set(
+            key,
+            setTimeout(() => {
+              groupTypingTimers.delete(key);
+              set((s) => {
+                if (!s.typing[groupId]?.[userId]) return {};
+                const cur = { ...(s.typing[groupId] || {}) };
+                delete cur[userId];
+                return { typing: { ...s.typing, [groupId]: cur } };
+              });
+            }, 4000),
+          );
+        }
+
         set((s) => {
           const cur = { ...(s.typing[groupId] || {}) };
           if (isTyping) cur[userId] = fullName;
           else delete cur[userId];
           return { typing: { ...s.typing, [groupId]: cur } };
-        }),
+        });
+      },
 
       /* ---- live location ---- */
       "group:location:update": (p) => {
@@ -1101,6 +1199,8 @@ export const useGroupStore = create((set, get) => ({
   },
 
   unsubscribeFromGroups: () => {
+    groupTypingTimers.forEach((t) => clearTimeout(t));
+    groupTypingTimers.clear();
     const socket = subscribedGroupSocket || useAuthStore.getState().socket;
     if (socket && handlers) {
       Object.entries(handlers).forEach(([ev, fn]) => socket.off(ev, fn));

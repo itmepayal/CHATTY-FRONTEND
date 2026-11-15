@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { MotionConfig, motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
 import { useAuthStore } from "../store/useAuthStore";
@@ -13,6 +13,8 @@ import ProfileInfoSection from "../components/profile/sections/ProfileInfoSectio
 import SecuritySection from "../components/profile/sections/SecuritySection";
 import AccountSection from "../components/profile/sections/AccountSection";
 import ConfirmDialog from "../components/profile/dialogs/ConfirmDialog";
+import ProfileEditDrawer from "../components/profile/drawers/ProfileEditDrawer";
+import { normalizeDobToISO, validateDob } from "../lib/dobUtils.js";
 import {
   FIELDS,
   READ_ONLY_FIELDS,
@@ -33,7 +35,7 @@ const buildInitialForm = (user) => ({
   email: user?.email || "",
   phone: user?.phone || "",
   gender: user?.gender || "",
-  dob: user?.dob ? String(user.dob).slice(0, 10) : "",
+  dob: user?.dob ? normalizeDobToISO(user.dob) : "",
   location: user?.location || "",
   website: user?.website || "",
   bio: user?.bio || "",
@@ -87,6 +89,7 @@ const validators = {
       : "",
   phone: (v) =>
     v && !/^[+\d][\d\s-]{7,15}$/.test(v) ? "Invalid phone number" : "",
+  dob: validateDob,
   website: (v) =>
     v && !/^https?:\/\/.+\..+/.test(v)
       ? "Must start with http:// or https://"
@@ -133,14 +136,34 @@ export default function ProfilePage() {
   const fileInputRef = useRef(null);
   const formRef = useRef(null);
 
-  const [tab, setTab] = useState("profile");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const tab = ["profile", "security", "account"].includes(rawTab)
+    ? rawTab
+    : "profile";
+
+  const setTab = useCallback(
+    (newTab) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (newTab === "profile") {
+          next.delete("tab");
+        } else {
+          next.set("tab", newTab);
+        }
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
 
   const [selectedImg, setSelectedImg] = useState(null);
   const [file, setFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
 
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
+  const [initialFocusField, setInitialFocusField] = useState(null);
   const [form, setForm] = useState(() => buildInitialForm(authUser));
   const [errors, setErrors] = useState({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -245,8 +268,8 @@ export default function ProfilePage() {
   useEffect(() => () => resetTwoFaState(), [resetTwoFaState]);
 
   useEffect(() => {
-    if (!isEditing) setForm(initialForm);
-  }, [initialForm, isEditing]);
+    if (!isEditDrawerOpen) setForm(initialForm);
+  }, [initialForm, isEditDrawerOpen]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -269,14 +292,15 @@ export default function ProfilePage() {
   }, [location.key, navigate]);
 
   const requestBack = useCallback(() => {
-    if (isEditing && isDirty) {
+    if (isEditDrawerOpen && isDirty) {
       setConfirmDiscard(true);
       return;
     }
     goBack();
-  }, [isEditing, isDirty, goBack]);
+  }, [isEditDrawerOpen, isDirty, goBack]);
 
   const anyDialogOpen =
+    isEditDrawerOpen ||
     twoFAModal.open ||
     confirmRevoke.open ||
     confirmRevokeOthers ||
@@ -297,7 +321,7 @@ export default function ProfilePage() {
   useEffect(() => {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        if (tab === "profile" && isEditing && !anyDialogOpen) {
+        if (isEditDrawerOpen) {
           e.preventDefault();
           formRef.current?.requestSubmit();
         }
@@ -305,7 +329,7 @@ export default function ProfilePage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, isEditing, anyDialogOpen]);
+  }, [isEditDrawerOpen]);
 
   // Profile completion score
   const completion = useMemo(() => {
@@ -453,20 +477,30 @@ export default function ProfilePage() {
     return Object.keys(next).length === 0;
   };
 
-  const handleCancel = () => {
-    setForm(initialForm);
-    setErrors({});
-    setIsEditing(false);
-  };
+  const openEditDrawer = useCallback((field = "fullName") => {
+    setInitialFocusField(field);
+    setIsEditDrawerOpen(true);
+  }, []);
 
-  const handleSave = async (e) => {
-    e.preventDefault();
+  const closeEditDrawer = useCallback(() => {
+    setIsEditDrawerOpen(false);
+    setInitialFocusField(null);
+    setErrors({});
+    setForm(initialForm);
+  }, [initialForm]);
+
+  const handleSaveProfile = async (e) => {
+    e?.preventDefault?.();
     if (!validate()) return toast.error("Please fix the highlighted fields");
-    if (!isDirty) return setIsEditing(false);
+    if (!isDirty) {
+      setIsEditDrawerOpen(false);
+      return;
+    }
 
     try {
       await updateProfile(buildUpdatePayload(form));
-      setIsEditing(false);
+      setIsEditDrawerOpen(false);
+      toast.success("Profile updated successfully");
     } catch (err) {
       console.error("Update profile error:", err);
     }
@@ -478,7 +512,7 @@ export default function ProfilePage() {
       return;
     }
     setTab("profile");
-    setIsEditing(true);
+    openEditDrawer(id);
   };
 
   const copyText = async (text, label) => {
@@ -642,44 +676,49 @@ export default function ProfilePage() {
           <div className="absolute -right-32 bottom-20 size-96 rounded-full bg-accent/10 blur-3xl" />
         </div>
 
-        {/* Sticky Header */}
+        {/* Sticky Header with Profile Identity Hero */}
         <ProfileHeader
           onBack={requestBack}
           tab={tab}
-          isEditing={isEditing}
-          onStartEditing={() => setIsEditing(true)}
+          isEditing={isEditDrawerOpen}
+          onStartEditing={() => openEditDrawer("fullName")}
           isFetchingUser={isFetchingUser}
+          authUser={authUser}
+          form={form}
+          isOnline={Boolean(socket?.connected || authUser?.isOnline || true)}
+          selectedImg={selectedImg}
+          isDragging={isDragging}
+          setIsDragging={setIsDragging}
+          handleDrop={handleDrop}
+          fileInputRef={fileInputRef}
+          handleFileChange={handleFileChange}
+          cancelAvatar={cancelAvatar}
+          handleImageUpload={handleImageUpload}
+          onOpenRemovePhotoConfirm={() => setConfirmRemovePhoto(true)}
+          hasSavedAvatar={hasSavedAvatar}
+          isUpdatingAvatar={isUpdatingAvatar}
+          completion={completion}
+          copyText={copyText}
         />
 
         {/* Main Content Layout */}
         <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 sm:py-7 relative z-10">
-          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[370px_minmax(0,1fr)] lg:gap-8">
-            {/* Left Sidebar Profile Card */}
-            <ProfileSidebar
-              authUser={authUser}
-              form={form}
-              selectedImg={selectedImg}
-              isDragging={isDragging}
-              setIsDragging={setIsDragging}
-              handleDrop={handleDrop}
-              fileInputRef={fileInputRef}
-              handleFileChange={handleFileChange}
-              cancelAvatar={cancelAvatar}
-              handleImageUpload={handleImageUpload}
-              onOpenRemovePhotoConfirm={() => setConfirmRemovePhoto(true)}
-              hasSavedAvatar={hasSavedAvatar}
-              isUpdatingAvatar={isUpdatingAvatar}
-              completion={completion}
-              missing={missing}
-              securityScore={securityScore}
-              securityLevel={securityLevel}
-              sessionsCount={sessions.length}
-              twoFA={twoFA}
-              memberSince={memberSince}
-              onMissingClick={handleMissingClick}
-              copyText={copyText}
-              className="lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto"
-            />
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[310px_minmax(0,1fr)] lg:gap-8">
+            {/* Desktop Left Sidebar: Account Snapshot, Contact Info & Missing Checklist */}
+            <div className="hidden lg:block lg:sticky lg:top-24">
+              <ProfileSidebar
+                authUser={authUser}
+                form={form}
+                completion={completion}
+                missing={missing}
+                securityScore={securityScore}
+                securityLevel={securityLevel}
+                sessionsCount={sessions.length}
+                twoFA={twoFA}
+                memberSince={memberSince}
+                onMissingClick={handleMissingClick}
+              />
+            </div>
 
             {/* Right Main Content Pane */}
             <div className="flex flex-col gap-5 min-w-0">
@@ -708,15 +747,14 @@ export default function ProfilePage() {
                       formRef={formRef}
                       form={form}
                       errors={errors}
-                      isEditing={isEditing}
-                      setIsEditing={setIsEditing}
+                      isEditing={false}
                       isDirty={isDirty}
                       handleChange={handleChange}
-                      handleCancel={handleCancel}
-                      handleSave={handleSave}
+                      handleCancel={closeEditDrawer}
+                      handleSave={handleSaveProfile}
                       isUpdateProfile={isUpdateProfile}
-                      isFetchingUser={isFetchingUser}
                       copyText={copyText}
+                      onEditField={(field) => openEditDrawer(field)}
                     />
                   )}
 
@@ -776,12 +814,27 @@ export default function ProfilePage() {
                   )}
                 </motion.div>
               </AnimatePresence>
+
+              {/* Mobile Bottom Snapshot: Account Snapshot & Missing Checklist */}
+              <div className="block lg:hidden pt-2">
+                <ProfileSidebar
+                  authUser={authUser}
+                  form={form}
+                  completion={completion}
+                  missing={missing}
+                  securityScore={securityScore}
+                  securityLevel={securityLevel}
+                  sessionsCount={sessions.length}
+                  twoFA={twoFA}
+                  memberSince={memberSince}
+                  onMissingClick={handleMissingClick}
+                />
+              </div>
             </div>
           </div>
         </main>
       </motion.div>
 
-      {/* 2FA Modal */}
       {twoFAModal.open && (
         <div className="relative z-[80]">
           <TwoFactorModal
@@ -791,7 +844,6 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Confirmation Dialogs */}
       <ConfirmDialog
         open={confirmRemovePhoto}
         title="Remove your profile photo?"
@@ -830,9 +882,22 @@ export default function ProfilePage() {
         onCancel={() => setConfirmDiscard(false)}
         onConfirm={() => {
           setConfirmDiscard(false);
-          handleCancel();
-          goBack();
+          closeEditDrawer();
         }}
+      />
+
+      <ProfileEditDrawer
+        isOpen={isEditDrawerOpen}
+        onClose={closeEditDrawer}
+        form={form}
+        setForm={setForm}
+        errors={errors}
+        setErrors={setErrors}
+        isDirty={isDirty}
+        onSave={handleSaveProfile}
+        isSaving={isUpdateProfile}
+        initialFocusField={initialFocusField}
+        onDiscardConfirmRequest={() => setConfirmDiscard(true)}
       />
     </MotionConfig>
   );

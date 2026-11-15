@@ -1,9 +1,6 @@
 import { motion } from "framer-motion";
 import { SETTINGS_SPRING } from "./settingsTokens";
 
-/**
- * Accessible, Touch-Optimized Switch Toggle with Layout Animation
- */
 export default function SettingsToggle({
   checked = false,
   onChange,
@@ -12,7 +9,9 @@ export default function SettingsToggle({
   className = "",
 }) {
   return (
-    <div className={`relative flex items-center justify-center p-1 ${className}`}>
+    <div
+      className={`relative flex items-center justify-center p-1 ${className}`}
+    >
       <motion.button
         type="button"
         role="switch"

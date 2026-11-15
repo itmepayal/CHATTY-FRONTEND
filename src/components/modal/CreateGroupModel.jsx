@@ -101,13 +101,14 @@ const CreateGroupModal = ({ open, onClose }) => {
 
   const q = query.trim().toLowerCase();
 
-  // contacts only: search by name / username / email
+  // contacts only (with group addition permission): search by name / username / email
   const candidates = useMemo(
     () =>
       contacts
         .filter(
           (u) =>
             !blockedIds.has(String(u.id)) &&
+            u.canAddToGroup !== false &&
             (!q ||
               u.fullName?.toLowerCase().includes(q) ||
               u.username?.toLowerCase().includes(q) ||

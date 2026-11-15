@@ -19,7 +19,7 @@ import { toast } from "react-hot-toast";
 
 const CHAT_PREF_KEYS = ["enterToSend", "largeEmoji", "autoScroll"];
 
-const DEFAULT_PREFS = {
+export const DEFAULT_PREFS = {
   enterToSend: true,
   largeEmoji: true,
   autoScroll: true,

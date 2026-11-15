@@ -1,46 +1,48 @@
-import { useSettingsStore } from "../store/useSettingsStore";
-
-let audioCtx = null;
+import {
+  playMessageSound as servicePlaySound,
+  showDesktopNotification,
+} from "../services/notificationService.js";
+import { useNotificationSettings } from "../store/useNotificationSettingsStore.js";
 
 export const playMessageSound = (volumePercent) => {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    audioCtx = audioCtx || new Ctx();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.value = (volumePercent / 100) * 0.3;
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.18);
-  } catch {}
+  servicePlaySound({
+    volume: volumePercent,
+    soundEnabled: true,
+    force: true,
+  });
 };
 
-export const notifyIncoming = ({ title, body, icon, chatKey }) => {
-  const { settings: s } = useSettingsStore.getState();
+export const notifyIncoming = ({
+  title,
+  body,
+  icon,
+  chatKey,
+  senderName,
+  messageType,
+}) => {
+  const { settings } = useNotificationSettings.getState();
 
-  if (s.messageSound) playMessageSound(s.soundVolume);
+  if (settings.soundEnabled) {
+    servicePlaySound({
+      volume: settings.soundVolume,
+      soundEnabled: true,
+    });
+  }
 
-  const canNotify =
-    s.desktopNotifications &&
-    document.visibilityState !== "visible" &&
-    "Notification" in window &&
-    Notification.permission === "granted";
+  if (settings.desktopNotifications) {
+    showDesktopNotification({
+      senderName: senderName || title,
+      text: body,
+      avatar: icon,
+      chatId: chatKey,
+      messageType: messageType || "text",
+      showPreview: settings.showPreview,
+      desktopNotifications: true,
+    });
+  }
+};
 
-  if (!canNotify) return;
-
-  const n = new Notification(title, {
-    body: s.messagePreview ? body : "New message",
-    icon,
-    tag: chatKey,
-  });
-  n.onclick = () => {
-    window.focus();
-    n.close();
-  };
+export default {
+  playMessageSound,
+  notifyIncoming,
 };

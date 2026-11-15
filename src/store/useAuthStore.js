@@ -5,6 +5,7 @@ import { io } from "socket.io-client";
 import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatPrefsStore } from "./useChatPrefsStore.js";
 import { useAppearanceStore } from "./useAppearanceStore.js";
+import { useNotificationSettings } from "./useNotificationSettingsStore.js";
 import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 
 const baseUrl = import.meta.env.VITE_API_URL;
@@ -24,6 +25,7 @@ const seedPrefs = (user) => {
   usePrivacyStore.getState().initFromUser(user);
   useChatPrefsStore.getState().initFromUser(user);
   useAppearanceStore.getState().initFromUser(user);
+  useNotificationSettings.getState().initFromUser(user);
 };
 
 const MAX_SERVER_DISCONNECT_RETRIES = 3;
@@ -41,6 +43,7 @@ export const useAuthStore = create((set, get) => ({
   isDeletingAccount: false,
   onlineUsers: [],
   hiddenUsers: [],
+  presenceMap: {},
   socket: null,
 
   twoFactorChallenge: null,
@@ -217,10 +220,32 @@ export const useAuthStore = create((set, get) => ({
       clearE2EECache();
       useChatPrefsStore.getState().reset?.();
       useAppearanceStore.getState().reset?.();
+      useNotificationSettings.getState().resetSettings?.();
       console.log("[E2EE] logout: encryption cache cleared");
-      set({ authUser: null });
+      set({ authUser: null, presenceMap: {} });
       toast.success("You have been logged out successfully.");
     }
+  },
+
+  setPresence: (userId, presence) => {
+    if (!userId) return;
+    const uid = String(userId);
+    set((state) => {
+      const prev = state.presenceMap?.[uid] || {};
+      return {
+        presenceMap: {
+          ...state.presenceMap,
+          [uid]: {
+            ...prev,
+            ...presence,
+            lastSeen:
+              presence?.lastSeen !== undefined
+                ? presence.lastSeen
+                : prev.lastSeen,
+          },
+        },
+      };
+    });
   },
 
   updateProfile: async (data) => {
@@ -476,7 +501,8 @@ export const useAuthStore = create((set, get) => ({
       }
     });
 
-    socket.on("presence:updated", ({ userId, isOnline, lastSeen }) => {
+    const handlePresence = ({ userId, isOnline, lastSeen }) => {
+      if (!userId) return;
       const uid = String(userId);
       set((state) => {
         const setIds = new Set(state.onlineUsers.map(String));
@@ -485,17 +511,71 @@ export const useAuthStore = create((set, get) => ({
         } else {
           setIds.delete(uid);
         }
-        return { onlineUsers: Array.from(setIds) };
+        const prevPresence = state.presenceMap?.[uid] || {};
+        const updatedLastSeen = isOnline
+          ? prevPresence.lastSeen
+          : lastSeen !== undefined
+            ? lastSeen
+            : prevPresence.lastSeen;
+        return {
+          onlineUsers: Array.from(setIds),
+          presenceMap: {
+            ...state.presenceMap,
+            [uid]: {
+              isOnline: Boolean(isOnline),
+              lastSeen: updatedLastSeen,
+            },
+          },
+        };
       });
       window.dispatchEvent(
         new CustomEvent("chatty:presence-updated", {
           detail: { userId: uid, isOnline, lastSeen },
         }),
       );
-    });
+    };
 
-    socket.on("privacy:settings-updated", (settings) => {
+    socket.on("presence:updated", handlePresence);
+    socket.on("user-online", (payload) =>
+      handlePresence({ userId: payload?.userId ?? payload, isOnline: true }),
+    );
+    socket.on("user-offline", (payload) =>
+      handlePresence({
+        userId: payload?.userId ?? payload,
+        isOnline: false,
+        lastSeen: payload?.lastSeen,
+      }),
+    );
+    socket.on("user:online", (payload) =>
+      handlePresence({ userId: payload?.userId ?? payload, isOnline: true }),
+    );
+    socket.on("user:offline", (payload) =>
+      handlePresence({
+        userId: payload?.userId ?? payload,
+        isOnline: false,
+        lastSeen: payload?.lastSeen,
+      }),
+    );
+    socket.on("last-seen-update", (payload) =>
+      handlePresence({
+        userId: payload?.userId ?? payload,
+        isOnline: false,
+        lastSeen: payload?.lastSeen,
+      }),
+    );
+
+    const handlePrivacyUpdate = (settings) => {
       usePrivacyStore.getState().initFromUser(settings);
+    };
+    socket.on("privacy:settings-updated", handlePrivacyUpdate);
+    socket.on("privacy:update", handlePrivacyUpdate);
+
+    const handleNotificationsUpdate = (payload) => {
+      useNotificationSettings.getState().handleSocketUpdate(payload);
+    };
+    socket.on("settings:notifications:updated", handleNotificationsUpdate);
+    socket.on("connect", () => {
+      useNotificationSettings.getState().loadSettings();
     });
 
     socket.on("user:profile-updated", ({ userId }) => {

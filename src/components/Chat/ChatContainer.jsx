@@ -214,7 +214,6 @@ const isEmojiOnly = (t) => {
   );
 };
 
-// <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in LOCAL time
 const toLocalInput = (date) => {
   const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return d.toISOString().slice(0, 16);
@@ -228,7 +227,6 @@ const formatDateTime = (value) =>
     minute: "2-digit",
   });
 
-/* touch device (no hover) detection — phones / tablets */
 const useIsTouch = () => {
   const [touch, setTouch] = useState(
     () =>
@@ -468,9 +466,6 @@ const ReplyQuote = ({ reply, isMine, authId, peerName, onClick }) => {
   );
 };
 
-/* ------------------------------------------------------------------ */
-/*  Link preview card (inside a bubble)                                */
-/* ------------------------------------------------------------------ */
 const LinkPreviewCard = ({ preview, isMine }) => (
   <motion.a
     href={preview.url}
@@ -1306,9 +1301,15 @@ const ChatInput = () => {
   };
 
   const handleChange = (e) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
 
     if (!typingEnabled || isEditing) return;
+
+    if (!val.trim()) {
+      stopTyping();
+      return;
+    }
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
@@ -1458,6 +1459,7 @@ const ChatInput = () => {
       }
     }
     if (e.key !== "Enter") return;
+    if (e.nativeEvent?.isComposing) return;
     // phones: Enter = new line, send with the button
     if (isTouch) return;
     const wantsSend = enterToSend ? !e.shiftKey : e.ctrlKey || e.metaKey;
@@ -2067,7 +2069,7 @@ const MessageRow = memo(function MessageRow({
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
                   hasText || hasAudio || reply || isForwarded
-                    ? (cs.bubblePadding || "px-3 py-2 sm:px-3.5")
+                    ? cs.bubblePadding || "px-3 py-2 sm:px-3.5"
                     : "p-1"
                 } ${cs.radius} shadow-sm ${
                   isTouch ? "[-webkit-touch-callout:none] select-text" : ""
@@ -2348,6 +2350,8 @@ const ChatContainer = () => {
 
   const { autoScroll, largeEmoji } = useChatPrefsStore((st) => st.prefs);
 
+  const typingEnabled =
+    usePrivacyStore((st) => st.privacy.typingIndicator) !== false;
   const myReadReceipts =
     usePrivacyStore((st) => st.privacy.readReceipts) !== false;
   const peerReadReceipts =
@@ -2356,7 +2360,7 @@ const ChatContainer = () => {
   const showSeen = Boolean(myReadReceipts && peerReadReceipts);
 
   const peerIsTyping = Boolean(
-    selectedUser && typingFrom[String(selectedUser.id)],
+    typingEnabled && selectedUser && typingFrom[String(selectedUser.id)],
   );
 
   // Must stay above any early return (rules of hooks)
@@ -2392,7 +2396,6 @@ const ChatContainer = () => {
   const [showShareLocation, setShowShareLocation] = useState(false);
   // ---- E2EE state ----
   const [retryingKeys, setRetryingKeys] = useState(false);
-  const [retryTick, setRetryTick] = useState(0);
   const [e2eeInfoOpen, setE2eeInfoOpen] = useState(false);
 
   // my active live share in this chat (if any)
@@ -2581,23 +2584,38 @@ const ChatContainer = () => {
   useEffect(() => {
     if (selectedUser?.id) {
       getMessage(selectedUser.id);
-      socket?.emit?.("chat:open", selectedUser.id);
+      if (document.visibilityState === "visible") {
+        socket?.emit?.("chat:open", selectedUser.id);
+      }
     }
     subscribeToMessage();
+    return () => {
+      socket?.emit?.("chat:close");
+    };
   }, [selectedUser?.id, socket, getMessage, subscribeToMessage]);
 
   useEffect(() => {
     if (!selectedUser?.id) return;
     const onVisible = () => {
-      if (document.visibilityState === "visible") markSeen(selectedUser.id);
+      if (document.visibilityState === "visible") {
+        socket?.emit?.("chat:open", selectedUser.id);
+        markSeen(selectedUser.id);
+      } else {
+        socket?.emit?.("chat:close");
+      }
+    };
+    const onBlur = () => {
+      socket?.emit?.("chat:close");
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      window.removeEventListener("blur", onBlur);
     };
-  }, [selectedUser?.id, markSeen]);
+  }, [selectedUser?.id, markSeen, socket]);
 
   useLayoutEffect(() => {
     if (isMessagesLoading || !listRef.current) return;

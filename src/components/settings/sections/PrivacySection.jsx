@@ -18,7 +18,6 @@ export default function PrivacySection({
 }) {
   return (
     <div className="space-y-5">
-      {/* 1. Who Can See My Personal Info */}
       <SettingsCard
         title="Personal Information Visibility"
         subtitle="Control who can see your online presence, status, and profile details."
@@ -116,34 +115,50 @@ export default function PrivacySection({
         )}
       </SettingsCard>
 
-      {/* 2. Activity & Receipts */}
       <SettingsCard
         title="Activity & Read Receipts"
         subtitle="Manage communication signals and indicators sent to other users."
+        headerAction={
+          privacySaving ? (
+            <span className="flex items-center gap-1.5 text-xs text-primary font-medium">
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Saving…</span>
+            </span>
+          ) : null
+        }
       >
-        <SettingsRow
-          title="Read receipts"
-          desc="Show blue checkmarks when messages have been viewed. Note: if turned off, you will also not see read receipts from others."
-        >
-          <SettingsToggle
-            checked={privacy.readReceipts}
-            onChange={(v) => setPrivacy("readReceipts", v)}
-            label="Read receipts"
-            disabled={privacySaving}
-          />
-        </SettingsRow>
+        {privacyLoading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-base-content/60">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span className="text-xs font-medium">Loading activity settings…</span>
+          </div>
+        ) : (
+          <>
+            <SettingsRow
+              title="Read receipts"
+              desc="Show blue checkmarks when messages have been viewed. Note: if turned off, you will also not see read receipts from others."
+            >
+              <SettingsToggle
+                checked={privacy.readReceipts}
+                onChange={(v) => setPrivacy("readReceipts", v)}
+                label="Read receipts"
+                disabled={privacySaving}
+              />
+            </SettingsRow>
 
-        <SettingsRow
-          title="Typing indicator"
-          desc="Transmit a real-time typing bubble to the other user when you are composing text"
-        >
-          <SettingsToggle
-            checked={privacy.typingIndicator}
-            onChange={(v) => setPrivacy("typingIndicator", v)}
-            label="Typing indicator"
-            disabled={privacySaving}
-          />
-        </SettingsRow>
+            <SettingsRow
+              title="Typing indicator"
+              desc="Transmit a real-time typing bubble to the other user when you are composing text."
+            >
+              <SettingsToggle
+                checked={privacy.typingIndicator}
+                onChange={(v) => setPrivacy("typingIndicator", v)}
+                label="Typing indicator"
+                disabled={privacySaving}
+              />
+            </SettingsRow>
+          </>
+        )}
       </SettingsCard>
     </div>
   );

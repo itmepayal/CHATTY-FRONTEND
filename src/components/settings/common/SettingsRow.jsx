@@ -1,9 +1,6 @@
 import { motion } from "framer-motion";
 import { SETTINGS_VARIANTS } from "./settingsTokens";
 
-/**
- * Standardized Settings Option Row
- */
 export default function SettingsRow({
   title,
   desc,

@@ -24,21 +24,7 @@ import {
   FIELD_MAP,
   BIO_MAX,
 } from "../common/ProfileTokens";
-
-/**
- * Format DOB string to human readable format
- */
-const formatDob = (v) => {
-  if (!v) return "";
-  const d = new Date(`${v}T00:00:00`);
-  return Number.isNaN(d.getTime())
-    ? v
-    : d.toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
-};
+import { formatDob } from "../../../lib/dobUtils.js";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -72,14 +58,13 @@ export default function ProfileInfoSection({
   form,
   errors,
   isEditing,
-  setIsEditing,
   isDirty,
   handleChange,
   handleCancel,
   handleSave,
   isUpdateProfile,
-  isFetchingUser,
   copyText,
+  onEditField = null,
 }) {
   const controlClass = (error) =>
     `w-full rounded-xl border bg-base-100 pl-10 pr-3 py-2.5 text-xs sm:text-sm shadow-sm outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -151,6 +136,17 @@ export default function ProfileInfoSection({
                   <Copy className="size-3.5" />
                 </button>
               )}
+              {!f.readOnly && onEditField && (
+                <button
+                  type="button"
+                  onClick={() => onEditField(f.name)}
+                  aria-label={`Edit ${f.label.toLowerCase()}`}
+                  title={`Edit ${f.label.toLowerCase()}`}
+                  className="grid size-7 shrink-0 place-items-center rounded-lg text-base-content/40 opacity-100 transition hover:bg-base-300 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary sm:opacity-0 sm:group-hover:opacity-100"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -219,7 +215,6 @@ export default function ProfileInfoSection({
       noValidate
       className="flex flex-1 flex-col gap-5 sm:gap-6"
     >
-      {/* Top Banner Action if in View Mode */}
       {!isEditing && (
         <div className="flex items-center justify-between px-1">
           <div>
@@ -230,24 +225,9 @@ export default function ProfileInfoSection({
               Review and update your public identity and contact channels
             </p>
           </div>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.94 }}
-            onClick={() => setIsEditing(true)}
-            disabled={isFetchingUser}
-            className="btn btn-primary btn-sm rounded-xl font-semibold gap-2 shadow-sm shadow-primary/20 hidden sm:inline-flex"
-          >
-            {isFetchingUser ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Pencil className="size-4" />
-            )}
-            <span>Edit profile</span>
-          </motion.button>
         </div>
       )}
 
-      {/* Render 3 Core Detail Cards (Basic details, Contact info, Find me online) */}
       {GROUPS.map((group) => (
         <ProfileCard
           key={group.title}
@@ -265,7 +245,6 @@ export default function ProfileInfoSection({
         </ProfileCard>
       ))}
 
-      {/* About / Bio Card */}
       <ProfileCard
         icon={FileText}
         title="About / Bio"
@@ -334,7 +313,6 @@ export default function ProfileInfoSection({
         )}
       </ProfileCard>
 
-      {/* Sticky Bottom Save / Cancel Bar in Edit Mode */}
       <AnimatePresence>
         {isEditing && (
           <motion.div

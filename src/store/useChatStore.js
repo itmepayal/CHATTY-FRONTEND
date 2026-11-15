@@ -12,6 +12,8 @@ import {
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useContactStore } from "../store/useContactStore.js";
+import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { playMessageSound, showDesktopNotification } from "../services/notificationService.js";
 
 const ATTACHMENT_FIELD = "image";
 
@@ -51,6 +53,9 @@ const revokeBlob = (url) => {
   if (typeof url === "string" && url.startsWith("blob:"))
     URL.revokeObjectURL(url);
 };
+
+const seenInFlight = new Set();
+const seenDirty = new Set();
 
 const extFor = (mime = "") =>
   mime.includes("ogg")
@@ -606,6 +611,13 @@ export const useChatStore = create((set, get) => {
 
     markSeen: async (userId) => {
       if (!userId) return;
+      const key = String(userId);
+      if (seenInFlight.has(key)) {
+        seenDirty.add(key);
+        return;
+      }
+      seenInFlight.add(key);
+
       set((s) => ({
         users: s.users.map((u) =>
           sameId(u.id, userId) ? { ...u, unreadCount: 0 } : u,
@@ -630,6 +642,11 @@ export const useChatStore = create((set, get) => {
         }));
       } catch {
         get().getUsers({ silent: true });
+      } finally {
+        seenInFlight.delete(key);
+        if (seenDirty.delete(key)) {
+          get().markSeen(userId);
+        }
       }
     },
 
@@ -884,6 +901,61 @@ export const useChatStore = create((set, get) => {
                 : st.selectedUser,
           };
         });
+
+        // 3.5. Trigger notification sound and desktop notification if eligible
+        const isOwn = Boolean(me && sameId(incoming.senderId, me));
+        if (!isOwn) {
+          const notifSettings = useNotificationSettings.getState().settings;
+
+          if (notifSettings.soundEnabled) {
+            playMessageSound({
+              volume: notifSettings.soundVolume,
+              soundEnabled: true,
+              messageId: incoming.id,
+            });
+          }
+
+          const isChatActiveAndFocused =
+            Boolean(isCurrentOpenChat) &&
+            isTabVisible() &&
+            (typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : true);
+
+          if (notifSettings.desktopNotifications && !isChatActiveAndFocused) {
+            const senderUser =
+              get().users.find((u) => sameId(u.id, incoming.senderId)) ||
+              useContactStore.getState().contacts?.find((c) => sameId(c.id, incoming.senderId));
+            const senderName = senderUser?.fullName || incoming.sender?.fullName || "User";
+            const avatar = senderUser?.avatar || incoming.sender?.avatar || "";
+
+            showDesktopNotification({
+              senderName,
+              text: incoming.text,
+              chatId: String(otherUserId),
+              avatar,
+              messageType: incoming.file ? "file" : incoming.image ? "image" : incoming.video ? "video" : incoming.audio ? "audio" : incoming.location ? "location" : "text",
+              hasImage: Boolean(incoming.image?.url || incoming.image),
+              hasVideo: Boolean(incoming.video?.url || incoming.video),
+              hasAudio: Boolean(incoming.audio?.url || incoming.audio),
+              hasFile: Boolean(incoming.file?.url || incoming.file),
+              hasLocation: Boolean(incoming.location?.lat),
+              messageId: incoming.id,
+              showPreview: notifSettings.showPreview,
+              desktopNotifications: true,
+              onNotificationClick: (targetChatId) => {
+                const targetUser = get().users.find((u) => sameId(u.id, targetChatId));
+                if (targetUser) {
+                  get().setSelectedUser(targetUser);
+                } else {
+                  get().setSelectedUser({ id: targetChatId, fullName: senderName, avatar });
+                }
+                if (typeof window !== "undefined" && window.location.pathname !== "/chat") {
+                  window.history.pushState(null, "", "/chat");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }
+              },
+            });
+          }
+        }
 
         // 4. Asynchronously decrypt encrypted messages without blocking the UI
         if (isEncrypted) {
@@ -1163,16 +1235,8 @@ export const useChatStore = create((set, get) => {
         if (!uid) return;
         get().getUsers({ silent: true });
         const current = get().selectedUser;
-        if (current && sameId(current.id, uid)) {
-          axiosInstance
-            .get(`/users/${uid}/profile`)
-            .then((res) => {
-              const u = res?.data?.data?.user;
-              if (u) {
-                get().setSelectedUser({ ...current, ...u });
-              }
-            })
-            .catch(() => {});
+        if (current && sameId(current.id ?? current._id, uid)) {
+          get().fetchUserProfile(uid);
         }
       };
 
@@ -1180,22 +1244,36 @@ export const useChatStore = create((set, get) => {
         const uid = detail?.userId;
         if (!uid) return;
         const current = get().selectedUser;
-        if (current && sameId(current.id, uid)) {
-          get().setSelectedUser({
-            ...current,
-            lastSeen: detail.isOnline
-              ? null
-              : (detail.lastSeen ?? current.lastSeen),
-          });
+        const updatedLastSeen =
+          detail.isOnline
+            ? current?.lastSeen
+            : detail.lastSeen !== undefined
+              ? detail.lastSeen
+              : current?.lastSeen;
+        if (current && sameId(current.id ?? current._id, uid)) {
+          set((s) => ({
+            selectedUser: s.selectedUser
+              ? {
+                  ...s.selectedUser,
+                  lastSeen: updatedLastSeen,
+                  ...(detail.isOnline !== undefined
+                    ? { isOnline: detail.isOnline }
+                    : {}),
+                }
+              : null,
+          }));
         }
         set((state) => ({
           users: state.users.map((u) =>
-            sameId(u.id, uid)
+            sameId(u.id ?? u._id, uid)
               ? {
                   ...u,
-                  lastSeen: detail.isOnline
-                    ? null
-                    : (detail.lastSeen ?? u.lastSeen),
+                  lastSeen:
+                    detail.isOnline
+                      ? u.lastSeen
+                      : detail.lastSeen !== undefined
+                        ? detail.lastSeen
+                        : u.lastSeen,
                 }
               : u,
           ),
@@ -1291,14 +1369,41 @@ export const useChatStore = create((set, get) => {
       });
     },
 
+    fetchUserProfile: async (userId) => {
+      if (!userId) return null;
+      const uid = String(userId);
+      try {
+        const res = await axiosInstance.get(`/users/${uid}/profile`);
+        const u = res?.data?.data?.user;
+        if (u) {
+          set((s) => ({
+            selectedUser:
+              s.selectedUser && sameId(s.selectedUser.id ?? s.selectedUser._id, uid)
+                ? { ...s.selectedUser, ...u }
+                : s.selectedUser,
+            users: s.users.map((usr) =>
+              sameId(usr.id ?? usr._id, uid) ? { ...usr, ...u } : usr,
+            ),
+          }));
+          return u;
+        }
+      } catch {
+        // ignore
+      }
+      return null;
+    },
+
     setSelectedUser: (selectedUser) => {
+      const targetId = selectedUser
+        ? (selectedUser.id ?? selectedUser._id)
+        : null;
       set((s) => ({
         selectedUser: selectedUser
-          ? { ...selectedUser, unreadCount: 0 }
+          ? { ...selectedUser, id: targetId, unreadCount: 0 }
           : null,
         users: selectedUser
           ? s.users.map((u) =>
-              sameId(u.id, selectedUser.id) ? { ...u, unreadCount: 0 } : u,
+              sameId(u.id ?? u._id, targetId) ? { ...u, unreadCount: 0 } : u,
             )
           : s.users,
         replyingTo: null,
@@ -1307,8 +1412,11 @@ export const useChatStore = create((set, get) => {
         disappearAfter: 0,
       }));
       syncActiveChat();
-      if (selectedUser?.id && isTabVisible()) {
-        get().markSeen(selectedUser.id);
+      if (targetId && isTabVisible()) {
+        get().markSeen(targetId);
+      }
+      if (targetId) {
+        get().fetchUserProfile(targetId);
       }
     },
 

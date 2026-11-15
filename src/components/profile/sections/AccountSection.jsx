@@ -39,14 +39,12 @@ export default function AccountSection({
 
   return (
     <div className="flex flex-1 flex-col gap-5 sm:gap-6">
-      {/* 1. Account Identity & Credentials Overview Card */}
       <ProfileCard
         icon={Fingerprint}
         title="Account details"
         subtitle="Unique system identifiers, account metadata, and verification records."
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          {/* Account ID */}
           <div className="rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5">
             <div className="flex items-center justify-between gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
@@ -66,7 +64,6 @@ export default function AccountSection({
             </p>
           </div>
 
-          {/* Member Since */}
           <div className="rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
               Registration Date
@@ -79,7 +76,6 @@ export default function AccountSection({
         </div>
       </ProfileCard>
 
-      {/* 2. Danger Zone: Delete Account */}
       <ProfileCard
         icon={TriangleAlert}
         tone="error"
@@ -87,7 +83,6 @@ export default function AccountSection({
         subtitle="Permanently remove your account profile, personal messages, and media uploads."
       >
         <div className="relative overflow-hidden rounded-2xl border border-error/30 bg-error/5 p-4 sm:p-6">
-          {/* Top striped caution pattern */}
           <div
             aria-hidden
             className="absolute inset-x-0 top-0 h-1.5 opacity-60"
@@ -104,7 +99,6 @@ export default function AccountSection({
             available to others.
           </p>
 
-          {/* Deletion impact list */}
           <ul className="mt-3.5 grid gap-2 text-xs text-base-content/75 sm:grid-cols-3">
             {["Profile & media uploads", "Message history & threads", "Active sessions & tokens"].map(
               (item) => (
@@ -119,9 +113,7 @@ export default function AccountSection({
             )}
           </ul>
 
-          {/* Confirmation Form Inputs */}
           <div className="mt-5 w-full max-w-md space-y-3.5">
-            {/* Input 1: Type DELETE */}
             <div className="space-y-1">
               <label
                 htmlFor="delete-confirm-input"

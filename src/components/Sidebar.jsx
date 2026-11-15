@@ -33,6 +33,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useGroupStore } from "../store/useGroupStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useContactStore } from "../store/useContactStore";
+import { usePrivacyStore } from "../store/usePrivacyStore";
 import { useCallHistoryStore } from "../store/useCallHistoryStore";
 import { useGroupCallHistoryStore } from "../store/useGroupCallHistoryStore";
 import SidebarSkeleton from "../components/Skeleton/SidebarSkeleton";
@@ -722,6 +723,8 @@ const Sidebar = () => {
     clear: clearGroupCalls,
   } = useGroupCallHistoryStore();
 
+  const myStatusVisible = usePrivacyStore((st) => st.privacy.showOnlineStatus);
+
   const favorites = toIds(authUser?.favorites);
 
   useEffect(() => {
@@ -746,7 +749,13 @@ const Sidebar = () => {
 
   const onlineIds = toIds(onlineUsers);
   const hiddenIds = toIds(hiddenUsers);
-  const isOnline = (user) => onlineIds.includes(String(user.id));
+  const isOnline = (user) =>
+    Boolean(
+      myStatusVisible &&
+      !user.isOnlineRestricted &&
+      !hiddenIds.includes(String(user.id)) &&
+      onlineIds.includes(String(user.id)),
+    );
   const isHidden = (user) => hiddenIds.includes(String(user.id));
   const isFavorite = (user) => favorites.includes(String(user.id));
   const meOnline = authUser ? onlineIds.includes(String(authUser.id)) : false;
