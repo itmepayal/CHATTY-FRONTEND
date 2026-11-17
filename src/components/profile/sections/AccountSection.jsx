@@ -3,7 +3,6 @@ import {
   Trash2,
   TriangleAlert,
   Lock,
-  Copy,
   Calendar,
   ShieldCheck,
   X,
@@ -14,9 +13,6 @@ import {
 import ProfileCard from "../common/ProfileCard";
 import { PROFILE_SOFT } from "../common/ProfileTokens";
 
-/**
- * Account Overview & Permanent Account Actions (Tab 3)
- */
 export default function AccountSection({
   authUser,
   memberSince,
@@ -35,35 +31,14 @@ export default function AccountSection({
   twoFA,
   copyText,
 }) {
-  const accountId = authUser?._id || authUser?.id || "—";
-
   return (
     <div className="flex flex-1 flex-col gap-5 sm:gap-6">
       <ProfileCard
         icon={Fingerprint}
         title="Account details"
-        subtitle="Unique system identifiers, account metadata, and verification records."
+        subtitle="Account metadata, verification status, and registration records."
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
-                User ID
-              </span>
-              <button
-                type="button"
-                onClick={() => copyText(accountId, "User ID")}
-                className="grid size-6 place-items-center rounded text-base-content/40 hover:text-primary transition-colors"
-                title="Copy User ID"
-              >
-                <Copy className="size-3" />
-              </button>
-            </div>
-            <p className="mt-1 font-mono text-xs text-base-content break-all">
-              {accountId}
-            </p>
-          </div>
-
           <div className="rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
               Registration Date
@@ -71,6 +46,16 @@ export default function AccountSection({
             <div className="mt-1 flex items-center gap-2 text-xs sm:text-sm font-medium text-base-content">
               <Calendar className="size-3.5 text-primary" />
               <span>{memberSince}</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+              Account Status
+            </span>
+            <div className="mt-1 flex items-center gap-2 text-xs sm:text-sm font-medium text-success">
+              <ShieldCheck className="size-3.5 text-success" />
+              <span>Active & Verified</span>
             </div>
           </div>
         </div>
@@ -94,23 +79,25 @@ export default function AccountSection({
           />
 
           <p className="mt-2 text-xs sm:text-sm leading-relaxed text-base-content/80">
-            Deleting your account is permanent and cannot be undone. Once confirmed, all your
-            conversations will be removed from recipient devices and your username will become
-            available to others.
+            Deleting your account is permanent and cannot be undone. Once
+            confirmed, all your conversations will be removed from recipient
+            devices and your username will become available to others.
           </p>
 
           <ul className="mt-3.5 grid gap-2 text-xs text-base-content/75 sm:grid-cols-3">
-            {["Profile & media uploads", "Message history & threads", "Active sessions & tokens"].map(
-              (item) => (
-                <li
-                  key={item}
-                  className="flex items-center gap-2 rounded-xl bg-error/10 border border-error/20 px-3 py-2"
-                >
-                  <X className="size-3.5 text-error shrink-0" />
-                  <span className="font-medium">{item}</span>
-                </li>
-              ),
-            )}
+            {[
+              "Profile & media uploads",
+              "Message history & threads",
+              "Active sessions & tokens",
+            ].map((item) => (
+              <li
+                key={item}
+                className="flex items-center gap-2 rounded-xl bg-error/10 border border-error/20 px-3 py-2"
+              >
+                <X className="size-3.5 text-error shrink-0" />
+                <span className="font-medium">{item}</span>
+              </li>
+            ))}
           </ul>
 
           <div className="mt-5 w-full max-w-md space-y-3.5">
@@ -119,7 +106,8 @@ export default function AccountSection({
                 htmlFor="delete-confirm-input"
                 className="text-xs sm:text-sm font-medium text-base-content/80"
               >
-                Type <span className="font-bold text-error">DELETE</span> to confirm
+                Type <span className="font-bold text-error">DELETE</span> to
+                confirm
               </label>
               <input
                 id="delete-confirm-input"
@@ -188,7 +176,9 @@ export default function AccountSection({
                       value={deleteCode}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setDeleteCode(deleteUseRecovery ? val : val.replace(/\D/g, ""));
+                        setDeleteCode(
+                          deleteUseRecovery ? val : val.replace(/\D/g, ""),
+                        );
                         setDeleteError("");
                       }}
                       placeholder={
@@ -250,7 +240,11 @@ export default function AccountSection({
               ) : (
                 <Trash2 className="size-4" />
               )}
-              <span>{isDeletingAccount ? "Deleting account..." : "Delete my account permanently"}</span>
+              <span>
+                {isDeletingAccount
+                  ? "Deleting account..."
+                  : "Delete my account permanently"}
+              </span>
             </motion.button>
           </div>
         </div>

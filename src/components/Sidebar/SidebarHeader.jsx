@@ -30,9 +30,11 @@ export const SidebarHeader = ({
           <h2 className="truncate text-base sm:text-lg font-bold text-base-content">
             {headerTitle}
           </h2>
-          <p className="truncate text-xs text-base-content/60 font-medium">
-            {headerSub}
-          </p>
+          {Boolean(headerSub) && (
+            <p className="truncate text-xs text-base-content/60 font-medium">
+              {headerSub}
+            </p>
+          )}
         </div>
       </div>
 

@@ -496,6 +496,7 @@ export default function SecuritySection({
         icon={Monitor}
         title="Where you're signed in"
         subtitle="Review active devices and revoke access to any browser sessions you don't recognize."
+        stackHeaderOnMobile
         headerAction={
           sessions.length > 1 && (
             <motion.button
@@ -503,12 +504,12 @@ export default function SecuritySection({
               whileTap={{ scale: 0.95 }}
               onClick={onOpenRevokeOthersConfirm}
               disabled={isRevokingOthers || !!revokingId}
-              className="btn btn-outline btn-xs sm:btn-sm rounded-xl font-semibold gap-1.5"
+              className="btn btn-outline btn-sm rounded-xl font-semibold gap-1.5 w-full sm:w-auto h-10 sm:h-9 min-h-[40px] sm:min-h-[36px]"
             >
               {isRevokingOthers ? (
-                <Loader2 className="size-3.5 animate-spin" />
+                <Loader2 className="size-4 sm:size-3.5 animate-spin" />
               ) : (
-                <LogOut className="size-3.5" />
+                <LogOut className="size-4 sm:size-3.5" />
               )}
               <span>Sign out all others</span>
             </motion.button>
@@ -516,16 +517,17 @@ export default function SecuritySection({
         }
       >
         {sessionsLoading && sessions.length === 0 && (
-          <ul className="space-y-2.5">
+          <ul className="space-y-2.5" role="list">
             {[1, 2].map((i) => (
               <li
                 key={i}
-                className="flex animate-pulse items-center gap-3 rounded-2xl border border-base-300/80 bg-base-200/40 p-3.5"
+                role="listitem"
+                className="flex animate-pulse items-center gap-3 sm:gap-3.5 rounded-2xl border border-base-300/80 bg-base-200/40 p-3 sm:p-3.5"
               >
-                <span className="size-10 shrink-0 rounded-xl bg-base-300" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3 w-32 rounded bg-base-300" />
-                  <div className="h-2.5 w-20 rounded bg-base-300" />
+                <span className="size-10 sm:size-11 shrink-0 rounded-xl bg-base-300" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-3.5 w-32 max-w-[70%] rounded bg-base-300" />
+                  <div className="h-2.5 w-24 max-w-[50%] rounded bg-base-300" />
                 </div>
               </li>
             ))}
@@ -533,14 +535,14 @@ export default function SecuritySection({
         )}
 
         {sessionsError && !sessionsLoading && (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-error/30 bg-error/5 p-6 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-error/30 bg-error/5 p-5 sm:p-6 text-center">
             <TriangleAlert className="size-6 text-error" />
             <p className="text-xs sm:text-sm text-base-content/70">{sessionsError}</p>
             <motion.button
               type="button"
               whileTap={{ scale: 0.95 }}
               onClick={fetchSessions}
-              className="btn btn-outline btn-xs sm:btn-sm rounded-xl gap-1.5"
+              className="btn btn-outline btn-xs sm:btn-sm rounded-xl gap-1.5 min-h-[36px]"
             >
               <RefreshCw className="size-3.5" />
               <span>Retry</span>
@@ -549,7 +551,7 @@ export default function SecuritySection({
         )}
 
         {!sessionsLoading && !sessionsError && sessions.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-base-300 bg-base-200/20 p-6 text-center">
+          <div className="rounded-2xl border border-dashed border-base-300 bg-base-200/20 p-5 sm:p-6 text-center">
             <Monitor className="mx-auto mb-2 size-8 text-base-content/30" />
             <p className="text-xs sm:text-sm text-base-content/60">
               No active sessions currently found.
@@ -558,7 +560,7 @@ export default function SecuritySection({
         )}
 
         {!sessionsError && sessions.length > 0 && (
-          <motion.ul layout className="space-y-2.5">
+          <motion.ul layout className="space-y-2.5" role="list">
             <AnimatePresence initial={false} mode="popLayout">
               {sessions.map((session, index) => {
                 const sid = sessionIdOf(session);
@@ -570,9 +572,20 @@ export default function SecuritySection({
                       : Monitor;
                 const isRevoking = revokingId === sid;
 
+                const hasKnownLocation = Boolean(
+                  session.location &&
+                    session.location.trim() &&
+                    !session.location.toLowerCase().includes("unavailable"),
+                );
+
+                const lastActiveText = session.current
+                  ? "Active now"
+                  : session.lastActiveLabel || "Active recently";
+
                 return (
                   <motion.li
                     key={sid || index}
+                    role="listitem"
                     layout
                     initial={{ opacity: 0, y: 10 }}
                     animate={{
@@ -581,59 +594,69 @@ export default function SecuritySection({
                       transition: { ...PROFILE_SOFT, delay: index * 0.04 },
                     }}
                     exit={{ opacity: 0, x: 40, transition: { duration: 0.2 } }}
-                    className={`flex items-center gap-3 rounded-2xl border p-3 sm:p-3.5 transition-shadow hover:shadow-md ${
+                    className={`flex items-center gap-3 sm:gap-3.5 rounded-2xl border p-3 sm:p-3.5 transition-shadow hover:shadow-md ${
                       session.current
                         ? "border-success/30 bg-success/5"
                         : "border-base-300/80 bg-base-200/40"
                     }`}
                   >
-                    <span className="relative grid size-10 shrink-0 place-items-center rounded-xl bg-base-100 border border-base-300/80">
+                    {/* Fixed-size device icon container */}
+                    <span className="relative grid size-10 sm:size-11 shrink-0 place-items-center rounded-xl bg-base-100 border border-base-300/80 self-center">
                       <DeviceIcon className="size-4 sm:size-5 text-primary" />
                       {session.current && (
                         <span
-                          aria-hidden
-                          className="absolute -right-0.5 -top-0.5 size-2.5 animate-pulse rounded-full bg-success ring-2 ring-base-100"
+                          aria-hidden="true"
+                          className="absolute -right-0.5 -top-0.5 size-2.5 sm:size-3 animate-pulse rounded-full bg-success ring-2 ring-base-100"
                         />
                       )}
                     </span>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="text-xs sm:text-sm font-semibold text-base-content truncate">
+                    {/* Middle flexible container */}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      {/* Device name & "This device" badge */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                        <span className="text-xs sm:text-sm font-semibold text-base-content break-words line-clamp-2 leading-snug">
                           {session.device || "Unknown device"}
                         </span>
                         {session.current && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success border border-success/20">
+                          <span className="mt-1 sm:mt-0 self-start inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success border border-success/20 shrink-0">
                             <Check className="size-2.5 stroke-[3]" />
                             This device
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] sm:text-xs text-base-content/60">
-                        <MapPin className="size-3 shrink-0" />
-                        <span className="truncate">
-                          {session.location || "Unknown location"}
-                          {session.lastActiveLabel ? ` · ${session.lastActiveLabel}` : ""}
-                        </span>
+
+                      {/* Dedicated last active line - never truncated */}
+                      <p className="text-[11px] sm:text-xs text-base-content/70 font-medium leading-none">
+                        {lastActiveText}
                       </p>
+
+                      {/* Location: shown only when known/available */}
+                      {hasKnownLocation && (
+                        <p className="flex items-center gap-1 text-[11px] sm:text-xs text-base-content/60 leading-tight">
+                          <MapPin className="size-3 shrink-0 text-base-content/40" />
+                          <span className="truncate">{session.location}</span>
+                        </p>
+                      )}
                     </div>
 
+                    {/* Touch-friendly sign out button */}
                     {!session.current && (
                       <motion.button
                         type="button"
                         whileTap={{ scale: 0.94 }}
                         onClick={() => onOpenRevokeSessionConfirm(sid)}
                         disabled={isRevoking || isRevokingOthers}
-                        aria-label={`Sign out ${session.device || "device"}`}
-                        title="Sign out device"
-                        className="btn btn-ghost btn-xs sm:btn-sm rounded-xl text-error shrink-0 font-medium"
+                        aria-label="Sign out this device"
+                        title="Sign out this device"
+                        className="min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-0 inline-flex items-center justify-center p-2.5 sm:px-3 sm:py-1.5 rounded-xl text-error hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-base-100 transition-colors shrink-0"
                       >
                         {isRevoking ? (
-                          <Loader2 className="size-3.5 animate-spin" />
+                          <Loader2 className="size-4 sm:size-3.5 animate-spin" />
                         ) : (
                           <>
-                            <LogOut className="size-3.5 sm:hidden" />
-                            <span className="hidden sm:inline">Sign out</span>
+                            <LogOut className="size-4 shrink-0 sm:hidden" />
+                            <span className="hidden sm:inline text-xs font-semibold">Sign out</span>
                           </>
                         )}
                       </motion.button>

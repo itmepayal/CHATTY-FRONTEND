@@ -168,6 +168,14 @@ export const normalizeCall = (c, myId, isGroup) => {
     status === "unanswered" ||
     (!outgoing && (status === "declined" || status === "rejected"));
 
+  const isSeen =
+    outgoing ||
+    c.seen === true ||
+    c.isRead === true ||
+    (Array.isArray(c.readBy) && myId && c.readBy.some((id) => sameId(id, myId)));
+
+  const unseenMissed = Boolean(missed && !outgoing && !isSeen);
+
   let name = "Unknown";
   let avatar = null;
   let otherId = null;
@@ -192,6 +200,7 @@ export const normalizeCall = (c, myId, isGroup) => {
 
   return {
     key: `${isGroup ? "g" : "u"}-${c._id ?? c.id ?? Math.random()}`,
+    id: c._id ?? c.id,
     isGroup,
     groupId,
     otherId,
@@ -199,6 +208,8 @@ export const normalizeCall = (c, myId, isGroup) => {
     avatar,
     outgoing,
     missed,
+    unseenMissed,
+    seen: isSeen,
     video:
       c.type === "video" ||
       c.callType === "video" ||

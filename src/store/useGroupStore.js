@@ -3,6 +3,7 @@ import { customToast as toast } from "../components/toast/customToastService.js"
 import { axiosInstance } from "../lib/axios.js";
 import {
   encryptGroupText,
+  decryptGroupText,
   loadGroupKeys,
   wrapGroupKey,
   cacheGroupKeyRaw,
@@ -153,6 +154,7 @@ export const useGroupStore = create((set, get) => ({
   typing: {},
   // { [groupId]: { [shareId]: share } }
   liveShares: {},
+  scheduled: [],
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
 
@@ -522,9 +524,14 @@ export const useGroupStore = create((set, get) => ({
     set({
       selectedGroup: group,
       groupMessages: [],
+      scheduled: [],
       isGroupMessagesLoading: true,
     });
-    await Promise.all([get().fetchMessages(gid), get().fetchActiveShares(gid)]);
+    await Promise.all([
+      get().fetchMessages(gid),
+      get().fetchActiveShares(gid),
+      get().getScheduled(gid),
+    ]);
     if (!sameId(get().selectedGroup?.id, gid)) return;
     set({ isGroupMessagesLoading: false });
     if (visible()) get().markSeen(gid);
@@ -542,7 +549,7 @@ export const useGroupStore = create((set, get) => ({
       }
     } catch {}
     get().emitTyping(false);
-    set({ selectedGroup: null, groupMessages: [] });
+    set({ selectedGroup: null, groupMessages: [], scheduled: [] });
   },
 
   fetchMessages: async (groupId) => {
@@ -838,6 +845,143 @@ export const useGroupStore = create((set, get) => ({
       groupId: String(selectedGroup.id),
       isTyping,
     });
+  },
+
+  /* =====================================================
+   *            SCHEDULED GROUP MESSAGES
+   * ===================================================== */
+  scheduleGroupMessage: async (groupId, text, scheduledFor) => {
+    try {
+      if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+      let enc;
+      try {
+        enc = await encryptGroupText(groupId, text);
+      } catch (e) {
+        if (
+          e?.message === "group-not-encrypted" ||
+          e?.message === "no-group-key"
+        ) {
+          await get().prepareGroupKeys(groupId);
+          enc = await encryptGroupText(groupId, text);
+        } else {
+          throw e;
+        }
+      }
+      const clientRequestId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random()}`;
+
+      await axiosInstance.post(`/groups/${groupId}/schedule`, {
+        text: enc.text,
+        iv: enc.iv,
+        groupKeyVersion: enc.keyVersion,
+        encrypted: true,
+        e2ee: true,
+        scheduledFor,
+        clientRequestId,
+      });
+
+      toast.success("Group message scheduled");
+      get().getScheduled(groupId);
+      return true;
+    } catch (error) {
+      toast.error(
+        e2eeErrMsg(error) || errMsg(error, "Failed to schedule group message"),
+      );
+      return false;
+    }
+  },
+
+  getScheduled: async (groupId) => {
+    try {
+      const res = await axiosInstance.get("/scheduled", {
+        params: groupId ? { groupId, type: "group" } : { type: "group" },
+      });
+      const raw = unwrap(res) || res.data?.data || [];
+      const items = await Promise.all(
+        raw.map(async (it) => {
+          try {
+            if (it.e2ee && it.iv && it.groupKeyVersion != null) {
+              const text = await decryptGroupText(
+                groupId || it.groupId,
+                it.groupKeyVersion,
+                it.text,
+                it.iv,
+              );
+              return { ...it, id: it._id || it.id, text, decrypted: true };
+            }
+            return { ...it, id: it._id || it.id };
+          } catch (_err) {
+            return {
+              ...it,
+              id: it._id || it.id,
+              text: "(Encrypted message)",
+              decrypted: false,
+            };
+          }
+        }),
+      );
+      set({ scheduled: items });
+    } catch (error) {
+      toast.error(errMsg(error, "Failed to load scheduled group messages"));
+    }
+  },
+
+  editScheduledMessage: async (scheduleId, groupId, text, scheduledFor) => {
+    try {
+      const payload = {};
+      if (text) {
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+        let enc;
+        try {
+          enc = await encryptGroupText(groupId, text);
+        } catch (e) {
+          if (
+            e?.message === "group-not-encrypted" ||
+            e?.message === "no-group-key"
+          ) {
+            await get().prepareGroupKeys(groupId);
+            enc = await encryptGroupText(groupId, text);
+          } else {
+            throw e;
+          }
+        }
+        payload.text = enc.text;
+        payload.iv = enc.iv;
+        payload.groupKeyVersion = enc.keyVersion;
+        payload.encrypted = true;
+        payload.e2ee = true;
+      }
+      if (scheduledFor) {
+        payload.scheduledFor = scheduledFor;
+      }
+      await axiosInstance.patch(`/scheduled/${scheduleId}`, payload);
+      toast.success("Scheduled message updated");
+      get().getScheduled(groupId);
+      return true;
+    } catch (error) {
+      toast.error(
+        e2eeErrMsg(error) || errMsg(error, "Failed to update scheduled message"),
+      );
+      return false;
+    }
+  },
+
+  cancelScheduled: async (scheduleId) => {
+    const previous = get().scheduled;
+    set((s) => ({
+      scheduled: s.scheduled.filter(
+        (x) => !sameId(x._id || x.id, scheduleId),
+      ),
+    }));
+    try {
+      await axiosInstance.delete(`/scheduled/${scheduleId}`);
+      toast.success("Scheduled group message cancelled");
+    } catch (error) {
+      set({ scheduled: previous });
+      toast.error(errMsg(error, "Failed to cancel"));
+    }
   },
 
   /* =====================================================
@@ -1248,6 +1392,38 @@ export const useGroupStore = create((set, get) => ({
 
       "group:location:ended": ({ groupId, shareId }) =>
         get().endShareLocal(String(groupId), String(shareId)),
+
+      "scheduled:sent": ({ scheduleId, groupId }) => {
+        set((st) => ({
+          scheduled: st.scheduled.filter(
+            (x) => !sameId(x._id || x.id, scheduleId),
+          ),
+        }));
+        if (groupId && sameId(get().selectedGroup?.id, groupId)) {
+          get().getScheduled(groupId);
+        }
+      },
+      "scheduled:cancelled": ({ id }) => {
+        set((st) => ({
+          scheduled: st.scheduled.filter((x) => !sameId(x._id || x.id, id)),
+        }));
+      },
+      "scheduled:created": ({ groupId }) => {
+        if (groupId && sameId(get().selectedGroup?.id, groupId)) {
+          get().getScheduled(groupId);
+        }
+      },
+      "scheduled:updated": ({ groupId }) => {
+        if (groupId && sameId(get().selectedGroup?.id, groupId)) {
+          get().getScheduled(groupId);
+        }
+      },
+      "scheduled:failed": ({ error, groupId }) => {
+        if (error) toast.error(`Scheduled group message failed: ${error}`);
+        if (groupId && sameId(get().selectedGroup?.id, groupId)) {
+          get().getScheduled(groupId);
+        }
+      },
 
       connect: async () => {
         await whenE2EEReady();

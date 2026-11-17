@@ -22,12 +22,13 @@ const HomePage = () => {
   let content;
   if (selectedGroup) {
     content = (
-      <GroupChatContainer onToggleInfo={() => setShowGroupInfo((v) => !v)} />
+      <GroupChatContainer
+        onToggleInfo={() => setShowGroupInfo((v) => !v)}
+        onManage={() => setShowGroupModal(true)}
+      />
     );
   } else if (selectedUser) {
-    content = (
-      <ChatContainer onToggleInfo={() => setShowInfo((v) => !v)} />
-    );
+    content = <ChatContainer onToggleInfo={() => setShowInfo((v) => !v)} />;
   } else {
     content = <NoChatSelected />;
   }

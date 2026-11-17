@@ -2,6 +2,7 @@ import { AnimatePresence, MotionConfig } from "framer-motion";
 import {
   Archive,
   ArchiveRestore,
+  Clock,
   Info,
   LogOut,
   MapPin,
@@ -33,9 +34,12 @@ const GroupChatHeader = ({
   callBlocked = false,
   avatarSrc,
   onOpenLocation,
+  onOpenScheduled,
+  scheduledCount = 0,
   isArchived = false,
   onArchive,
   onLeaveGroup,
+  showActionsMenu = false,
 }) => {
   if (!group) return null;
 
@@ -94,6 +98,13 @@ const GroupChatHeader = ({
           label: "Share location",
           icon: MapPin,
           onClick: onOpenLocation,
+        },
+        onOpenScheduled && {
+          id: "scheduled-messages",
+          label: "Scheduled messages",
+          icon: Clock,
+          count: scheduledCount > 0 ? scheduledCount : null,
+          onClick: onOpenScheduled,
         },
       ].filter(Boolean),
     },
@@ -173,7 +184,7 @@ const GroupChatHeader = ({
           </ChatHeaderIdentity>
         </ChatHeaderLeft>
 
-        {/* Right Section: Calling Actions + Unified Three-Dot (⋮) Menu */}
+        {/* Right Section: Calling Actions + Info / Menu */}
         <ChatHeaderActions>
           <ChatHeaderActionButton
             icon={Phone}
@@ -197,10 +208,20 @@ const GroupChatHeader = ({
             disabled={callBlocked}
           />
 
-          <ChatHeaderActionsMenu
-            sections={groupMenuSections}
-            buttonLabel="More group options"
-          />
+          {showActionsMenu ? (
+            <ChatHeaderActionsMenu
+              sections={groupMenuSections}
+              buttonLabel="More group options"
+            />
+          ) : (
+            onToggleInfo && (
+              <ChatHeaderActionButton
+                icon={Info}
+                label="Group info"
+                onClick={onToggleInfo}
+              />
+            )
+          )}
         </ChatHeaderActions>
       </ChatHeaderContainer>
     </MotionConfig>

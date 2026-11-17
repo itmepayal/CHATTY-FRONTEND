@@ -98,8 +98,7 @@ import {
   springSnappy,
   springSoft,
 } from "./chatMotionKit.jsx";
-
-import ChatToolbar from "./Common/ChatToolBar.jsx";
+import { ScheduleModal, ScheduledModal } from "./Common/ScheduleModals.jsx";
 
 import LocationMessage from "../Location/LocationMessage.jsx";
 import ShareLocationModal from "../Location/ShareLocationModel.jsx";
@@ -776,131 +775,6 @@ const renderStatus = (message, mine, s, showSeen = true) => {
     </span>
   );
 };
-
-/* ------------------------------------------------------------------ */
-/*  Schedule modal                                                     */
-/* ------------------------------------------------------------------ */
-const ScheduleModal = ({ text, onClose, onConfirm }) => {
-  const [value, setValue] = useState(() =>
-    toLocalInput(new Date(Date.now() + 10 * 60 * 1000)),
-  );
-  const [busy, setBusy] = useState(false);
-
-  // backend: between ~1 minute and 30 days from now
-  const min = toLocalInput(new Date(Date.now() + 60 * 1000));
-  const max = toLocalInput(new Date(Date.now() + 30 * 86_400_000));
-
-  const submit = async () => {
-    const when = new Date(value);
-    if (Number.isNaN(when.getTime()))
-      return customToast.error("Pick a valid time");
-    setBusy(true);
-    const ok = await onConfirm(when.toISOString());
-    setBusy(false);
-    if (ok) onClose();
-  };
-
-  return (
-    <Modal onClose={onClose} labelId="schedule-title">
-      <h3 id="schedule-title" className="font-semibold">
-        Schedule message
-      </h3>
-      <p className="mt-2 line-clamp-3 rounded-lg bg-base-200 p-2 text-sm text-base-content/70 [overflow-wrap:anywhere]">
-        {text}
-      </p>
-      <label className="mt-3 block text-sm">
-        <span className="mb-1 block text-base-content/60">Send at</span>
-        <input
-          type="datetime-local"
-          className="input input-bordered input-sm w-full"
-          value={value}
-          min={min}
-          max={max}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </label>
-      <div className="mt-5 flex justify-end gap-2">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          className="btn btn-primary btn-sm"
-          onClick={submit}
-          disabled={busy}
-        >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : "Schedule"}
-        </motion.button>
-      </div>
-    </Modal>
-  );
-};
-
-/* ------------------------------------------------------------------ */
-/*  Scheduled list modal                                               */
-/* ------------------------------------------------------------------ */
-const ScheduledModal = ({ items, onClose, onCancel }) => (
-  <Modal onClose={onClose} labelId="scheduled-title">
-    <div className="flex items-center justify-between">
-      <h3 id="scheduled-title" className="font-semibold">
-        Scheduled messages
-      </h3>
-      <button
-        type="button"
-        className="btn btn-ghost btn-xs btn-circle"
-        onClick={onClose}
-        aria-label="Close"
-      >
-        <X className="size-4" />
-      </button>
-    </div>
-    <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
-      {items.length === 0 && (
-        <p className="py-6 text-center text-sm text-base-content/60">
-          No scheduled messages.
-        </p>
-      )}
-      <AnimatePresence initial={false}>
-        {items.map((it) => {
-          const id = it._id || it.id;
-          return (
-            <motion.div
-              key={id}
-              layout
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, x: 24, transition: { duration: 0.14 } }}
-              transition={spring}
-              className="flex items-start gap-2 rounded-xl border border-base-300 p-2"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 text-sm [overflow-wrap:anywhere]">
-                  {displayText(it)}
-                </p>
-                <p className="mt-0.5 flex items-center gap-1 text-xs text-base-content/60">
-                  <Clock className="size-3" />
-                  {formatDateTime(it.scheduledFor)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs text-error"
-                onClick={() => onCancel(id)}
-              >
-                Cancel
-              </button>
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
-    </div>
-  </Modal>
-);
 
 /* ------------------------------------------------------------------ */
 /*  Forward modal                                                      */
@@ -2359,6 +2233,7 @@ const ChatContainer = ({ onToggleInfo }) => {
 
   const allCalls = useCallHistoryStore((st) => st.calls);
   const fetchCalls = useCallHistoryStore((st) => st.fetchCalls);
+  const markCallsAsSeen = useCallHistoryStore((st) => st.markCallsAsSeen);
   const { startCall, status: callStatus } = useCall();
 
   const listRef = useRef(null);
@@ -2471,8 +2346,17 @@ const ChatContainer = ({ onToggleInfo }) => {
 
   // load call history when a chat opens and again whenever a call finishes
   useEffect(() => {
-    if (callStatus === "idle") fetchCalls();
-  }, [selectedUser?.id, callStatus, fetchCalls]);
+    if (callStatus === "idle") {
+      fetchCalls();
+      if (
+        selectedUser?.id &&
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible"
+      ) {
+        markCallsAsSeen({ callerId: selectedUser.id });
+      }
+    }
+  }, [selectedUser?.id, callStatus, fetchCalls, markCallsAsSeen]);
 
   // load pending scheduled messages for this chat
   useEffect(() => {
@@ -3005,10 +2889,9 @@ const ChatContainer = ({ onToggleInfo }) => {
   return (
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
-        <ChatHeader onToggleInfo={onToggleInfo} />
-
-        {/* Toolbar: search + scheduled + disappearing + location (+ archive/report in "More") */}
-        <ChatToolbar
+        {/* Single merged header with integrated inline search & more options */}
+        <ChatHeader
+          onToggleInfo={onToggleInfo}
           searchOpen={searchOpen}
           setSearchOpen={setSearchOpen}
           searchQ={searchQ}
@@ -3153,7 +3036,7 @@ const ChatContainer = ({ onToggleInfo }) => {
           <div
             ref={listRef}
             onScroll={handleListScroll}
-            className="flex-1 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5"
+            className="flex-1 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5 [scrollbar-gutter:stable] pr-2 sm:pr-4"
           >
             {/* ---- WhatsApp-style E2EE notice (top of the chat) ---- */}
             <E2EENotice onOpen={() => setE2eeInfoOpen(true)} />
@@ -3442,6 +3325,11 @@ const ChatContainer = ({ onToggleInfo }) => {
               items={scheduled}
               onClose={() => setShowScheduled(false)}
               onCancel={cancelScheduled}
+              onEdit={(id, newText, newTime) =>
+                useChatStore
+                  .getState()
+                  .editScheduledMessage(id, selectedUser.id, newText, newTime)
+              }
             />
           )}
         </AnimatePresence>

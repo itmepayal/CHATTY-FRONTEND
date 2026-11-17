@@ -32,6 +32,7 @@ import {
   Link2,
   Loader2,
   Lock,
+  LogOut,
   MapPin,
   MessageSquareText,
   Mic,
@@ -43,6 +44,7 @@ import {
   Plus,
   RotateCw,
   Send,
+  Settings2,
   ShieldCheck,
   Smile,
   SmilePlus,
@@ -80,6 +82,8 @@ import { useGroupCallStore } from "../../store/useGroupCallStore";
 import { useGroupCallHistoryStore } from "../../store/useGroupCallHistoryStore";
 import GroupCallBanner from "./GroupCallBanner.jsx";
 import GroupChatHeader from "./GroupChatHeader.jsx";
+import ChatToolbar from "../Chat/Common/ChatToolBar.jsx";
+import { ScheduleModal, ScheduledModal } from "../Chat/Common/ScheduleModals.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -734,7 +738,7 @@ const GroupCallLog = ({ item, prev, onCallBack, disabled, s, cs }) => {
       : "";
 
   return (
-    <div>
+    <div id={item.id ? `call-${item.id}` : undefined}>
       {showDay && (
         <div
           className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}
@@ -857,7 +861,7 @@ const MessageRow = memo(function MessageRow({
   };
 
   return (
-    <div>
+    <div id={m.id ? `msg-${m.id}` : undefined}>
       {showDay && (
         <div
           className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}
@@ -1116,7 +1120,7 @@ const MessageRow = memo(function MessageRow({
 });
 
 /* onToggleInfo -> opens / closes the right-side GroupInfoPanel (from HomePage) */
-const GroupChatContainer = ({ onToggleInfo }) => {
+const GroupChatContainer = ({ onToggleInfo, onManage }) => {
   const {
     selectedGroup,
     groupMessages,
@@ -1141,6 +1145,10 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     reactToMessage,
     deleteForMe,
     deleteForEveryone,
+    scheduled = [],
+    scheduleGroupMessage,
+    cancelScheduled,
+    editScheduledMessage,
   } = useGroupStore();
   const { authUser } = useAuthStore();
   const onlineUsers = useVisibleOnlineUsers();
@@ -1194,6 +1202,14 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const [locBusy, setLocBusy] = useState(false);
   const [liveMin, setLiveMin] = useState(60);
   const [stoppingBar, setStoppingBar] = useState(false);
+  // ---- SEARCH state ----
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  // ---- SCHEDULED state ----
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
 
   const recorder = useVoiceRecorder({
     onComplete: (voice) => sendMessage({ voice }),
@@ -1621,6 +1637,140 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     }
   };
 
+  // Reset search on group change
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQ("");
+    setSearchResults([]);
+  }, [group?.id]);
+
+  // Debounced message search
+  useEffect(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!searchOpen || q.length < 2) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      if (cancelled) return;
+      const rawMsgs = Array.isArray(groupMessages) ? groupMessages : [];
+      const results = rawMsgs
+        .filter((m) => {
+          if (m.isDeleted) return false;
+          const msgText = displayText(m) || m.text || "";
+          return msgText.toLowerCase().includes(q);
+        })
+        .slice(-30)
+        .reverse();
+      setSearchResults(results);
+      setSearching(false);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [searchQ, searchOpen, groupMessages]);
+
+  const scrollToMessage = useCallback((id) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("bg-primary/10", "rounded-xl", "transition-colors");
+      setTimeout(() => el.classList.remove("bg-primary/10", "rounded-xl"), 1500);
+    }
+  }, []);
+
+  const handleLeaveGroup = async () => {
+    if (!window.confirm(`Are you sure you want to leave "${group?.name}"?`)) return;
+    try {
+      await useGroupStore.getState().leaveGroup(group.id);
+      customToast.success("You left the group");
+      closeGroup();
+    } catch (err) {
+      customToast.error(err.response?.data?.message || "Failed to leave group");
+    }
+  };
+
+  const groupToolbarSections = useMemo(
+    () => [
+      {
+        title: "Group Information",
+        items: [
+          onToggleInfo && {
+            id: "group-info",
+            label: "Group info",
+            icon: Info,
+            onClick: onToggleInfo,
+          },
+          onManage && {
+            id: "group-manage",
+            label: "Manage group",
+            icon: Settings2,
+            onClick: onManage,
+          },
+        ].filter(Boolean),
+      },
+      {
+        title: "Sharing & Tools",
+        items: [
+          {
+            id: "group-location",
+            label: myShare ? "Sharing live location" : "Share location",
+            icon: MapPin,
+            live: Boolean(myShare),
+            onClick: openLocationModal,
+          },
+          {
+            id: "scheduled-messages",
+            label: "Scheduled messages",
+            icon: Clock,
+            count: scheduled.length > 0 ? scheduled.length : null,
+            onClick: () => setShowScheduled(true),
+          },
+        ].filter(Boolean),
+      },
+      {
+        title: "Group Management",
+        items: [
+          {
+            id: "group-archive",
+            label: isArchived ? "Unarchive group" : "Archive group",
+            icon: isArchived ? ArchiveRestore : Archive,
+            onClick: toggleArchive,
+          },
+          {
+            id: "group-leave",
+            label: "Exit group",
+            icon: LogOut,
+            danger: true,
+            onClick: handleLeaveGroup,
+          },
+          {
+            id: "group-close",
+            label: "Close chat",
+            icon: X,
+            danger: true,
+            onClick: closeGroup,
+          },
+        ].filter(Boolean),
+      },
+    ],
+    [
+      onToggleInfo,
+      onManage,
+      myShare,
+      isArchived,
+      closeGroup,
+      group?.id,
+      group?.name,
+      toggleArchive,
+      scheduled.length,
+    ]
+  );
+
   const openPopover = (e, type, m, mine) => {
     if (popover?.type === type && sameId(popover.id, m.id)) {
       setPopover(null);
@@ -1773,6 +1923,18 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setFile(f);
     setShowTools(false);
   };
+
+  const confirmSchedule = async (iso) => {
+    if (!group?.id) return false;
+    const ok = await scheduleGroupMessage(group.id, text.trim(), iso);
+    if (ok) {
+      stopTyping();
+      setText("");
+    }
+    return ok;
+  };
+
+  const canSchedule = !file && Boolean(text.trim());
 
   const handleSend = (e) => {
     e?.preventDefault();
@@ -1976,7 +2138,62 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           hasActiveGroupCall={hasActiveGroupCall}
           callBlocked={callBlocked}
           avatarSrc={avatarSrc}
+          scheduledCount={scheduled.length}
+          onOpenScheduled={() => setShowScheduled(true)}
         />
+
+        {/* ---------------- Toolbar ---------------- */}
+        <ChatToolbar
+          searchOpen={searchOpen}
+          setSearchOpen={setSearchOpen}
+          searchQ={searchQ}
+          setSearchQ={setSearchQ}
+          searching={searching}
+          placeholder="Search in group conversation"
+          scheduledCount={scheduled.length}
+          onOpenScheduled={() => setShowScheduled(true)}
+          showLocation={true}
+          isSharingLive={Boolean(myShare)}
+          onOpenLocation={openLocationModal}
+          isArchived={isArchived}
+          onArchive={toggleArchive}
+          menuSections={groupToolbarSections}
+        />
+
+        {/* Group Search Results collapse bar */}
+        <AnimatePresence>
+          {searchOpen && searchQ.trim().length >= 2 && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="overflow-hidden border-b border-base-300 bg-base-100"
+            >
+              <div className="max-h-56 overflow-y-auto">
+                {!searching && searchResults.length === 0 && (
+                  <p className="px-4 py-3 text-sm text-base-content/60">
+                    No messages found in this group.
+                  </p>
+                )}
+                {searchResults.map((r, i) => (
+                  <button
+                    type="button"
+                    key={r.id || r.clientId || i}
+                    onClick={() => scrollToMessage(r.id)}
+                    className="block w-full px-4 py-2 text-left hover:bg-base-200 transition-colors"
+                  >
+                    <span className="flex items-center justify-between gap-2 text-xs text-base-content/60">
+                      <span>{r.sender?.fullName || (sameId(r.senderId, myId) ? "You" : "Member")}</span>
+                      <span>{formatTime(r.createdAt)}</span>
+                    </span>
+                    <span className="block truncate text-sm text-base-content">{displayText(r) || r.text}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <GroupCallBanner group={group} />
 
@@ -2405,6 +2622,21 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 // 16px on phones stops iOS from zooming the page on focus
                 className="order-3 flex-1 min-w-0 resize-none bg-transparent outline-none py-1.5 text-base sm:text-sm max-h-[120px]"
               />
+
+              {/* Schedule button when there is text */}
+              {canSchedule && (
+                <motion.button
+                  key="schedule-btn"
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  className="order-4 shrink-0 btn btn-ghost btn-sm btn-circle text-base-content/70 hover:text-primary"
+                  onClick={() => setShowSchedule(true)}
+                  aria-label="Schedule message"
+                  title="Schedule message"
+                >
+                  <Clock className="size-4" />
+                </motion.button>
+              )}
 
               {/* Send when there's content, otherwise record a voice note */}
               {text.trim() || file ? (
@@ -2888,6 +3120,34 @@ const GroupChatContainer = ({ onToggleInfo }) => {
                 onClick={(e) => e.stopPropagation()}
               />
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Schedule modal */}
+        <AnimatePresence>
+          {showSchedule && (
+            <ScheduleModal
+              key="schedule-modal"
+              text={text.trim()}
+              onClose={() => setShowSchedule(false)}
+              onConfirm={confirmSchedule}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Scheduled list modal */}
+        <AnimatePresence>
+          {showScheduled && (
+            <ScheduledModal
+              key="scheduled-modal"
+              items={scheduled}
+              isGroup={true}
+              onClose={() => setShowScheduled(false)}
+              onCancel={cancelScheduled}
+              onEdit={(id, newText, newTime) =>
+                editScheduledMessage(id, group?.id, newText, newTime)
+              }
+            />
           )}
         </AnimatePresence>
       </div>

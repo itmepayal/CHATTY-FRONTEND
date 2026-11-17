@@ -108,7 +108,7 @@ export const getSidebarHeaderTexts = ({
     mode === "calls"
       ? missedCount > 0
         ? `${missedCount} missed`
-        : `${allCallsCount} recent`
+        : ""
       : mode === "groups"
         ? showArchivedGroups
           ? plural(archivedGroupsCount, "group")

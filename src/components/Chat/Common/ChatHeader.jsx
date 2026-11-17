@@ -1,12 +1,14 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   Archive,
   ArchiveRestore,
+  ArrowLeft,
   Clock,
   EyeOff,
   Flag,
   Info,
+  Loader2,
   MapPin,
   Phone,
   Search,
@@ -51,15 +53,24 @@ const TypingDots = () => (
 
 export const ChatHeader = ({
   onToggleInfo,
-  onOpenSearch,
+  // Search props
+  searchOpen = false,
+  setSearchOpen,
+  searchQ = "",
+  setSearchQ,
+  searching = false,
+  // Scheduled props
   scheduledCount = 0,
   onOpenScheduled,
+  // Disappearing props
   disappearAfter = 0,
   disappearLabel = "",
   onOpenDisappearing,
+  // Location props
   showLocation = true,
   isSharingLive = false,
   onOpenLocation,
+  // Management props
   isArchived = false,
   onArchive,
   onReport,
@@ -70,6 +81,7 @@ export const ChatHeader = ({
 
   const { startCall, status: callStatus } = useCall();
   const [viewAvatar, setViewAvatar] = useState(false);
+  const searchInputRef = useRef(null);
 
   const {
     text: lastSeenText,
@@ -77,10 +89,37 @@ export const ChatHeader = ({
     isLoading: isPresenceLoading,
   } = useLastSeen(selectedUser?.id);
 
-  // Close photo viewer when the chat changes
+  // Close photo viewer when chat changes
   useEffect(() => {
     setViewAvatar(false);
   }, [selectedUser?.id]);
+
+  // Global Ctrl/Cmd + K shortcut to toggle/focus search in header
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen?.((prev) => !prev);
+      }
+      if (e.key === "Escape" && searchOpen) {
+        setSearchOpen?.(false);
+        setSearchQ?.("");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchOpen, setSearchOpen, setSearchQ]);
+
+  // Auto-focus search input when search opens
+  useEffect(() => {
+    if (searchOpen) {
+      const t = setTimeout(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [searchOpen]);
 
   // Escape key closes photo viewer
   useEffect(() => {
@@ -127,6 +166,10 @@ export const ChatHeader = ({
   const callPeer = { id: selectedUser.id, fullName: selectedUser.fullName };
   const canCall = callStatus === "idle" && !selectedUser.isBlocked;
 
+  // Has any active policy
+  const hasActiveIndicator =
+    scheduledCount > 0 || disappearAfter > 0 || isSharingLive;
+
   // Categorized Three-Dot Menu Action Groups
   const menuSections = [
     {
@@ -138,12 +181,12 @@ export const ChatHeader = ({
           icon: Info,
           onClick: onToggleInfo,
         },
-        onOpenSearch && {
+        setSearchOpen && {
           id: "search",
           label: "Search in conversation",
           icon: Search,
           badge: "Ctrl K",
-          onClick: onOpenSearch,
+          onClick: () => setSearchOpen(true),
         },
         onOpenDisappearing && {
           id: "disappearing",
@@ -176,13 +219,14 @@ export const ChatHeader = ({
     {
       title: "Sharing & Scheduling",
       items: [
-        showLocation && onOpenLocation && {
-          id: "location",
-          label: isSharingLive ? "Sharing live location" : "Share location",
-          icon: MapPin,
-          live: isSharingLive,
-          onClick: onOpenLocation,
-        },
+        showLocation &&
+          onOpenLocation && {
+            id: "location",
+            label: isSharingLive ? "Sharing live location" : "Share location",
+            icon: MapPin,
+            live: isSharingLive,
+            onClick: onOpenLocation,
+          },
         onOpenScheduled && {
           id: "scheduled",
           label: "Scheduled messages",
@@ -261,58 +305,215 @@ export const ChatHeader = ({
     );
   };
 
+  const closeSearch = () => {
+    setSearchOpen?.(false);
+    setSearchQ?.("");
+  };
+
   return (
     <MotionConfig reducedMotion="user">
-      <ChatHeaderContainer key={uid}>
-        {/* Left Section: Back Button + Avatar + Name & Status */}
-        <ChatHeaderLeft>
-          <ChatHeaderBackButton
-            onClick={() => setSelectedUser(null)}
-            label="Back to conversations"
-          />
+      <ChatHeaderContainer key={uid} className="relative overflow-hidden">
+        <AnimatePresence mode="wait">
+          {searchOpen ? (
+            /* =======================================================
+             *  INLINE SEARCH MODE (takes full row, no second navbar!)
+             * ======================================================= */
+            <motion.div
+              key="header-search-bar"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+              className="flex items-center gap-2 w-full min-w-0"
+            >
+              {/* Back / Exit Search Button */}
+              <button
+                type="button"
+                onClick={closeSearch}
+                aria-label="Close search"
+                title="Close search (Esc)"
+                className="btn btn-ghost btn-circle btn-sm shrink-0 size-8 sm:size-9 min-h-[32px] min-w-[32px] sm:min-h-[36px] sm:min-w-[36px] text-base-content/70 hover:text-base-content hover:bg-base-200/80 cursor-pointer"
+              >
+                <ArrowLeft className="size-4 sm:size-4.5" />
+              </button>
 
-          <ChatHeaderAvatar
-            src={avatar}
-            name={selectedUser.fullName}
-            showOnlineBadge={canShowOnline}
-            showRing={showRing}
-            isTyping={isTyping}
-            onClick={hasAvatar ? () => setViewAvatar(true) : undefined}
-            layoutId={`chat-avatar-${uid}`}
-          />
+              {/* Integrated Search Input Container */}
+              <div className="flex-1 min-w-0 relative flex items-center h-9 sm:h-10 rounded-xl border border-primary/30 bg-base-200/60 focus-within:bg-base-100 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15 transition-all">
+                <Search className="size-4 ml-3 text-primary shrink-0 pointer-events-none" />
 
-          <ChatHeaderIdentity
-            name={selectedUser.fullName}
-            isEncrypted={true}
-            onClick={onToggleInfo}
-          >
-            <AnimatePresence mode="wait" initial={false}>
-              {renderSubtitle()}
-            </AnimatePresence>
-          </ChatHeaderIdentity>
-        </ChatHeaderLeft>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQ}
+                  onChange={(e) => setSearchQ?.(e.target.value)}
+                  placeholder="Search in conversation…"
+                  className="w-full min-w-0 bg-transparent px-2.5 py-1 text-xs sm:text-sm text-base-content placeholder:text-base-content/40 outline-none"
+                />
 
-        {/* Right Section: Calling Actions + Unified Three-Dot (⋮) Menu */}
-        <ChatHeaderActions>
-          <ChatHeaderActionButton
-            icon={Phone}
-            label="Voice call"
-            onClick={() => startCall(callPeer, "audio")}
-            disabled={!canCall}
-          />
+                <div className="flex items-center shrink-0 pr-2 gap-1">
+                  {searching ? (
+                    <Loader2 className="size-3.5 text-base-content/40 animate-spin" />
+                  ) : searchQ ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQ?.("");
+                        searchInputRef.current?.focus();
+                      }}
+                      className="size-5 rounded-full hover:bg-base-300 flex items-center justify-center text-base-content/50 hover:text-base-content cursor-pointer transition-colors"
+                      title="Clear search"
+                      aria-label="Clear search"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  ) : null}
 
-          <ChatHeaderActionButton
-            icon={Video}
-            label="Video call"
-            onClick={() => startCall(callPeer, "video")}
-            disabled={!canCall}
-          />
+                  <span className="hidden sm:inline-block rounded-md bg-base-300/60 px-1.5 py-0.5 text-[10px] font-mono text-base-content/50">
+                    Esc
+                  </span>
+                </div>
+              </div>
 
-          <ChatHeaderActionsMenu
-            sections={menuSections}
-            buttonLabel="More conversation options"
-          />
-        </ChatHeaderActions>
+              {/* Cancel Button */}
+              <button
+                type="button"
+                onClick={closeSearch}
+                className="btn btn-ghost btn-sm px-2.5 sm:px-3 text-xs sm:text-sm text-base-content/70 hover:text-base-content shrink-0 rounded-xl"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          ) : (
+            /* =======================================================
+             *  NORMAL HEADER MODE (Identity + Active Chips + Actions)
+             * ======================================================= */
+            <motion.div
+              key="header-normal-row"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.14 }}
+              className="flex items-center justify-between w-full min-w-0 gap-2 sm:gap-3"
+            >
+              {/* Left Section: Back Button + Avatar + Name & Status */}
+              <ChatHeaderLeft className="min-w-0 flex-1">
+                <ChatHeaderBackButton
+                  onClick={() => setSelectedUser(null)}
+                  label="Back to conversations"
+                />
+
+                <ChatHeaderAvatar
+                  src={avatar}
+                  name={selectedUser.fullName}
+                  showOnlineBadge={canShowOnline}
+                  showRing={showRing}
+                  isTyping={isTyping}
+                  onClick={hasAvatar ? () => setViewAvatar(true) : undefined}
+                  layoutId={`chat-avatar-${uid}`}
+                />
+
+                <ChatHeaderIdentity
+                  name={selectedUser.fullName}
+                  isEncrypted={true}
+                  onClick={onToggleInfo}
+                >
+                  <AnimatePresence mode="wait" initial={false}>
+                    {renderSubtitle()}
+                  </AnimatePresence>
+                </ChatHeaderIdentity>
+              </ChatHeaderLeft>
+
+              {/* Middle Section: Quick Status Indicators (Desktop / Tablet) */}
+              <div className="hidden lg:flex items-center gap-1.5 shrink-0">
+                {scheduledCount > 0 && onOpenScheduled && (
+                  <button
+                    type="button"
+                    onClick={onOpenScheduled}
+                    title="View scheduled messages"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 hover:bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors cursor-pointer"
+                  >
+                    <Clock className="size-3 text-primary shrink-0" />
+                    <span>{scheduledCount} scheduled</span>
+                  </button>
+                )}
+
+                {disappearAfter > 0 && onOpenDisappearing && (
+                  <button
+                    type="button"
+                    onClick={onOpenDisappearing}
+                    title={`Disappearing messages: ${disappearLabel}`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-base-300 bg-base-200/70 hover:bg-base-200 px-2.5 py-1 text-xs font-medium text-base-content/80 transition-colors cursor-pointer"
+                  >
+                    <Timer className="size-3 text-primary shrink-0" />
+                    <span>{disappearLabel}</span>
+                  </button>
+                )}
+
+                {isSharingLive && onOpenLocation && (
+                  <button
+                    type="button"
+                    onClick={onOpenLocation}
+                    title="You are sharing live location"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-error/30 bg-error/10 hover:bg-error/15 px-2.5 py-1 text-xs font-medium text-error transition-colors cursor-pointer"
+                  >
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-error opacity-75" />
+                      <span className="relative inline-flex size-2 rounded-full bg-error" />
+                    </span>
+                    <span>Live location</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Right Section: Search + Calling Actions + Info + Three-Dot Menu */}
+              <ChatHeaderActions>
+                {/* Search Button (Ctrl+K) */}
+                {setSearchOpen && (
+                  <ChatHeaderActionButton
+                    icon={Search}
+                    label="Search in conversation (Ctrl+K)"
+                    onClick={() => setSearchOpen(true)}
+                  />
+                )}
+
+                {/* Voice Call */}
+                <ChatHeaderActionButton
+                  icon={Phone}
+                  label="Voice call"
+                  onClick={() => startCall(callPeer, "audio")}
+                  disabled={!canCall}
+                  className="hidden xs:flex"
+                />
+
+                {/* Video Call */}
+                <ChatHeaderActionButton
+                  icon={Video}
+                  label="Video call"
+                  onClick={() => startCall(callPeer, "video")}
+                  disabled={!canCall}
+                  className="hidden sm:flex"
+                />
+
+                {/* Contact Info */}
+                {onToggleInfo && (
+                  <ChatHeaderActionButton
+                    icon={Info}
+                    label="Contact info"
+                    onClick={onToggleInfo}
+                    className="hidden md:flex"
+                  />
+                )}
+
+                {/* Three-Dot "More" Menu (always visible, portal-based fixed dropdown) */}
+                <ChatHeaderActionsMenu
+                  sections={menuSections}
+                  buttonLabel="More conversation options"
+                  hasActiveIndicator={hasActiveIndicator}
+                />
+              </ChatHeaderActions>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </ChatHeaderContainer>
 
       <ProfileImageViewer

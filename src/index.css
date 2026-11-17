@@ -8,14 +8,60 @@ body {
   font-family: "Saira", sans-serif;
 }
 
-/* Scrollbar hide (scroll phir bhi chalega) */
-html {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* purana Edge/IE */
+/* ==========================================================================
+   GLOBAL THEMED SCROLLBAR (daisyUI v5 theme reactive)
+   Thin (7px), rounded thumb, fully transparent track, NO arrow buttons.
+   Thumb uses subtle base-content (~22%) and primary (~60%) on hover/drag.
+   Works seamlessly across Chrome, Safari, Edge, and Firefox.
+   ========================================================================== */
+
+/* Firefox standard */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-base-content) 22%, transparent) transparent;
 }
 
+/* Chrome, Edge, Safari WebKit implementation */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--color-base-content) 22%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+}
+
+/* Remove up/down/left/right arrow buttons completely */
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Root html document scrollbar suppression */
+html {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 html::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Edge */
+  display: none;
 }
 
 @layer utilities {
@@ -93,12 +139,15 @@ html::-webkit-scrollbar {
     animation: marquee 28s linear infinite;
   }
 
+  /* Utility to explicitly hide scrollbars where needed */
   .no-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
   }
   .no-scrollbar::-webkit-scrollbar {
-    display: none;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 
   @media (prefers-reduced-motion: reduce) {

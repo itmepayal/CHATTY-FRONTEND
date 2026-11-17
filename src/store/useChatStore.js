@@ -382,7 +382,9 @@ export const useChatStore = create((set, get) => {
       const saved = res.data.data;
 
       // Play subtle confirmation ding for successfully sent message
-      soundService.playOutgoingMessageSound(saved?.id || saved?._id || clientId);
+      soundService.playOutgoingMessageSound(
+        saved?.id || saved?._id || clientId,
+      );
 
       set((s) => ({
         messages: s.messages
@@ -1276,6 +1278,33 @@ export const useChatStore = create((set, get) => {
         }));
       };
 
+      const onScheduledSent = ({ scheduleId, receiverId }) => {
+        set((st) => ({
+          scheduled: st.scheduled.filter((x) => !sameId(x._id || x.id, scheduleId)),
+        }));
+        const sel = get().selectedUser;
+        if (sel && receiverId && sameId(sel.id, receiverId)) {
+          get().getScheduled(sel.id);
+        }
+      };
+
+      const onScheduledCancelled = ({ id }) => {
+        set((st) => ({
+          scheduled: st.scheduled.filter((x) => !sameId(x._id || x.id, id)),
+        }));
+      };
+
+      const onScheduledChanged = () => {
+        const sel = get().selectedUser;
+        if (sel) get().getScheduled(sel.id);
+      };
+
+      const onScheduledFailed = ({ error }) => {
+        if (error) toast.error(`Scheduled message failed: ${error}`);
+        const sel = get().selectedUser;
+        if (sel) get().getScheduled(sel.id);
+      };
+
       socket.off("newMessage");
       socket.on("newMessage", onNewMessage);
       socket.on("conversationUpdated", onConversationUpdated);
@@ -1291,6 +1320,11 @@ export const useChatStore = create((set, get) => {
       socket.on("disappearingUpdated", onDisappearingUpdated);
       socket.on("typing", onTyping);
       socket.on("chatArchived", onChatArchived);
+      socket.on("scheduled:sent", onScheduledSent);
+      socket.on("scheduled:cancelled", onScheduledCancelled);
+      socket.on("scheduled:created", onScheduledChanged);
+      socket.on("scheduled:updated", onScheduledChanged);
+      socket.on("scheduled:failed", onScheduledFailed);
       document.addEventListener("visibilitychange", onVisibilityChange);
 
       const onProfileUpdated = ({ detail } = {}) => {
@@ -1397,6 +1431,11 @@ export const useChatStore = create((set, get) => {
           socket.off("disappearingUpdated", s._onDisappearing);
         if (s._onTyping) socket.off("typing", s._onTyping);
         if (s._onChatArchived) socket.off("chatArchived", s._onChatArchived);
+        socket.off("scheduled:sent");
+        socket.off("scheduled:cancelled");
+        socket.off("scheduled:created");
+        socket.off("scheduled:updated");
+        socket.off("scheduled:failed");
       }
       if (s._onVisibilityChange) {
         document.removeEventListener("visibilitychange", s._onVisibilityChange);
@@ -1794,12 +1833,17 @@ export const useChatStore = create((set, get) => {
       try {
         if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
         const enc = await encryptFor(receiverId, text);
+        const clientRequestId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random()}`;
         await axiosInstance.post(`/messages/schedule/${receiverId}`, {
           text: enc.text,
           iv: enc.iv,
           encrypted: true,
           scheduledFor,
           keyEnvelopes: enc.keyEnvelopes,
+          clientRequestId,
         });
         toast.success("Message scheduled");
         get().getScheduled(receiverId);
@@ -1818,25 +1862,60 @@ export const useChatStore = create((set, get) => {
           params: userId ? { to: userId } : {},
         });
         const me = myId();
+        const rawItems = res.data.data || [];
         const items = await Promise.all(
-          (res.data.data || []).map((it) =>
-            decryptDmMessage(
-              {
+          rawItems.map(async (it) => {
+            try {
+              return await decryptDmMessage(
+                {
+                  ...it,
+                  id: it._id || it.id,
+                  encrypted: Boolean(it.e2ee || it.encrypted),
+                  keyEnvelopes: it.keyEnvelopes || [],
+                  senderId: me,
+                  receiverId: it.receiverId ?? userId,
+                },
+                me,
+                userId,
+              );
+            } catch (_err) {
+              return {
                 ...it,
                 id: it._id || it.id,
-                encrypted: Boolean(it.e2ee || it.encrypted),
-                keyEnvelopes: it.keyEnvelopes || [],
-                senderId: me,
-                receiverId: it.receiverId ?? userId,
-              },
-              me,
-              userId,
-            ),
-          ),
+                decryptedText: "(Encrypted message)",
+              };
+            }
+          }),
         );
         set({ scheduled: items });
       } catch (error) {
         toast.error(errMsg(error, "Failed to load scheduled messages"));
+      }
+    },
+
+    editScheduledMessage: async (scheduleId, receiverId, text, scheduledFor) => {
+      try {
+        const payload = {};
+        if (text) {
+          if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+          const enc = await encryptFor(receiverId, text);
+          payload.text = enc.text;
+          payload.iv = enc.iv;
+          payload.encrypted = true;
+          payload.keyEnvelopes = enc.keyEnvelopes;
+        }
+        if (scheduledFor) {
+          payload.scheduledFor = scheduledFor;
+        }
+        await axiosInstance.patch(`/messages/scheduled/${scheduleId}`, payload);
+        toast.success("Scheduled message updated");
+        get().getScheduled(receiverId);
+        return true;
+      } catch (error) {
+        toast.error(
+          e2eeErrMsg(error) || errMsg(error, "Failed to update scheduled message"),
+        );
+        return false;
       }
     },
 

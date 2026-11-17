@@ -220,9 +220,6 @@ export const ChatHeaderIdentity = ({
   );
 };
 
-/**
- * 7. Right Action Button Container
- */
 export const ChatHeaderActions = ({ children, className = "" }) => (
   <div
     className={`flex shrink-0 items-center gap-0.5 sm:gap-1.5 relative ${className}`}
@@ -231,10 +228,6 @@ export const ChatHeaderActions = ({ children, className = "" }) => (
   </div>
 );
 
-/**
- * 8. Reusable Action Button
- * Provides identical dimensions, hover animations, and touch targets across headers.
- */
 export const ChatHeaderActionButton = ({
   icon: Icon,
   label,

@@ -55,7 +55,7 @@ export const useSidebarData = () => {
     unarchiveGroup,
   } = useGroupStore();
 
-  const { onlineUsers, hiddenUsers, authUser, toggleFavorite, logout } =
+  const { socket, onlineUsers, hiddenUsers, authUser, toggleFavorite, logout } =
     useAuthStore();
 
   const {
@@ -70,6 +70,10 @@ export const useSidebarData = () => {
     calls: userCalls,
     isLoading: isCallsLoading,
     fetchCalls,
+    markCallsAsSeen,
+    setViewingCalls,
+    subscribeToCallEvents,
+    unsubscribeFromCallEvents,
     clear: clearCalls,
   } = useCallHistoryStore();
 
@@ -87,13 +91,52 @@ export const useSidebarData = () => {
     getUsers();
     fetchGroups();
     fetchContacts();
-  }, [getUsers, fetchGroups, fetchContacts]);
+    fetchCalls();
+  }, [getUsers, fetchGroups, fetchContacts, fetchCalls]);
+
+  useEffect(() => {
+    subscribeToCallEvents();
+    return () => unsubscribeFromCallEvents?.();
+  }, [socket, subscribeToCallEvents, unsubscribeFromCallEvents]);
+
+  useEffect(() => {
+    const isViewing = mode === "calls";
+    setViewingCalls(isViewing);
+  }, [mode, setViewingCalls]);
 
   useEffect(() => {
     if (mode !== "calls") return;
     fetchCalls();
     fetchGroupCalls();
-  }, [mode, fetchCalls, fetchGroupCalls]);
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible"
+    ) {
+      markCallsAsSeen();
+    }
+  }, [mode, fetchCalls, fetchGroupCalls, markCallsAsSeen]);
+
+  useEffect(() => {
+    if (mode === "calls" && callFilter === "missed") {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible"
+      ) {
+        markCallsAsSeen();
+      }
+    }
+  }, [mode, callFilter, markCallsAsSeen]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && mode === "calls") {
+        markCallsAsSeen();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [mode, markCallsAsSeen]);
 
   const openAddContact = useCallback(() => {
     setShowCreate(false);
@@ -118,9 +161,9 @@ export const useSidebarData = () => {
   const isOnline = (user) =>
     Boolean(
       myStatusVisible &&
-        !user.isOnlineRestricted &&
-        !hiddenIds.includes(String(user.id)) &&
-        onlineIds.includes(String(user.id)),
+      !user.isOnlineRestricted &&
+      !hiddenIds.includes(String(user.id)) &&
+      onlineIds.includes(String(user.id)),
     );
   const isHidden = (user) => hiddenIds.includes(String(user.id));
   const isFavorite = (user) => favorites.includes(String(user.id));
@@ -195,7 +238,8 @@ export const useSidebarData = () => {
     return true;
   });
 
-  const missedCount = allCalls.filter((c) => c.missed).length;
+  const unseenMissedCount = allCalls.filter((c) => c.unseenMissed).length;
+  const missedCount = unseenMissedCount;
   const isCallsBusy = isCallsLoading || isGroupCallsLoading;
   const callsInitialLoading = isCallsBusy && allCalls.length === 0;
 
@@ -224,6 +268,9 @@ export const useSidebarData = () => {
     }
     closeGroup();
     setSelectedUser(user);
+    if (user?.id) {
+      markCallsAsSeen({ callerId: user.id });
+    }
   };
   const openGroup = (group) => {
     const gid = group.id || group._id;
