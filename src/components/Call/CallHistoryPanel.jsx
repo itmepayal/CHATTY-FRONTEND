@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useCallHistoryStore } from "../../store/useCallHistoryStore";
 import { useChatStore } from "../../store/useChatStore";
+import { useChatLockStore } from "../../store/useChatLockStore";
 import { useCall } from "../../context/CallContext";
 import GroupCallHistoryPanel from "../group/GroupCallHistoryPanel.jsx";
 import CallAvatar from "./common/CallAvatar.jsx";
@@ -181,6 +182,10 @@ export default function CallHistoryPanel({ onOpenGroup, onAfterOpen }) {
   const setSelectedUser = useChatStore((s) => s.setSelectedUser);
 
   const openUser = (id) => {
+    if (useChatLockStore.getState().isChatLocked(id)) {
+      useChatLockStore.getState().openUnlockModal(id);
+      return;
+    }
     const u = users?.find?.((x) => String(x.id) === String(id));
     if (u) setSelectedUser(u);
   };

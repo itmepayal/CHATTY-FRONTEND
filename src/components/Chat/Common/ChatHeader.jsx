@@ -82,15 +82,17 @@ const ChatHeader = ({ onToggleInfo }) => {
   // MY own privacy settings (reciprocal: if I hide mine, I can't see
   // anyone else's status / typing either)
   const myStatusVisible = usePrivacyStore((st) => st.privacy.showOnlineStatus);
-  const typingEnabled = usePrivacyStore((st) => st.privacy.typingIndicator);
 
   // calling
   const { startCall, status: callStatus } = useCall();
 
   const [viewAvatar, setViewAvatar] = useState(false);
 
-  const { text: lastSeenText, isOnline, isLoading: isPresenceLoading } =
-    useLastSeen(selectedUser?.id);
+  const {
+    text: lastSeenText,
+    isOnline,
+    isLoading: isPresenceLoading,
+  } = useLastSeen(selectedUser?.id);
 
   // close the photo viewer when the chat changes
   useEffect(() => {
@@ -105,7 +107,6 @@ const ChatHeader = ({ onToggleInfo }) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewAvatar]);
 
-  // Sync profile when other user updates privacy or details, or on chat open
   useEffect(() => {
     if (!selectedUser?.id) return;
     useChatStore.getState().fetchUserProfile(selectedUser.id);
@@ -122,20 +123,26 @@ const ChatHeader = ({ onToggleInfo }) => {
   if (!selectedUser) return null;
 
   const uid = String(selectedUser.id);
-  const avatar =
-    selectedUser.avatar?.url || selectedUser.avatar || "/avatar.png";
+  const isPhotoRestricted = Boolean(selectedUser.isPhotoRestricted);
+  const rawAvatar =
+    typeof selectedUser.avatar === "string"
+      ? selectedUser.avatar
+      : selectedUser.avatar?.url || "";
+  const hasAvatar = !isPhotoRestricted && Boolean(rawAvatar);
+  const avatar = hasAvatar ? rawAvatar : "/avatar.png";
 
-  const theirStatusHidden =
-    hiddenUsers.includes(uid) || selectedUser.isOnlineRestricted;
-  const statusHidden = theirStatusHidden || !myStatusVisible;
-  const isTyping = Boolean(typingEnabled && typingFrom?.[uid]);
+  const theirOnlineHidden =
+    hiddenUsers.includes(uid) || Boolean(selectedUser.isOnlineRestricted);
+  const onlineHidden = theirOnlineHidden || !myStatusVisible;
+  const isTyping = Boolean(typingFrom?.[uid]);
+  const canShowOnline = isOnline && !onlineHidden;
 
   const statusKey = isTyping
     ? "typing"
-    : statusHidden
-      ? "hidden"
-      : isOnline
-        ? "online"
+    : canShowOnline
+      ? "online"
+      : selectedUser.isLastSeenRestricted
+        ? "hidden"
         : "offline";
   const status = STATUS[statusKey];
   const displayLabel = isTyping ? "typing" : lastSeenText;
@@ -144,7 +151,7 @@ const ChatHeader = ({ onToggleInfo }) => {
     ? "You turned off your online status, so you can't see theirs"
     : "Online status is unavailable.";
 
-  const showRing = isOnline || isTyping;
+  const showRing = canShowOnline || isTyping;
 
   // calling helpers
   const callPeer = { id: selectedUser.id, fullName: selectedUser.fullName };
@@ -231,12 +238,20 @@ const ChatHeader = ({ onToggleInfo }) => {
 
               <motion.button
                 type="button"
-                onClick={() => setViewAvatar(true)}
-                whileHover={{ scale: 1.06 }}
-                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  if (hasAvatar) setViewAvatar(true);
+                }}
+                whileHover={hasAvatar ? { scale: 1.06 } : {}}
+                whileTap={hasAvatar ? { scale: 0.95 } : {}}
                 transition={SPRING}
-                className="relative block rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                aria-label={`View ${selectedUser.fullName}'s photo`}
+                className={`relative block rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                  hasAvatar ? "cursor-pointer" : "cursor-default"
+                }`}
+                aria-label={
+                  hasAvatar
+                    ? `View ${selectedUser.fullName}'s photo`
+                    : undefined
+                }
               >
                 <motion.img
                   layoutId={`chat-avatar-${uid}`}
@@ -249,7 +264,7 @@ const ChatHeader = ({ onToggleInfo }) => {
 
               {/* online dot */}
               <AnimatePresence>
-                {isOnline && (
+                {canShowOnline && (
                   <motion.span
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
@@ -372,7 +387,7 @@ const ChatHeader = ({ onToggleInfo }) => {
       </motion.header>
 
       <ProfileImageViewer
-        isOpen={viewAvatar}
+        isOpen={viewAvatar && hasAvatar}
         onClose={() => setViewAvatar(false)}
         userId={selectedUser.id}
         user={selectedUser}

@@ -105,3 +105,11 @@ export const useContactStore = create((set, get) => ({
       isSearching: false,
     }),
 }));
+
+if (typeof window !== "undefined") {
+  window.addEventListener("chatty:profile-updated", () => {
+    if (useContactStore.getState().loaded) {
+      useContactStore.getState().fetchContacts();
+    }
+  });
+}

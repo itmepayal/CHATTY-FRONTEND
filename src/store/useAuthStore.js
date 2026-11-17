@@ -44,6 +44,9 @@ export const useAuthStore = create((set, get) => ({
   onlineUsers: [],
   hiddenUsers: [],
   presenceMap: {},
+  blockedUsersList: [],
+  isFetchingBlocked: false,
+  blockedFetchError: null,
   socket: null,
 
   twoFactorChallenge: null,
@@ -58,6 +61,7 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: user });
       seedPrefs(user);
       get().connectSocket();
+      get().fetchBlockedUsers();
       const uid = user?._id ?? user?.id;
       if (uid) {
         console.log("[E2EE] checkAuth: initializing encryption for user", uid);
@@ -324,6 +328,26 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  fetchBlockedUsers: async () => {
+    set({ isFetchingBlocked: true, blockedFetchError: null });
+    try {
+      const res = await axiosInstance.get("/users/blocked", {
+        withCredentials: true,
+      });
+      const list = res?.data?.data || [];
+      set({ blockedUsersList: list, blockedFetchError: null });
+      return list;
+    } catch (error) {
+      console.error("Fetch blocked users error:", error);
+      const msg =
+        error?.response?.data?.message || "Failed to load blocked contacts.";
+      set({ blockedFetchError: msg });
+      return [];
+    } finally {
+      set({ isFetchingBlocked: false });
+    }
+  },
+
   blockUser: async (id) => {
     try {
       const res = await axiosInstance.post(
@@ -331,8 +355,15 @@ export const useAuthStore = create((set, get) => ({
         {},
         { withCredentials: true },
       );
-      set({ authUser: extractUser(res) });
+      const user = extractUser(res);
+      set((state) => ({
+        authUser: user || (state.authUser ? {
+          ...state.authUser,
+          blockedUsers: [...new Set([...(state.authUser.blockedUsers || []), String(id)])],
+        } : null),
+      }));
       toast.success("User blocked.");
+      await get().fetchBlockedUsers();
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to block user.");
     }
@@ -343,8 +374,21 @@ export const useAuthStore = create((set, get) => ({
       const res = await axiosInstance.delete(`/users/${id}/block`, {
         withCredentials: true,
       });
-      set({ authUser: extractUser(res) });
+      const user = extractUser(res);
+      const strId = String(id);
+      set((state) => ({
+        authUser: user || (state.authUser ? {
+          ...state.authUser,
+          blockedUsers: (state.authUser.blockedUsers || []).filter(
+            (b) => String(b) !== strId,
+          ),
+        } : null),
+        blockedUsersList: state.blockedUsersList.filter(
+          (u) => String(u._id || u.id) !== strId,
+        ),
+      }));
       toast.success("User unblocked.");
+      await get().fetchBlockedUsers();
     } catch (error) {
       toast.error(error?.response?.data?.message || "Failed to unblock user.");
     }
@@ -578,6 +622,21 @@ export const useAuthStore = create((set, get) => ({
       useNotificationSettings.getState().loadSettings();
     });
 
+    socket.on("relationsUpdated", ({ blockedUsers, favorites }) => {
+      set((state) => ({
+        authUser: state.authUser
+          ? {
+              ...state.authUser,
+              ...(blockedUsers
+                ? { blockedUsers: blockedUsers.map(String) }
+                : {}),
+              ...(favorites ? { favorites: favorites.map(String) } : {}),
+            }
+          : state.authUser,
+      }));
+      get().fetchBlockedUsers();
+    });
+
     socket.on("user:profile-updated", ({ userId }) => {
       window.dispatchEvent(
         new CustomEvent("chatty:profile-updated", { detail: { userId } }),
@@ -637,7 +696,13 @@ export const useAuthStore = create((set, get) => ({
       socket.disconnect();
     }
     serverDisconnectRetries = 0;
-    set({ socket: null, onlineUsers: [], hiddenUsers: [] });
+    set({
+      socket: null,
+      onlineUsers: [],
+      hiddenUsers: [],
+      blockedUsersList: [],
+      blockedFetchError: null,
+    });
     import("./useChatStore.js")
       .then(({ useChatStore }) =>
         useChatStore.getState().unSubscribeFromMessage(),

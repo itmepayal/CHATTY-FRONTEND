@@ -106,12 +106,8 @@ export const formatLastSeen = (
   const effectiveOnline =
     isOnline !== undefined ? Boolean(isOnline) : Boolean(user?.isOnline);
 
-  if (effectiveOnline) {
+  if (effectiveOnline && !isStatusHidden) {
     return "Online";
-  }
-
-  if (isStatusHidden) {
-    return "Online status is unavailable";
   }
 
   if (user === null || user === undefined) {

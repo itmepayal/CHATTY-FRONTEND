@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Phone, X } from "lucide-react";
 import CallHistoryPanel from "../Call/CallHistoryPanel.jsx";
 import { useGroupStore } from "../../store/useGroupStore";
+import { useChatLockStore } from "../../store/useChatLockStore";
 import { CALL_SPRING } from "../Call/common/callTokens.js";
 
 export default function CallsLauncher({ className = "" }) {
@@ -17,6 +18,11 @@ export default function CallsLauncher({ className = "" }) {
   }, [open]);
 
   const openGroup = (groupId) => {
+    if (useChatLockStore.getState().isChatLocked(groupId)) {
+      useChatLockStore.getState().openUnlockModal(groupId);
+      setOpen(false);
+      return;
+    }
     const st = useGroupStore.getState();
     const group = st.groups?.find?.((g) => String(g.id) === String(groupId));
     const fn = st.setSelectedGroup || st.selectGroup || st.openGroup;

@@ -29,8 +29,11 @@ export default function ProfileImageViewer({
   if (typeof document === "undefined") return null;
 
   const displayName = name || user?.fullName || "User";
+  const rawUrl =
+    imageUrl ||
+    (typeof user?.avatar === "string" ? user.avatar : user?.avatar?.url);
   const avatarSrc =
-    imageUrl || user?.avatar?.url || user?.avatar || "/avatar.png";
+    typeof rawUrl === "string" && rawUrl.trim() ? rawUrl.trim() : "/avatar.png";
 
   return createPortal(
     <AnimatePresence>

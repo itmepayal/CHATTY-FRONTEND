@@ -13,7 +13,9 @@ import {
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useContactStore } from "../store/useContactStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { useChatLockStore } from "./useChatLockStore.js";
 import notificationService from "../services/notificationService.js";
+import soundService from "../services/soundService.js";
 
 const ATTACHMENT_FIELD = "image";
 
@@ -379,6 +381,9 @@ export const useChatStore = create((set, get) => {
       );
       const saved = res.data.data;
 
+      // Play subtle confirmation ding for successfully sent message
+      soundService.playOutgoingMessageSound(saved?.id || saved?._id || clientId);
+
       set((s) => ({
         messages: s.messages
           .filter((m) => m.clientId === clientId || !sameId(m.id, saved.id))
@@ -472,7 +477,7 @@ export const useChatStore = create((set, get) => {
             }
           }
           const sorted = sortUsers(merged);
-          const updatedSelectedUser = state.selectedUser
+          let updatedSelectedUser = state.selectedUser
             ? (() => {
                 const matched = sorted.find((u) =>
                   sameId(u.id, state.selectedUser.id),
@@ -487,6 +492,33 @@ export const useChatStore = create((set, get) => {
                   : state.selectedUser;
               })()
             : null;
+
+          let shouldAutoLoad = false;
+          let autoTarget = null;
+          if (!updatedSelectedUser && typeof sessionStorage !== "undefined") {
+            try {
+              const activeDmId = sessionStorage.getItem("chatty:active-dm-id");
+              if (activeDmId) {
+                const isLocked = useChatLockStore
+                  .getState()
+                  .isChatLocked(activeDmId);
+                if (!isLocked) {
+                  const found = sorted.find((u) => sameId(u.id, activeDmId));
+                  if (found) {
+                    updatedSelectedUser = { ...found, unreadCount: 0 };
+                    shouldAutoLoad = true;
+                    autoTarget = updatedSelectedUser;
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          if (shouldAutoLoad && autoTarget) {
+            setTimeout(() => {
+              get().setSelectedUser(autoTarget);
+            }, 0);
+          }
 
           return { users: sorted, selectedUser: updatedSelectedUser };
         });
@@ -523,32 +555,55 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- MESSAGES ---------------- */
     getMessage: async (id, { silent = false } = {}) => {
-      if (!silent) set({ isMessagesLoading: true });
+      if (!id) return;
+      const mySeq = (get()._messageFetchSeq || 0) + 1;
+      set({
+        _messageFetchSeq: mySeq,
+        ...(silent ? {} : { isMessagesLoading: true }),
+      });
       try {
         const res = await axiosInstance.get(`/messages/${id}`);
+        // user switched chats or newer fetch started while loading -> drop this result
+        if (
+          get()._messageFetchSeq !== mySeq ||
+          !sameId(get().selectedUser?.id, id)
+        ) {
+          return;
+        }
+
         const server = await decryptDmList(res.data.data || [], myId(), id);
+        if (
+          get()._messageFetchSeq !== mySeq ||
+          !sameId(get().selectedUser?.id, id)
+        ) {
+          return;
+        }
+
         const hydrated = server.map((m) => ({
           ...m,
           replyTo: hydrateReply(m.replyTo, server),
         }));
 
-        // user switched chats while we were loading -> drop this result
-        if (!sameId(get().selectedUser?.id, id)) return;
+        const isChatMsg = (m) =>
+          sameId(m.receiverId, id) || sameId(m.senderId, id);
 
         set((s) => ({
           messages: mergeServerWithLocal(
             hydrated,
-            silent
-              ? s.messages
-              : s.messages.filter((m) => sameId(m.receiverId, id)),
+            silent ? s.messages : s.messages.filter(isChatMsg),
           ),
         }));
 
         if (isTabVisible()) get().markSeen(id);
       } catch (error) {
-        toast.error(errMsg(error, "Failed to fetch messages"));
+        if (
+          get()._messageFetchSeq === mySeq &&
+          sameId(get().selectedUser?.id, id)
+        ) {
+          toast.error(errMsg(error, "Failed to fetch messages"));
+        }
       } finally {
-        if (!silent) {
+        if (!silent && get()._messageFetchSeq === mySeq) {
           set({ isMessagesLoading: false });
         }
       }
@@ -710,6 +765,12 @@ export const useChatStore = create((set, get) => {
       const socket = getSocket();
       const to = toId ?? get().selectedUser?.id;
       if (!socket || !to) return;
+      if (
+        isTyping &&
+        usePrivacyStore.getState().privacy?.typingIndicator === false
+      ) {
+        return;
+      }
       socket.emit("typing", { to: String(to), isTyping });
     },
 
@@ -737,6 +798,7 @@ export const useChatStore = create((set, get) => {
         });
 
         // sender stopped typing the moment their message arrives
+        clearTypingTimer(String(raw.senderId));
         set((st) => {
           if (!st.typingFrom[String(raw.senderId)]) return {};
           const next = { ...st.typingFrom };
@@ -767,7 +829,6 @@ export const useChatStore = create((set, get) => {
 
         // 1. If currently viewing chat with the sender (incoming direct message)
         if (isFromSelectedUser) {
-          const visible = isTabVisible();
           set((st) => {
             const exists = st.messages.some((m) => sameId(m.id, incoming.id));
             if (exists) return {};
@@ -776,16 +837,11 @@ export const useChatStore = create((set, get) => {
               replyTo: hydrateReply(incoming.replyTo, st.messages),
             };
             return {
-              messages: [
-                ...st.messages,
-                visible
-                  ? { ...incomingHydrated, status: "seen" }
-                  : incomingHydrated,
-              ],
+              messages: [...st.messages, incomingHydrated],
             };
           });
 
-          if (visible) {
+          if (isTabVisible()) {
             get().markSeen(selectedUser.id);
           }
         }
@@ -930,6 +986,11 @@ export const useChatStore = create((set, get) => {
           currentUserId: me,
           isFocusedSameChat: isChatActiveAndFocused,
           onNotificationClick: (targetChatId) => {
+            const cid = String(targetChatId);
+            if (useChatLockStore.getState().isChatLocked(cid)) {
+              useChatLockStore.getState().openUnlockModal(cid);
+              return;
+            }
             const targetUser = get().users.find((u) =>
               sameId(u.id, targetChatId),
             );
@@ -1071,6 +1132,14 @@ export const useChatStore = create((set, get) => {
       };
 
       const onMessagesSeen = ({ messageIds }) => {
+        const myReceipts =
+          usePrivacyStore.getState().privacy?.readReceipts !== false;
+        const curUser = get().selectedUser;
+        const peerReceipts =
+          curUser?.readReceipts !== false &&
+          curUser?.privacy?.readReceipts !== false;
+        if (!myReceipts || !peerReceipts) return;
+
         set((s) => ({
           messages: s.messages.map((m) =>
             Array.isArray(messageIds) &&
@@ -1157,13 +1226,10 @@ export const useChatStore = create((set, get) => {
         });
       };
 
-      // NOTE: with E2EE the server cannot read URLs, so it will not generate
-      // previews for encrypted text. Handler kept for plaintext/legacy messages.
       const onLinkPreview = ({ messageId, linkPreview }) => {
         patchById(messageId, { linkPreview });
       };
 
-      // server sends the OTHER user's id to each side
       const onDisappearingUpdated = ({ userId, seconds }) => {
         if (sameId(get().selectedUser?.id, userId)) {
           set({ disappearAfter: Number(seconds) || 0 });
@@ -1400,20 +1466,55 @@ export const useChatStore = create((set, get) => {
       const targetId = selectedUser
         ? (selectedUser.id ?? selectedUser._id)
         : null;
-      set((s) => ({
-        selectedUser: selectedUser
-          ? { ...selectedUser, id: targetId, unreadCount: 0 }
-          : null,
-        users: selectedUser
-          ? s.users.map((u) =>
-              sameId(u.id ?? u._id, targetId) ? { ...u, unreadCount: 0 } : u,
-            )
-          : s.users,
-        replyingTo: null,
-        editingMessage: null,
-        scheduled: [],
-        disappearAfter: 0,
-      }));
+      const prev = get().selectedUser;
+      const prevId = prev ? (prev.id ?? prev._id) : null;
+      const isSwitching = !sameId(prevId, targetId);
+
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          if (targetId) {
+            sessionStorage.setItem("chatty:active-dm-id", String(targetId));
+            sessionStorage.removeItem("chatty:active-group-id");
+          } else {
+            sessionStorage.removeItem("chatty:active-dm-id");
+          }
+        }
+      } catch {}
+
+      if (isSwitching) {
+        const nextSeq = (get()._messageFetchSeq || 0) + 1;
+        set((s) => ({
+          _messageFetchSeq: nextSeq,
+          selectedUser: selectedUser
+            ? { ...selectedUser, id: targetId, unreadCount: 0 }
+            : null,
+          users: selectedUser
+            ? s.users.map((u) =>
+                sameId(u.id ?? u._id, targetId) ? { ...u, unreadCount: 0 } : u,
+              )
+            : s.users,
+          messages: [],
+          isMessagesLoading: Boolean(targetId),
+          replyingTo: null,
+          editingMessage: null,
+          scheduled: [],
+          disappearAfter: 0,
+        }));
+      } else {
+        set((s) => ({
+          selectedUser: selectedUser
+            ? { ...selectedUser, id: targetId, unreadCount: 0 }
+            : null,
+          users: selectedUser
+            ? s.users.map((u) =>
+                sameId(u.id ?? u._id, targetId) ? { ...u, unreadCount: 0 } : u,
+              )
+            : s.users,
+          replyingTo: null,
+          editingMessage: null,
+        }));
+      }
+
       syncActiveChat();
       if (targetId && isTabVisible()) {
         get().markSeen(targetId);

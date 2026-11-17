@@ -121,9 +121,14 @@ test("formatLastSeen respects hidden-by-privacy settings", () => {
     isLastSeenRestricted: true,
   };
   assert.equal(formatLastSeen(user), "Last seen information is unavailable");
+
+  const now = new Date();
   assert.equal(
-    formatLastSeen({ lastSeen: new Date().toISOString() }, { isStatusHidden: true }),
-    "Online status is unavailable",
+    formatLastSeen(
+      { lastSeen: now.toISOString() },
+      { isOnline: true, isStatusHidden: true },
+    ),
+    formatLastSeenTimestamp(now),
   );
 });
 

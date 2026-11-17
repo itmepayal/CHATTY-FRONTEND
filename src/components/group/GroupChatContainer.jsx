@@ -880,6 +880,9 @@ const MessageRow = memo(function MessageRow({
               src={avatarSrc(mine ? authUser?.avatar : sender?.avatar)}
               alt=""
               loading="lazy"
+              onError={(e) => {
+                e.currentTarget.src = "/avatar.png";
+              }}
               className="size-7 sm:size-8 rounded-full object-cover border border-base-300"
             />
           )}
@@ -1515,7 +1518,7 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     .map(([, name]) => name?.split(" ")[0]);
 
   const typingText =
-    !typingEnabled || typingNames.length === 0
+    typingNames.length === 0
       ? ""
       : typingNames.length === 1
         ? `${typingNames[0]} is typing…`
@@ -1970,6 +1973,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
               <img
                 src={avatarSrc(group.avatar)}
                 alt=""
+                onError={(e) => {
+                  e.currentTarget.src = "/avatar.png";
+                }}
                 className="size-9 sm:size-10 shrink-0 rounded-full object-cover"
               />
             ) : (

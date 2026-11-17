@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import soundService from "../services/soundService";
 
 const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
 if (import.meta.env.VITE_TURN_URL) {
@@ -44,6 +45,7 @@ const initialState = {
   type: "audio",
   direction: null,
   error: "",
+  silenced: false,
 };
 
 export function CallProvider({ socket, children }) {
@@ -232,7 +234,7 @@ export function CallProvider({ socket, children }) {
       cleanup(msg);
     };
 
-    const onIncoming = ({ callId, from, fromName, type }) => {
+    const onIncoming = ({ callId, from, fromName, type, silenced }) => {
       if (stateRef.current.status !== "idle") return;
       setCall({
         ...initialState,
@@ -241,6 +243,7 @@ export function CallProvider({ socket, children }) {
         peer: { id: from, name: fromName },
         type,
         direction: "incoming",
+        silenced: Boolean(silenced),
       });
     };
 
@@ -343,6 +346,23 @@ export function CallProvider({ socket, children }) {
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [state.status]);
+
+  // Synchronize ringtone audio lifecycle (outgoing calling vs incoming receiving)
+  useEffect(() => {
+    const { status, direction, silenced } = state;
+
+    if (status === "calling" && direction === "outgoing") {
+      soundService.playCalling();
+    } else if (status === "ringing" && direction === "incoming" && !silenced) {
+      soundService.playReceiving();
+    } else {
+      soundService.stopAllCallSounds();
+    }
+
+    return () => {
+      soundService.stopAllCallSounds();
+    };
+  }, [state.status, state.direction, state.silenced]);
 
   useEffect(() => {
     if (!state.error) return;

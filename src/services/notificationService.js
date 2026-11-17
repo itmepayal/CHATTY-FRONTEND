@@ -14,6 +14,7 @@ import {
   useNotificationSettingsStore,
   NOTIFICATION_SETTINGS_DEFAULTS,
 } from "../store/useNotificationSettingsStore.js";
+import soundService from "./soundService.js";
 
 // Bounded LRU-style set for deduplicating message IDs
 export class MessageDeduplicator {
@@ -753,6 +754,8 @@ export const handleIncomingMessage = (message, options = {}) => {
   return result;
 };
 
+export { soundService };
+
 export default {
   handleIncomingMessage,
   getPermissionState,
@@ -763,4 +766,5 @@ export default {
   claimAction,
   isDesignatedNotifierTab,
   messageDeduplicator,
+  soundService,
 };

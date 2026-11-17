@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   CalendarDays,
   ExternalLink,
   ImageIcon,
   Info,
   Link2,
+  Loader2,
+  Lock,
   MessageSquareText,
   PanelRightOpen,
   Settings2,
@@ -13,60 +15,21 @@ import {
 } from "lucide-react";
 import { useGroupStore } from "../../store/useGroupStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { usePrivacyStore } from "../../store/usePrivacyStore";
+import { useChatLockStore } from "../../store/useChatLockStore";
+import { useAppLockStore } from "../../store/useAppLockStore";
+import { VerifyPinModal } from "../Chat/userInfo/UserInfoPrivacySection.jsx";
 
-const LOCALE = "en-IN";
+import {
+  parseDate,
+  formatDate,
+  prettyLink,
+  toIds,
+} from "../Chat/userInfo/UserInfoHelpers.js";
+import { Section, Stat } from "../Chat/userInfo/UserInfoUI.jsx";
+
 const URL_RE = /https?:\/\/[^\s<>"')]+/gi;
-
-const toIds = (arr) =>
-  (Array.isArray(arr) ? arr : []).map((x) => String(x?._id ?? x?.id ?? x));
 const getAvatar = (a) => (typeof a === "string" ? a : a?.url) || "/avatar.png";
-
-const parseDate = (v) => {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-const formatDate = (v) => {
-  const d = parseDate(v);
-  return d
-    ? d.toLocaleDateString(LOCALE, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : "";
-};
-const prettyLink = (url) => {
-  try {
-    const u = new URL(url);
-    const rest = `${u.pathname}${u.search}`.replace(/^\/$/, "");
-    return { host: u.hostname.replace(/^www\./, ""), rest };
-  } catch {
-    return { host: url, rest: "" };
-  }
-};
-
-const Section = ({ title, aside, children }) => (
-  <section className="px-5 py-4">
-    <div className="mb-2.5 flex items-center justify-between">
-      <h4 className="text-xs font-bold uppercase tracking-wider text-base-content/60">
-        {title}
-      </h4>
-      {aside !== undefined && aside !== null && (
-        <span className="text-xs font-semibold text-base-content/45">{aside}</span>
-      )}
-    </div>
-    {children}
-  </section>
-);
-
-const Stat = ({ icon: Icon, value, label }) => (
-  <div className="flex-1 rounded-xl bg-base-200/60 p-2.5 text-center border border-base-200/60 transition-colors hover:bg-base-200/90">
-    <Icon className="mx-auto size-4 text-base-content/50" />
-    <p className="mt-1 text-base font-bold leading-tight text-base-content/90">{value}</p>
-    <p className="mt-0.5 text-[11px] font-medium text-base-content/55">{label}</p>
-  </div>
-);
 
 const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   const { selectedGroup: group, groupMessages } = useGroupStore();
@@ -136,6 +99,53 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
   const createdAt = formatDate(group.createdAt);
   const adminIds = toIds(group.admins);
+  const groupId = group ? String(group._id ?? group.id) : null;
+  const toggleLock = useChatLockStore((s) => s.toggleLock);
+  const disableLockWithPin = useChatLockStore((s) => s.disableLockWithPin);
+  const isAppLockConfigured =
+    useAppLockStore((s) => s.isConfigured) ||
+    usePrivacyStore((s) => Boolean(s.privacy?.appLockEnabled));
+
+  const isLocked = usePrivacyStore((s) => {
+    if (!groupId) return false;
+    const lockedList = (s.privacy?.lockedChats || []).map(String);
+    return lockedList.includes(String(groupId));
+  });
+
+  const [isSavingLock, setIsSavingLock] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  const handleToggleLockClick = async (e) => {
+    e.stopPropagation();
+    if (isSavingLock || !groupId) return;
+
+    if (isLocked) {
+      // Disabling lock: require PIN authorization if App Lock is configured
+      if (isAppLockConfigured) {
+        setShowAuthModal(true);
+        return;
+      }
+      setIsSavingLock(true);
+      await toggleLock(groupId);
+      setIsSavingLock(false);
+    } else {
+      // Enabling lock
+      setIsSavingLock(true);
+      await toggleLock(groupId);
+      setIsSavingLock(false);
+    }
+  };
+
+  const handleVerifyDisable = async (enteredPin) => {
+    setIsSavingLock(true);
+    const ok = await disableLockWithPin(groupId, enteredPin);
+    setIsSavingLock(false);
+    if (ok) {
+      setShowAuthModal(false);
+      return true;
+    }
+    return false;
+  };
 
   return (
     <>
@@ -146,8 +156,10 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
         aria-hidden="true"
       />
 
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto xl:w-80 lg:w-[320px] xl:w-[360px] xl:max-w-none xl:shadow-none transition-all duration-200">
-        {/* Header */}
+      <aside
+        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto lg:w-[320px] xl:w-[340px] xl:max-w-none xl:shadow-none transition-all duration-200"
+      >
         <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
           <div className="flex items-center gap-2.5 font-bold tracking-tight text-base text-base-content/90">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-200/80 text-base-content/60">
@@ -200,7 +212,9 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
             >
               <span
                 className={`size-1.5 rounded-full ${
-                  onlineCount > 0 ? "bg-success animate-pulse" : "bg-base-content/40"
+                  onlineCount > 0
+                    ? "bg-success animate-pulse"
+                    : "bg-base-content/40"
                 }`}
               />
               {onlineCount} online
@@ -257,6 +271,54 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
           <div className="border-t border-base-200/70" />
 
+          {/* Privacy & Security */}
+          <Section title="Privacy & Security">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center justify-between p-3 rounded-xl bg-base-200/50 border border-base-300/40"
+            >
+              <div className="flex items-center gap-2.5">
+                <Lock className="size-4 text-primary" />
+                <div>
+                  <p className="text-xs font-semibold text-base-content">
+                    Lock Conversation
+                  </p>
+                  <p className="text-[11px] text-base-content/60">
+                    Require PIN to open this group
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {isSavingLock && (
+                  <Loader2 className="size-3.5 animate-spin text-primary" />
+                )}
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-sm"
+                  checked={Boolean(isLocked)}
+                  disabled={isSavingLock}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleLockClick(e);
+                  }}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                  }}
+                  aria-label="Toggle Lock Conversation"
+                />
+              </div>
+            </div>
+          </Section>
+
+          <VerifyPinModal
+            open={showAuthModal}
+            loading={isSavingLock}
+            onClose={() => setShowAuthModal(false)}
+            onVerify={handleVerifyDisable}
+          />
+
+          <div className="border-t border-base-200/70" />
+
           {/* Members */}
           <Section title="Members" aside={members.length}>
             <ul className="space-y-1">
@@ -266,7 +328,10 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
                 const online = isMe || onlineSet.has(id);
                 const isAdmin = adminIds.includes(id);
                 return (
-                  <li key={id} className="flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-base-200/50 transition-colors">
+                  <li
+                    key={id}
+                    className="flex items-center gap-3 py-2 px-1 rounded-xl hover:bg-base-200/50 transition-colors"
+                  >
                     <div className="relative shrink-0">
                       <img
                         src={getAvatar(m.avatar)}
@@ -347,7 +412,9 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
                             <Link2 className="size-4 text-base-content/60" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{host}</p>
+                            <p className="truncate text-sm font-medium">
+                              {host}
+                            </p>
                             {rest && (
                               <p className="truncate text-xs text-base-content/50">
                                 {rest}

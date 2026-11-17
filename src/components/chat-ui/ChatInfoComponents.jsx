@@ -73,7 +73,7 @@ export const ChatInfoPanel = ({
 
       {/* Main Info Aside Panel */}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto xl:w-80 lg:w-[320px] xl:w-[360px] xl:max-w-none xl:shadow-none transition-all duration-200 overflow-hidden ${className}`}
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto lg:w-[320px] xl:w-[340px] xl:max-w-none xl:shadow-none transition-all duration-200 overflow-hidden ${className}`}
       >
         {/* Info Header */}
         <div className="px-5 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between gap-3 border-b border-base-200/80 shrink-0">

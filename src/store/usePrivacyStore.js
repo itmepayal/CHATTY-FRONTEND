@@ -7,6 +7,8 @@ export const PRIVACY_BOOL_KEYS = [
   "showOnlineStatus",
   "readReceipts",
   "typingIndicator",
+  "silenceUnknownCallers",
+  "appLockEnabled",
 ];
 
 export const PRIVACY_VIS_KEYS = [
@@ -14,21 +16,54 @@ export const PRIVACY_VIS_KEYS = [
   "onlineStatusVisibility",
   "profilePhotoVisibility",
   "aboutVisibility",
+  "statusVisibility",
   "groupAddPermission",
+  "whoCanAddMeToGroups",
 ];
 
-export const VALID_VISIBILITY = ["everyone", "contacts", "nobody"];
+export const PRIVACY_ARRAY_KEYS = [
+  "lastSeenExceptions",
+  "profilePhotoExceptions",
+  "aboutExceptions",
+  "statusExceptions",
+  "statusIncluded",
+  "groupAddExceptions",
+  "lockedChats",
+];
+
+export const VALID_VISIBILITY = [
+  "everyone",
+  "contacts",
+  "contacts_except",
+  "nobody",
+  "same_as_last_seen",
+  "only_share_with",
+];
 
 export const DEFAULT_PRIVACY = {
   showOnlineStatus: true,
   onlineStatusVisibility: "everyone",
   readReceipts: true,
   typingIndicator: true,
-  lastSeenVisibility: "contacts",
+  silenceUnknownCallers: false,
+  appLockEnabled: false,
+  appLockTimeout: "immediately",
+  appLockPinHash: null,
+  lastSeenVisibility: "everyone",
   profilePhotoVisibility: "everyone",
-  aboutVisibility: "contacts",
-  groupAddPermission: "contacts",
+  aboutVisibility: "everyone",
+  statusVisibility: "contacts",
+  groupAddPermission: "everyone",
+  lastSeenExceptions: [],
+  profilePhotoExceptions: [],
+  aboutExceptions: [],
+  statusExceptions: [],
+  statusIncluded: [],
+  groupAddExceptions: [],
+  lockedChats: [],
 };
+
+const toList = (arr) => (Array.isArray(arr) ? arr.map(String) : []);
 
 export const cleanPrivacy = (p = {}) => {
   const onlineStatusVisibility =
@@ -39,10 +74,22 @@ export const cleanPrivacy = (p = {}) => {
     onlineStatusVisibility,
     readReceipts: p.readReceipts !== false,
     typingIndicator: p.typingIndicator !== false,
-    lastSeenVisibility: p.lastSeenVisibility ?? "contacts",
+    silenceUnknownCallers: Boolean(p.silenceUnknownCallers),
+    appLockEnabled: Boolean(p.appLockEnabled),
+    appLockTimeout: p.appLockTimeout || "immediately",
+    appLockPinHash: p.appLockPinHash || null,
+    lastSeenVisibility: p.lastSeenVisibility ?? "everyone",
     profilePhotoVisibility: p.profilePhotoVisibility ?? "everyone",
-    aboutVisibility: p.aboutVisibility ?? "contacts",
-    groupAddPermission: p.groupAddPermission ?? "contacts",
+    aboutVisibility: p.aboutVisibility ?? "everyone",
+    statusVisibility: p.statusVisibility ?? "contacts",
+    groupAddPermission: p.groupAddPermission ?? "everyone",
+    lastSeenExceptions: toList(p.lastSeenExceptions),
+    profilePhotoExceptions: toList(p.profilePhotoExceptions),
+    aboutExceptions: toList(p.aboutExceptions),
+    statusExceptions: toList(p.statusExceptions),
+    statusIncluded: toList(p.statusIncluded),
+    groupAddExceptions: toList(p.groupAddExceptions),
+    lockedChats: toList(p.lockedChats),
   };
 };
 
@@ -56,7 +103,15 @@ export const usePrivacyStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get("/users/privacy");
       const data = res?.data?.data ?? {};
-      set({ privacy: cleanPrivacy(data) });
+      const next = cleanPrivacy(data);
+      set({ privacy: next });
+      import("./useAppLockStore.js")
+        .then(({ useAppLockStore }) => {
+          const authUser = useAuthStore.getState().authUser;
+          const uid = authUser?._id ?? authUser?.id;
+          useAppLockStore.getState().initAppLock(next, uid ? String(uid) : undefined);
+        })
+        .catch(() => {});
     } catch (err) {
       console.error("[privacy] fetch failed:", err?.message);
     } finally {
@@ -64,26 +119,24 @@ export const usePrivacyStore = create((set, get) => ({
     }
   },
 
-  setPrivacy: async (key, value) => {
-    const isBool = PRIVACY_BOOL_KEYS.includes(key);
-    const isVis = PRIVACY_VIS_KEYS.includes(key);
+  setPrivacy: async (keyOrPatch, value) => {
+    let patch = {};
+    if (typeof keyOrPatch === "string") {
+      patch = { [keyOrPatch]: value };
+    } else if (typeof keyOrPatch === "object" && keyOrPatch !== null) {
+      patch = { ...keyOrPatch };
+    } else {
+      return false;
+    }
 
-    if (!isBool && !isVis) return;
-    if (isBool && typeof value !== "boolean") return;
-    if (isVis && !VALID_VISIBILITY.includes(value)) return;
-
-    if (get().isSaving) return;
+    if (get().isSaving) return false;
 
     const prev = get().privacy;
-    if (prev[key] === value) return;
-
-    const next = { ...prev, [key]: value };
-
-    // Optimistic update
+    const next = { ...prev, ...patch };
     set({ privacy: next, isSaving: true });
 
     try {
-      const res = await axiosInstance.patch("/users/privacy", { [key]: value });
+      const res = await axiosInstance.patch("/users/privacy", patch);
       const saved = res?.data?.data ?? {};
       set({ privacy: cleanPrivacy(saved) });
 
@@ -91,14 +144,20 @@ export const usePrivacyStore = create((set, get) => ({
       if (socket?.connected) {
         socket.emit("privacy:update");
       }
+      return true;
     } catch (err) {
       set({ privacy: prev });
       toast.error(
         err?.response?.data?.message || "Failed to save privacy setting.",
       );
+      return false;
     } finally {
       set({ isSaving: false });
     }
+  },
+
+  updateExceptions: async (key, ids = []) => {
+    return get().setPrivacy(key, ids);
   },
 
   updateMultiplePrivacy: async (updates = {}) => {
@@ -107,6 +166,10 @@ export const usePrivacyStore = create((set, get) => ({
       if (PRIVACY_BOOL_KEYS.includes(k) && typeof v === "boolean") {
         valid[k] = v;
       } else if (PRIVACY_VIS_KEYS.includes(k) && VALID_VISIBILITY.includes(v)) {
+        valid[k] = v;
+      } else if (PRIVACY_ARRAY_KEYS.includes(k) && Array.isArray(v)) {
+        valid[k] = v;
+      } else if (k === "appLockTimeout" || k === "appLockPinHash") {
         valid[k] = v;
       }
     }
@@ -148,10 +211,29 @@ export const usePrivacyStore = create((set, get) => ({
       get().fetchPrivacy();
       return;
     }
-    const next = cleanPrivacy(user);
+    const current = get().privacy || {};
+    const nextLocked =
+      user.lockedChats !== undefined
+        ? toList(user.lockedChats)
+        : current.lockedChats || [];
+
+    const next = cleanPrivacy({
+      ...current,
+      ...user,
+      lockedChats: nextLocked,
+    });
     set({ privacy: next });
+    if (user.lockedChats === undefined) {
+      get().fetchPrivacy();
+    }
+    import("./useAppLockStore.js")
+      .then(({ useAppLockStore }) => {
+        const authUser = useAuthStore.getState().authUser;
+        const uid = authUser?._id ?? authUser?.id;
+        useAppLockStore.getState().initAppLock(next, uid ? String(uid) : undefined);
+      })
+      .catch(() => {});
     if (next.typingIndicator === false) {
-      // If typing indicator was disabled on another device, stop any typing locally
       import("./useChatStore.js")
         .then(({ useChatStore }) => {
           useChatStore.getState().emitTyping(false);

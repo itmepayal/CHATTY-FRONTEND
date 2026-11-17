@@ -20,7 +20,9 @@ import {
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { useChatLockStore } from "./useChatLockStore.js";
 import notificationService from "../services/notificationService.js";
+import soundService from "../services/soundService.js";
 
 const sameId = (a, b) => String(a) === String(b);
 const idOf = (v) => String(v?._id ?? v?.id ?? v ?? "");
@@ -87,7 +89,9 @@ const normalizeShare = (s) => ({
 });
 
 const visible = () =>
-  typeof document !== "undefined" ? document.visibilityState === "visible" : true;
+  typeof document !== "undefined"
+    ? document.visibilityState === "visible"
+    : true;
 
 const revokeBlob = (url) => {
   if (typeof url === "string" && url.startsWith("blob:"))
@@ -135,6 +139,7 @@ const LIVE_PUSH_MS = 5000;
 
 let handlers = null;
 let subscribedGroupSocket = null;
+let groupProfileUpdatedHandler = null;
 const seenInFlight = new Set();
 const seenDirty = new Set();
 const groupTypingTimers = new Map(); // `${groupId}:${userId}` -> timeout
@@ -222,8 +227,9 @@ export const useGroupStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get(`/groups/${groupId}/keys/pending`);
       const d = unwrap(res);
-      const list =
-        Array.isArray(d) ? d : d?.pending || d?.members || d?.userIds || [];
+      const list = Array.isArray(d)
+        ? d
+        : d?.pending || d?.members || d?.userIds || [];
       const ids = list.map((x) => idOf(x?.userId ?? x)).filter(Boolean);
       if (ids.length) await get().shareKeyWith(groupId, ids);
     } catch {
@@ -284,13 +290,31 @@ export const useGroupStore = create((set, get) => ({
       );
       const groups = sortGroups(withPreview);
       set((s) => {
-        const open = s.selectedGroup
+        let open = s.selectedGroup
           ? groups.find((g) => sameId(g.id, s.selectedGroup.id))
           : null;
+        if (!open && typeof sessionStorage !== "undefined") {
+          try {
+            const activeGroupId = sessionStorage.getItem(
+              "chatty:active-group-id",
+            );
+            if (activeGroupId) {
+              const isLocked = useChatLockStore
+                .getState()
+                .isChatLocked(activeGroupId);
+              if (!isLocked) {
+                const found = groups.find((g) => sameId(g.id, activeGroupId));
+                if (found) {
+                  open = found;
+                }
+              }
+            }
+          } catch {}
+        }
         return {
           groups,
           selectedGroup: open
-            ? { ...s.selectedGroup, archived: open.archived }
+            ? { ...s.selectedGroup, ...open }
             : s.selectedGroup,
         };
       });
@@ -479,24 +503,44 @@ export const useGroupStore = create((set, get) => ({
 
   /* ---------- messages ---------- */
   selectGroup: async (group) => {
+    if (!group) return;
+    const gid = idOf(group?.id ?? group?._id ?? group);
+    if (!gid) return;
+
+    if (useChatLockStore.getState().isChatLocked(gid)) {
+      useChatLockStore.getState().openUnlockModal(gid);
+      return;
+    }
+
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem("chatty:active-group-id", String(gid));
+        sessionStorage.removeItem("chatty:active-dm-id");
+      }
+    } catch {}
+
     set({
       selectedGroup: group,
       groupMessages: [],
       isGroupMessagesLoading: true,
     });
-    await Promise.all([
-      get().fetchMessages(group.id),
-      get().fetchActiveShares(group.id),
-    ]);
-    if (!sameId(get().selectedGroup?.id, group.id)) return;
+    await Promise.all([get().fetchMessages(gid), get().fetchActiveShares(gid)]);
+    if (!sameId(get().selectedGroup?.id, gid)) return;
     set({ isGroupMessagesLoading: false });
-    if (visible()) get().markSeen(group.id);
+    if (visible()) get().markSeen(gid);
 
     // background: make sure keys exist / pending members get theirs
-    get().prepareGroupKeys(group.id);
+    get().prepareGroupKeys(gid);
   },
 
+  setSelectedGroup: (group) => get().selectGroup(group),
+
   closeGroup: () => {
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem("chatty:active-group-id");
+      }
+    } catch {}
     get().emitTyping(false);
     set({ selectedGroup: null, groupMessages: [] });
   },
@@ -659,6 +703,10 @@ export const useGroupStore = create((set, get) => ({
 
       const saved = unwrap(res);
       if (!saved) throw new Error("Empty server response");
+
+      // Play subtle confirmation ding for successfully sent message
+      soundService.playOutgoingMessageSound(saved?.id || saved?._id || clientId);
+
       // saved.text is ciphertext -> keep the plaintext we already have
       get().receiveMessage({
         ...saved,
@@ -780,6 +828,12 @@ export const useGroupStore = create((set, get) => ({
     const { selectedGroup } = get();
     const socket = useAuthStore.getState().socket;
     if (!selectedGroup || !socket) return;
+    if (
+      isTyping &&
+      usePrivacyStore.getState().privacy?.typingIndicator === false
+    ) {
+      return;
+    }
     socket.emit("group:typing", {
       groupId: String(selectedGroup.id),
       isTyping,
@@ -1035,6 +1089,11 @@ export const useGroupStore = create((set, get) => ({
         }
 
         // sender stopped typing once their message arrives
+        const typingKey = `${msg.groupId}:${msg.senderId}`;
+        if (groupTypingTimers.has(typingKey)) {
+          clearTimeout(groupTypingTimers.get(typingKey));
+          groupTypingTimers.delete(typingKey);
+        }
         set((s) => {
           const cur = { ...(s.typing[msg.groupId] || {}) };
           delete cur[msg.senderId];
@@ -1049,11 +1108,14 @@ export const useGroupStore = create((set, get) => ({
         const isGroupActiveAndFocused =
           Boolean(open) &&
           visible() &&
-          (typeof document !== "undefined" && typeof document.hasFocus === "function"
+          (typeof document !== "undefined" &&
+          typeof document.hasFocus === "function"
             ? document.hasFocus()
             : true);
 
-        const currentGroup = get().groups.find((g) => sameId(g.id, msg.groupId));
+        const currentGroup = get().groups.find((g) =>
+          sameId(g.id, msg.groupId),
+        );
         const senderMember = currentGroup?.members?.find((m) =>
           sameId(m.userId?._id || m.userId, msg.senderId),
         );
@@ -1070,15 +1132,23 @@ export const useGroupStore = create((set, get) => ({
           groupId: msg.groupId,
           chatId: String(msg.groupId),
           senderName: groupTitle,
-          avatar: currentGroup?.avatar?.url || currentGroup?.avatar || "",
+          avatar:
+            typeof currentGroup?.avatar === "string"
+              ? currentGroup.avatar
+              : currentGroup?.avatar?.url || "",
           currentUserId: myId(),
           isFocusedSameChat: isGroupActiveAndFocused,
           onNotificationClick: (targetGroupId) => {
+            const gid = String(targetGroupId);
+            if (useChatLockStore.getState().isChatLocked(gid)) {
+              useChatLockStore.getState().openUnlockModal(gid);
+              return;
+            }
             const targetG = get().groups.find((g) =>
               sameId(g.id, targetGroupId),
             );
             if (targetG) {
-              get().setSelectedGroup(targetG);
+              get().selectGroup(targetG);
             }
             if (
               typeof window !== "undefined" &&
@@ -1197,6 +1267,30 @@ export const useGroupStore = create((set, get) => ({
     handlers = h;
     subscribedGroupSocket = socket;
 
+    if (typeof window !== "undefined" && !groupProfileUpdatedHandler) {
+      groupProfileUpdatedHandler = ({ detail } = {}) => {
+        const uid = detail?.userId;
+        if (!uid) return;
+        get().fetchGroups({ silent: true });
+        set((s) => {
+          const open = s.selectedGroup;
+          const member = open?.members?.find((m) => sameId(m.id, uid));
+          if (!member) return {};
+          return {
+            groupMessages: s.groupMessages.map((m) =>
+              sameId(m.senderId, uid) && m.sender
+                ? { ...m, sender: { ...m.sender, avatar: member.avatar } }
+                : m,
+            ),
+          };
+        });
+      };
+      window.addEventListener(
+        "chatty:profile-updated",
+        groupProfileUpdatedHandler,
+      );
+    }
+
     get()
       .fetchGroups({ silent: true })
       .then(() => get().resumeMyLiveShares());
@@ -1208,6 +1302,13 @@ export const useGroupStore = create((set, get) => ({
     const socket = subscribedGroupSocket || useAuthStore.getState().socket;
     if (socket && handlers) {
       Object.entries(handlers).forEach(([ev, fn]) => socket.off(ev, fn));
+    }
+    if (typeof window !== "undefined" && groupProfileUpdatedHandler) {
+      window.removeEventListener(
+        "chatty:profile-updated",
+        groupProfileUpdatedHandler,
+      );
+      groupProfileUpdatedHandler = null;
     }
     handlers = null;
     subscribedGroupSocket = null;

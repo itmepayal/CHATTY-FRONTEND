@@ -26,6 +26,9 @@ import IncomingGroupCall from "./components/group/common/IncomingGroupCall.jsx";
 
 import LiveLocationSender from "./components/Location/LiveLocationSender.jsx";
 import { useApplySettings } from "./hooks/useApplySettings.js";
+import AppLockScreen from "./components/settings/privacy/AppLockScreen.jsx";
+import { useAppLockStore } from "./store/useAppLockStore.js";
+import { usePrivacyStore } from "./store/usePrivacyStore.js";
 
 const App = () => {
   useApplySettings();
@@ -36,6 +39,14 @@ const App = () => {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    const uid = authUser?._id ?? authUser?.id;
+    if (uid) {
+      useAppLockStore.getState().initAppLock(null, String(uid));
+      usePrivacyStore.getState().fetchPrivacy?.();
+    }
+  }, [authUser?._id, authUser?.id]);
 
   useEffect(() => {
     if (!socket || !authUser) return;
@@ -126,6 +137,7 @@ const App = () => {
             <CallUI />
             <GroupCallModal />
             <IncomingGroupCall />
+            <AppLockScreen />
           </>
         )}
       </div>

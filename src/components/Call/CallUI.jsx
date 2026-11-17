@@ -14,26 +14,6 @@ import MinimizedCallView from "./common/MinimizedCallView";
 import CallToast from "./common/CallToast";
 
 /* ------------------------------------------------------------------ */
-/*  Ringtone (looping audio during incoming call)                     */
-/* ------------------------------------------------------------------ */
-const Ringtone = ({ play }) => {
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const audio = ref.current;
-    if (!audio) return;
-    if (play) {
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
-      audio.currentTime = 0;
-    }
-  }, [play]);
-
-  return <audio ref={ref} src="/didi.mp3" loop preload="auto" />;
-};
-
-/* ------------------------------------------------------------------ */
 /*  Animated Dots for "Calling..." state                              */
 /* ------------------------------------------------------------------ */
 const CallingDots = () => (
@@ -52,7 +32,7 @@ const CallingDots = () => (
 /* ------------------------------------------------------------------ */
 /*  Incoming 1:1 Call Card                                            */
 /* ------------------------------------------------------------------ */
-const IncomingCall = ({ peer, avatar, isVideo, onAccept, onReject }) => {
+const IncomingCall = ({ peer, avatar, isVideo, silenced, onAccept, onReject }) => {
   const displayName = peer?.fullName || peer?.name || "Someone";
 
   return (
@@ -79,8 +59,14 @@ const IncomingCall = ({ peer, avatar, isVideo, onAccept, onReject }) => {
           <CallTypeBadge
             isVideo={isVideo}
             text={`Incoming ${isVideo ? "video" : "audio"} call`}
-            className="mx-auto mb-6"
+            className="mx-auto mb-4"
           />
+
+          {silenced && (
+            <div className="mx-auto mb-4 inline-flex items-center gap-1.5 rounded-full bg-warning/20 border border-warning/30 px-3 py-1 text-xs font-semibold text-warning">
+              <span>Silenced (Unknown Caller)</span>
+            </div>
+          )}
 
           <div className="my-6 flex justify-center">
             <CallAvatar
@@ -391,6 +377,7 @@ export default function CallUI() {
     endCall,
     toggleMute,
     toggleCamera,
+    silenced,
   } = useCall();
 
   const [minimized, setMinimized] = useState(false);
@@ -413,7 +400,6 @@ export default function CallUI() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <Ringtone play={status === "ringing"} />
       <CallToast message={error} />
 
       {/* Minimized Floating View (Picture-in-Picture) */}
@@ -442,6 +428,7 @@ export default function CallUI() {
             peer={peer}
             avatar={avatar}
             isVideo={isVideo}
+            silenced={silenced}
             onAccept={acceptCall}
             onReject={rejectCall}
           />

@@ -70,10 +70,8 @@ import useVoiceRecorder, {
 import useVideoRecorder, {
   MAX_VIDEO_SECONDS,
 } from "../../hooks/useVideoRecorder";
-// ---- E2EE ----
 import { whenE2EEReady } from "../../lib/e2ee.js";
 import { displayText } from "../../lib/e2eeMessages.js";
-
 import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
 import AiAssist from "../common/AiAssist.jsx";
@@ -85,7 +83,6 @@ import {
   copyMessageText,
 } from "../../lib/messageActions.js";
 
-// Motion kit (must live in the same folder as this file)
 import {
   AnimatedTicks,
   CollapseBar,
@@ -120,7 +117,6 @@ const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_PINS = 3;
 const MAX_FORWARD_TARGETS = 5;
 
-// E2EE: automatic "re-decrypt" attempts per chat open
 const MAX_AUTO_DECRYPT_RETRIES = 2;
 const AUTO_DECRYPT_DELAY_MS = 3000;
 
@@ -153,9 +149,7 @@ const FILE_ACCEPT = [
   "video/*",
 ].join(",");
 
-/* ------------------------------------------------------------------ */
-/*  Motion presets                                                     */
-/* ------------------------------------------------------------------ */
+
 const EASE = [0.22, 1, 0.36, 1];
 
 const fade = {
@@ -175,7 +169,7 @@ const modalCard = {
 const sameId = (a, b) => String(a) === String(b);
 
 const avatarSrc = (avatar) =>
-  (typeof avatar === "string" ? avatar : avatar?.url) || "./avatar.png";
+  (typeof avatar === "string" ? avatar : avatar?.url) || "/avatar.png";
 
 const sameDay = (a, b) =>
   new Date(a).toDateString() === new Date(b).toDateString();
@@ -799,7 +793,8 @@ const ScheduleModal = ({ text, onClose, onConfirm }) => {
 
   const submit = async () => {
     const when = new Date(value);
-    if (Number.isNaN(when.getTime())) return customToast.error("Pick a valid time");
+    if (Number.isNaN(when.getTime()))
+      return customToast.error("Pick a valid time");
     setBusy(true);
     const ok = await onConfirm(when.toISOString());
     setBusy(false);
@@ -1382,11 +1377,15 @@ const ChatInput = () => {
     const img = isImageFile(f);
 
     if (kind === "image" && !img) {
-      customToast.error("Only images are allowed here. Use the paperclip for files.");
+      customToast.error(
+        "Only images are allowed here. Use the paperclip for files.",
+      );
       return;
     }
     if (kind === "file" && img) {
-      customToast.error("Images can't be sent as a file. Use the image button.");
+      customToast.error(
+        "Images can't be sent as a file. Use the image button.",
+      );
       return;
     }
 
@@ -2035,6 +2034,9 @@ const MessageRow = memo(function MessageRow({
               src={avatarSrc(isMine ? myAvatar : peerAvatar)}
               alt=""
               loading="lazy"
+              onError={(e) => {
+                e.currentTarget.src = "/avatar.png";
+              }}
               className="size-7 rounded-full border border-base-300 object-cover sm:size-8"
             />
           )}
@@ -2199,7 +2201,6 @@ const MessageRow = memo(function MessageRow({
               />
             )}
 
-            {/* hover actions: only on devices that can hover */}
             {!isTouch && showReact && (
               <button
                 type="button"
@@ -2231,7 +2232,6 @@ const MessageRow = memo(function MessageRow({
             )}
           </div>
 
-          {/* Reaction chips */}
           {grouped.length > 0 && (
             <div
               className={`relative z-[1] -mt-1.5 flex flex-wrap gap-1 px-2 ${
@@ -2288,9 +2288,6 @@ const MessageRow = memo(function MessageRow({
   );
 });
 
-/* ------------------------------------------------------------------ */
-/*  ChatContainer                                                      */
-/* ------------------------------------------------------------------ */
 const ChatContainer = ({ onToggleInfo }) => {
   const {
     messages,
@@ -2314,18 +2311,14 @@ const ChatContainer = ({ onToggleInfo }) => {
     scheduled,
     getScheduled,
     cancelScheduled,
-    // disappearing + report
     disappearAfter,
     getDisappearing,
     setDisappearing,
     purgeExpired,
     reportUser,
-    // archive
     setArchive,
-    // live location
     liveShares,
     stopLiveShare,
-    // ---- E2EE ----
     redecryptFailed,
   } = useChatStore();
   const { authUser, socket } = useAuthStore();
@@ -2342,7 +2335,6 @@ const ChatContainer = ({ onToggleInfo }) => {
   }, [users, contacts]);
 
   const s = useAppearanceStore((st) => st.appearance);
-  // memoized: a new object every render would defeat MessageRow's memo
   const cs = useMemo(() => chatStyle(s), [s]);
 
   const motionMode = s.reduceMotion ? "always" : "user";
@@ -2360,7 +2352,7 @@ const ChatContainer = ({ onToggleInfo }) => {
   const showSeen = Boolean(myReadReceipts && peerReadReceipts);
 
   const peerIsTyping = Boolean(
-    typingEnabled && selectedUser && typingFrom[String(selectedUser.id)],
+    selectedUser && typingFrom[String(selectedUser.id)],
   );
 
   // Must stay above any early return (rules of hooks)
@@ -2726,7 +2718,9 @@ const ChatContainer = ({ onToggleInfo }) => {
       return;
     }
     const ok = await copyMessageText(message.text);
-    ok ? customToast.success("Text copied") : customToast.error("Couldn't copy text");
+    ok
+      ? customToast.success("Text copied")
+      : customToast.error("Couldn't copy text");
   };
 
   // NOTE: copyMessageImage must be called right inside the click handler
@@ -2742,7 +2736,9 @@ const ChatContainer = ({ onToggleInfo }) => {
   const handleCopyLink = async (message) => {
     closePopover();
     const ok = await copyImageLink(message.image?.url);
-    ok ? customToast.success("Image link copied") : customToast.error("Couldn't copy link");
+    ok
+      ? customToast.success("Image link copied")
+      : customToast.error("Couldn't copy link");
   };
 
   const copyUrl = (getUrl, okMsg) => async (message) => {
@@ -3210,7 +3206,9 @@ const ChatContainer = ({ onToggleInfo }) => {
                   myId={authUser?.id}
                   myAvatar={authUser?.avatar}
                   peerName={selectedUser?.fullName}
-                  peerAvatar={selectedUser?.avatar}
+                  peerAvatar={
+                    selectedUser?.isPhotoRestricted ? null : selectedUser?.avatar
+                  }
                   cs={cs}
                   s={s}
                   largeEmoji={largeEmoji}
@@ -3239,7 +3237,9 @@ const ChatContainer = ({ onToggleInfo }) => {
         {/* Typing indicator bubble */}
         <TypingBubble
           show={peerIsTyping}
-          avatar={avatarSrc(selectedUser?.avatar)}
+          avatar={avatarSrc(
+            selectedUser?.isPhotoRestricted ? null : selectedUser?.avatar,
+          )}
           name={selectedUser?.fullName?.split(" ")[0]}
           reduceMotion={s.reduceMotion}
         />

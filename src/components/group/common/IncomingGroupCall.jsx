@@ -7,6 +7,7 @@ import { useCall } from "../../../context/CallContext";
 import { CALL_SPRING } from "../../Call/common/callTokens";
 import CallAvatar from "../../Call/common/CallAvatar";
 import { CallTypeBadge } from "../../Call/common/CallStatusBadge";
+import soundService from "../../../services/soundService";
 
 const RING_SECONDS = 45;
 
@@ -25,12 +26,9 @@ export default function IncomingGroupCall() {
   // Ringtone playback
   useEffect(() => {
     if (!visible) return;
-    const audio = new Audio("/didi.mp3");
-    audio.loop = true;
-    audio.play().catch(() => {});
+    soundService.playReceiving();
     return () => {
-      audio.pause();
-      audio.src = "";
+      soundService.stopReceiving();
     };
   }, [visible, callId]);
 
