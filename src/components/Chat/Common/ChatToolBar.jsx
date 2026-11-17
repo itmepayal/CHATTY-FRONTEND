@@ -15,7 +15,6 @@ import {
 
 const spring = { type: "spring", stiffness: 380, damping: 30 };
 
-/* Small count / status chip that sits on a tool button */
 const Chip = ({ children, tone = "primary" }) => (
   <motion.span
     initial={{ opacity: 0, scale: 0.5 }}
@@ -146,18 +145,18 @@ const ChatToolbar = ({
   }, [moreOpen]);
 
   return (
-    <div className="border-b border-base-300 bg-base-100/80 px-3 py-1.5 backdrop-blur">
+    <div className="border-b border-base-300/80 bg-base-100/80 px-3 sm:px-4 py-1.5 backdrop-blur-md">
       <AnimatePresence mode="wait" initial={false}>
         {searchOpen ? (
           /* ---------------- Search mode ---------------- */
           <motion.div
             key="search"
-            initial={{ opacity: 0, scaleX: 0.92 }}
+            initial={{ opacity: 0, scaleX: 0.94 }}
             animate={{ opacity: 1, scaleX: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.1 } }}
             transition={spring}
             style={{ transformOrigin: "left center" }}
-            className="flex items-center gap-2 rounded-full border border-primary/40 bg-base-200/60 py-0.5 pl-3 pr-1 ring-1 ring-primary/20"
+            className="flex w-full items-center gap-2 rounded-full border border-primary/40 bg-base-200/60 py-0.5 pl-3 pr-1.5 ring-1 ring-primary/20 shadow-xs"
           >
             <Search className="size-4 shrink-0 text-primary" />
             <input
@@ -166,8 +165,8 @@ const ChatToolbar = ({
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && closeSearch()}
-              placeholder="Search in this chat"
-              className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-base-content/40"
+              placeholder="Search in this chat…"
+              className="h-8 min-w-0 flex-1 bg-transparent text-xs sm:text-sm text-base-content outline-none placeholder:text-base-content/40"
             />
             {searching ? (
               <Loader2 className="size-4 shrink-0 animate-spin text-base-content/50" />
@@ -185,7 +184,7 @@ const ChatToolbar = ({
                   setSearchQ("");
                   inputRef.current?.focus();
                 }}
-                className="btn btn-ghost btn-xs btn-circle"
+                className="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-base-content"
                 aria-label="Clear search"
               >
                 <X className="size-3.5" />
@@ -194,7 +193,7 @@ const ChatToolbar = ({
             <button
               type="button"
               onClick={closeSearch}
-              className="btn btn-ghost btn-xs rounded-full px-2.5"
+              className="btn btn-ghost btn-xs rounded-full px-2.5 text-xs text-base-content/70 hover:text-base-content"
             >
               Cancel
             </button>
@@ -211,7 +210,7 @@ const ChatToolbar = ({
           >
             <div
               onMouseLeave={() => setHovered(null)}
-              className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-full border border-base-300 bg-base-200/50 p-0.5"
+              className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1 overflow-x-auto rounded-full border border-base-300/80 bg-base-200/50 p-0.5"
             >
               <Tool
                 id="search"
@@ -280,13 +279,15 @@ const ChatToolbar = ({
             <div ref={moreRef} className="relative shrink-0">
               <motion.button
                 type="button"
-                whileTap={{ scale: 0.9 }}
+                whileTap={{ scale: 0.92 }}
                 onClick={() => setMoreOpen((v) => !v)}
                 aria-label="More actions"
                 aria-haspopup="menu"
                 aria-expanded={moreOpen}
-                className={`btn btn-ghost btn-sm btn-circle border border-base-300 ${
-                  moreOpen ? "bg-base-300/60" : ""
+                className={`btn btn-ghost btn-sm btn-circle size-8 min-h-[32px] min-w-[32px] border border-base-300/80 text-base-content/70 hover:text-base-content ${
+                  moreOpen
+                    ? "bg-base-300/80 text-base-content"
+                    : "hover:bg-base-200"
                 }`}
               >
                 <MoreHorizontal className="size-4" />
@@ -305,7 +306,7 @@ const ChatToolbar = ({
                     }}
                     transition={spring}
                     style={{ transformOrigin: "top right" }}
-                    className="absolute right-0 top-full z-30 mt-2 w-48 rounded-xl border border-base-300 bg-base-100 p-1 shadow-xl"
+                    className="absolute right-0 top-full z-30 mt-2 w-48 rounded-2xl border border-base-300 bg-base-100/95 p-1.5 shadow-xl backdrop-blur-xl"
                   >
                     <MoreItem
                       icon={isArchived ? ArchiveRestore : Archive}
@@ -315,7 +316,7 @@ const ChatToolbar = ({
                         onArchive?.();
                       }}
                     />
-                    <div className="my-1 border-t border-base-300" />
+                    <div className="my-1 border-t border-base-300/80" />
                     <MoreItem
                       icon={Flag}
                       label="Report user"

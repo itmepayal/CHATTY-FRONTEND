@@ -39,6 +39,22 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   const onlineSet = useMemo(() => new Set(toIds(onlineUsers)), [onlineUsers]);
   const hiddenSet = useMemo(() => new Set(toIds(hiddenUsers)), [hiddenUsers]);
 
+  const groupId = group ? String(group._id ?? group.id) : null;
+  const toggleLock = useChatLockStore((s) => s.toggleLock);
+  const disableLockWithPin = useChatLockStore((s) => s.disableLockWithPin);
+  const isAppLockConfigured =
+    useAppLockStore((s) => s.isConfigured) ||
+    usePrivacyStore((s) => Boolean(s.privacy?.appLockEnabled));
+
+  const isLocked = usePrivacyStore((s) => {
+    if (!groupId) return false;
+    const lockedList = (s.privacy?.lockedChats || []).map(String);
+    return lockedList.includes(String(groupId));
+  });
+
+  const [isSavingLock, setIsSavingLock] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   // Close on Escape on mobile / tablet
   useEffect(() => {
     if (!open) return;
@@ -87,7 +103,6 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   const members = group.members || [];
   const onlineCount = members.filter((m) => onlineSet.has(String(m.id))).length;
 
-  // online members first, then "You" is always on top
   const sortedMembers = [...members].sort((a, b) => {
     const aMe = String(a.id) === myId ? 1 : 0;
     const bMe = String(b.id) === myId ? 1 : 0;
@@ -99,21 +114,6 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
   const createdAt = formatDate(group.createdAt);
   const adminIds = toIds(group.admins);
-  const groupId = group ? String(group._id ?? group.id) : null;
-  const toggleLock = useChatLockStore((s) => s.toggleLock);
-  const disableLockWithPin = useChatLockStore((s) => s.disableLockWithPin);
-  const isAppLockConfigured =
-    useAppLockStore((s) => s.isConfigured) ||
-    usePrivacyStore((s) => Boolean(s.privacy?.appLockEnabled));
-
-  const isLocked = usePrivacyStore((s) => {
-    if (!groupId) return false;
-    const lockedList = (s.privacy?.lockedChats || []).map(String);
-    return lockedList.includes(String(groupId));
-  });
-
-  const [isSavingLock, setIsSavingLock] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleToggleLockClick = async (e) => {
     e.stopPropagation();
@@ -288,7 +288,10 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="flex items-center gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
                 {isSavingLock && (
                   <Loader2 className="size-3.5 animate-spin text-primary" />
                 )}

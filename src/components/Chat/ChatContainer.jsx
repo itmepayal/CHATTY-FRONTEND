@@ -149,7 +149,6 @@ const FILE_ACCEPT = [
   "video/*",
 ].join(",");
 
-
 const EASE = [0.22, 1, 0.36, 1];
 
 const fade = {
@@ -2366,11 +2365,11 @@ const ChatContainer = ({ onToggleInfo }) => {
   const stickToBottomRef = useRef(true);
   const lastChatRef = useRef(null);
   const highlightTimer = useRef(null);
-  const handlersRef = useRef({}); // latest handlers for memoized rows
-  const decryptRetriesRef = useRef({}); // { [peerId]: attempts }
+  const handlersRef = useRef({});
+  const decryptRetriesRef = useRef({});
 
   const [previewSrc, setPreviewSrc] = useState(null);
-  const [popover, setPopover] = useState(null); // { type: react|menu|sheet, id, top, left }
+  const [popover, setPopover] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
 
   const [highlightId, setHighlightId] = useState(null);
@@ -2382,11 +2381,10 @@ const ChatContainer = ({ onToggleInfo }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [showDisappearing, setShowDisappearing] = useState(false);
-  const [reportCtx, setReportCtx] = useState(null); // { messageId? }
+  const [reportCtx, setReportCtx] = useState(null);
   const [showFab, setShowFab] = useState(false);
   const [unread, setUnread] = useState(0);
   const [showShareLocation, setShowShareLocation] = useState(false);
-  // ---- E2EE state ----
   const [retryingKeys, setRetryingKeys] = useState(false);
   const [e2eeInfoOpen, setE2eeInfoOpen] = useState(false);
 
@@ -3207,7 +3205,9 @@ const ChatContainer = ({ onToggleInfo }) => {
                   myAvatar={authUser?.avatar}
                   peerName={selectedUser?.fullName}
                   peerAvatar={
-                    selectedUser?.isPhotoRestricted ? null : selectedUser?.avatar
+                    selectedUser?.isPhotoRestricted
+                      ? null
+                      : selectedUser?.avatar
                   }
                   cs={cs}
                   s={s}

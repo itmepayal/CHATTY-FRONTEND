@@ -79,6 +79,7 @@ import { useCall } from "../../context/CallContext";
 import { useGroupCallStore } from "../../store/useGroupCallStore";
 import { useGroupCallHistoryStore } from "../../store/useGroupCallHistoryStore";
 import GroupCallBanner from "./GroupCallBanner.jsx";
+import GroupChatHeader from "./GroupChatHeader.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -735,7 +736,9 @@ const GroupCallLog = ({ item, prev, onCallBack, disabled, s, cs }) => {
   return (
     <div>
       {showDay && (
-        <div className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}>
+        <div
+          className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}
+        >
           <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
             {dayLabel(item.createdAt)}
           </span>
@@ -856,7 +859,9 @@ const MessageRow = memo(function MessageRow({
   return (
     <div>
       {showDay && (
-        <div className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}>
+        <div
+          className={`flex justify-center ${cs?.dayMargin || "my-3 sm:my-4"}`}
+        >
           <span className="text-xs text-base-content/60 bg-base-100 border border-base-300 rounded-full px-3 py-1">
             {dayLabel(m.createdAt)}
           </span>
@@ -923,7 +928,9 @@ const MessageRow = memo(function MessageRow({
               <div
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
-                  hasText || hasAudio ? (cs.bubblePadding || "px-3 sm:px-3.5 py-2") : "p-1"
+                  hasText || hasAudio
+                    ? cs.bubblePadding || "px-3 sm:px-3.5 py-2"
+                    : "p-1"
                 } ${cs.radius} shadow-sm ${
                   isTouch ? "[-webkit-touch-callout:none] select-text" : ""
                 } ${
@@ -1556,7 +1563,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     setLocationOpen(true);
   };
 
-  // one place for: get GPS -> call store -> close modal
   const runLocation = async (fn) => {
     if (locBusy) return;
     setLocBusy(true);
@@ -1644,7 +1650,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
       return;
     }
     const ok = await copyMessageText(m.text);
-    ok ? customToast.success("Text copied") : customToast.error("Couldn't copy text");
+    ok
+      ? customToast.success("Text copied")
+      : customToast.error("Couldn't copy text");
   };
   const handleCopyImage = async (m) => {
     closePopover();
@@ -1657,7 +1665,9 @@ const GroupChatContainer = ({ onToggleInfo }) => {
   const handleCopyLink = async (m) => {
     closePopover();
     const ok = await copyImageLink(m.image?.url);
-    ok ? customToast.success("Image link copied") : customToast.error("Couldn't copy link");
+    ok
+      ? customToast.success("Image link copied")
+      : customToast.error("Couldn't copy link");
   };
   const handleCopyFileLink = async (m) => {
     closePopover();
@@ -1736,11 +1746,15 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     const vid = isVideoFile(f);
 
     if (kind === "image" && !img) {
-      customToast.error("Only images are allowed here. Use the paperclip for files.");
+      customToast.error(
+        "Only images are allowed here. Use the paperclip for files.",
+      );
       return;
     }
     if (kind === "file" && img) {
-      customToast.error("Images can't be sent as a file. Use the image button.");
+      customToast.error(
+        "Images can't be sent as a file. Use the image button.",
+      );
       return;
     }
 
@@ -1853,7 +1867,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
         ?.emoji
     : null;
 
-  // shared menu rows (desktop popover + mobile bottom sheet)
   const renderMenuItems = (f, msg, large) => (
     <>
       {f.hasText && (
@@ -1953,150 +1966,20 @@ const GroupChatContainer = ({ onToggleInfo }) => {
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100">
         {/* ---------------- Header ---------------- */}
-        <div className="h-16 shrink-0 flex items-center gap-1 sm:gap-3 px-3 sm:px-4 border-b border-base-300 bg-base-100/90 backdrop-blur-xl shadow-xs">
-          {/* back (phones / tablets: sidebar is hidden while a chat is open) */}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm btn-circle lg:hidden shrink-0"
-            onClick={closeGroup}
-            aria-label="Back to chats"
-          >
-            <ArrowLeft className="size-5" />
-          </button>
+        <GroupChatHeader
+          group={group}
+          onlineCount={onlineCount}
+          typingText={typingText}
+          onToggleInfo={onToggleInfo}
+          closeGroup={closeGroup}
+          startGroupCall={startGroupCall}
+          hasActiveGroupCall={hasActiveGroupCall}
+          callBlocked={callBlocked}
+          avatarSrc={avatarSrc}
+        />
 
-          <button
-            type="button"
-            onClick={onToggleInfo}
-            className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 text-left"
-          >
-            {group.avatar ? (
-              <img
-                src={avatarSrc(group.avatar)}
-                alt=""
-                onError={(e) => {
-                  e.currentTarget.src = "/avatar.png";
-                }}
-                className="size-9 sm:size-10 shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <div className="size-9 sm:size-10 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold">
-                {group.name?.[0]?.toUpperCase()}
-              </div>
-            )}
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 font-semibold leading-tight">
-                <span className="truncate">{group.name}</span>
-                <Lock
-                  className="size-3 shrink-0 text-base-content/40"
-                  aria-label="End-to-end encrypted"
-                />
-              </div>
-              <div className="text-xs truncate">
-                <AnimatePresence mode="wait" initial={false}>
-                  {typingText ? (
-                    <motion.span
-                      key="typing"
-                      {...fade}
-                      className="text-primary block truncate"
-                    >
-                      {typingText}
-                    </motion.span>
-                  ) : (
-                    <motion.span
-                      key="members"
-                      {...fade}
-                      className="text-base-content/60 block truncate"
-                    >
-                      {group.members.length} members ·{" "}
-                      <span className={onlineCount > 0 ? "text-success" : ""}>
-                        {onlineCount} online
-                      </span>
-                      {isArchived && " · Archived"}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </button>
-
-          {/* ---- group voice call ---- */}
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.88 }}
-            transition={{ type: "spring", stiffness: 400, damping: 18 }}
-            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
-            onClick={() => startGroupCall(group.id, "audio", group.name)}
-            disabled={callBlocked}
-            aria-label="Start group voice call"
-            title={
-              hasActiveGroupCall ? "A call is already running" : "Voice call"
-            }
-          >
-            <Phone className="size-4" />
-          </motion.button>
-
-          {/* ---- group video call ---- */}
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.88 }}
-            transition={{ type: "spring", stiffness: 400, damping: 18 }}
-            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
-            onClick={() => startGroupCall(group.id, "video", group.name)}
-            disabled={callBlocked}
-            aria-label="Start group video call"
-            title={
-              hasActiveGroupCall ? "A call is already running" : "Video call"
-            }
-          >
-            <Video className="size-4" />
-          </motion.button>
-
-          {/* ---- archive / unarchive ---- */}
-          <button
-            type="button"
-            className={`btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary ${
-              isArchived ? "text-primary" : ""
-            }`}
-            onClick={toggleArchive}
-            disabled={archiving}
-            aria-label={isArchived ? "Unarchive group" : "Archive group"}
-            title={isArchived ? "Unarchive group" : "Archive group"}
-          >
-            {archiving ? (
-              <Loader2 className="size-[18px] animate-spin" />
-            ) : isArchived ? (
-              <ArchiveRestore className="size-[18px]" />
-            ) : (
-              <Archive className="size-[18px]" />
-            )}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm btn-circle shrink-0 hover:bg-primary/10 hover:text-primary"
-            onClick={onToggleInfo}
-            aria-label="Group info"
-            title="Group info"
-          >
-            <Info className="size-5" />
-          </button>
-          {/* close: desktop only (phones use the back arrow) */}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm btn-circle hidden lg:inline-flex shrink-0"
-            onClick={closeGroup}
-            aria-label="Close chat"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* ---- "Call in progress · Join" banner ---- */}
         <GroupCallBanner group={group} />
 
-        {/* ---- E2EE: some messages are still locked ---- */}
         <AnimatePresence initial={false}>
           {undecryptedCount > 0 && !isGroupMessagesLoading && (
             <motion.div
@@ -2133,7 +2016,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           )}
         </AnimatePresence>
 
-        {/* ---- LOCATION: "X is sharing live location" bar ---- */}
         <AnimatePresence initial={false}>
           {liveBarText && (
             <motion.div
@@ -2169,7 +2051,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
           )}
         </AnimatePresence>
 
-        {/* ---------------- Messages ---------------- */}
         <div
           ref={listRef}
           onScroll={handleListScroll}
@@ -2181,7 +2062,6 @@ const GroupChatContainer = ({ onToggleInfo }) => {
             </div>
           )}
 
-          {/* ---- WhatsApp-style E2EE notice (top of the chat) ---- */}
           {!isGroupMessagesLoading && (
             <E2EENotice onOpen={() => setE2eeInfoOpen(true)} />
           )}

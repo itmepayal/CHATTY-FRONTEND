@@ -256,7 +256,8 @@ export function E2EESettingsSection() {
             <div className="flex items-center gap-2 min-w-0">
               <KeyRound className="size-4 shrink-0" />
               <span>
-                New device detected. Link with an existing verified device or enter your recovery key.
+                New device detected. Link with an existing verified device or
+                enter your recovery key.
               </span>
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -284,7 +285,8 @@ export function E2EESettingsSection() {
             <div className="flex items-center gap-2 min-w-0">
               <Lock className="size-4 shrink-0" />
               <span>
-                Enable End-to-End Encryption with automatic zero-password key generation.
+                Enable End-to-End Encryption with automatic zero-password key
+                generation.
               </span>
             </div>
             <button
@@ -310,7 +312,8 @@ export function E2EESettingsSection() {
                   Connected Devices & Key Sharing
                 </h3>
                 <p className="text-xs text-base-content/60">
-                  Manage registered devices and link new devices without passwords
+                  Manage registered devices and link new devices without
+                  passwords
                 </p>
               </div>
             </div>
