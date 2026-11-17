@@ -207,3 +207,76 @@ export const getDevicesPublicKeysApi = async (userIds) => {
   );
   return res.data?.data || { devices: [], userDevices: {}, count: 0 };
 };
+
+/**
+ * Initiates a device linking session for a new device.
+ * @param {{ ephemeralPublicKey: object, deviceId: string, deviceName?: string }} payload
+ * @returns {Promise<{ linkSessionId: string, linkingPin: string, expiresAt: string }>}
+ */
+export const requestDeviceLinkApi = async ({
+  ephemeralPublicKey,
+  deviceId,
+  deviceName,
+}) => {
+  const res = await axiosInstance.post(
+    "/e2ee/devices/link/request",
+    {
+      ephemeralPublicKey,
+      deviceId,
+      deviceName,
+    },
+    { withCredentials: true },
+  );
+  return res.data?.data;
+};
+
+/**
+ * Checks the status of a pending device linking session.
+ * @param {string} linkSessionId
+ * @returns {Promise<{ linkSessionId: string, linkingPin: string, status: string, encryptedPayload: object|null, expiresAt: string }>}
+ */
+export const getDeviceLinkStatusApi = async (linkSessionId) => {
+  const res = await axiosInstance.get(
+    `/e2ee/devices/link/status/${encodeURIComponent(linkSessionId)}`,
+    { withCredentials: true },
+  );
+  return res.data?.data;
+};
+
+/**
+ * Looks up a pending device link session using its 6-digit PIN.
+ * @param {string} linkingPin
+ * @returns {Promise<{ linkSessionId: string, linkingPin: string, ephemeralPublicKey: object, newDeviceId: string, newDeviceName: string, expiresAt: string }>}
+ */
+export const lookupPendingLinkSessionApi = async (linkingPin) => {
+  const cleanPin = String(linkingPin).trim().replace(/\s+/g, "");
+  const res = await axiosInstance.get(
+    `/e2ee/devices/link/pin/${encodeURIComponent(cleanPin)}`,
+    { withCredentials: true },
+  );
+  return res.data?.data;
+};
+
+/**
+ * Approves a device linking request from an existing trusted device.
+ * @param {{ linkSessionId: string, linkingPin: string, encryptedPayload: object, approverDeviceId: string }} payload
+ * @returns {Promise<object>}
+ */
+export const approveDeviceLinkApi = async ({
+  linkSessionId,
+  linkingPin,
+  encryptedPayload,
+  approverDeviceId,
+}) => {
+  const res = await axiosInstance.post(
+    "/e2ee/devices/link/approve",
+    {
+      linkSessionId,
+      linkingPin,
+      encryptedPayload,
+      approverDeviceId,
+    },
+    { withCredentials: true },
+  );
+  return res.data?.data;
+};

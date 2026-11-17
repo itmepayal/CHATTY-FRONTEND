@@ -1,8 +1,3 @@
-/**
- * React Hook for E2EE State Management
- * Connects React components with the centralized E2EEManager singleton.
- */
-
 import { useState, useEffect, useCallback } from "react";
 import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 import { E2EE_STATUS } from "../lib/e2ee/e2ee.constants.js";
@@ -64,6 +59,26 @@ export function useE2EE() {
     return e2eeManager.unlock();
   }, []);
 
+  const initiateDeviceLink = useCallback(async () => {
+    return e2eeManager.initiateDeviceLink();
+  }, []);
+
+  const consumeDeviceLinkPayload = useCallback(async (payload) => {
+    return e2eeManager.consumeDeviceLinkPayload(payload);
+  }, []);
+
+  const pollDeviceLinkStatus = useCallback(async (sessionId) => {
+    return e2eeManager.pollDeviceLinkStatus(sessionId);
+  }, []);
+
+  const approveDeviceLink = useCallback(async (params) => {
+    return e2eeManager.approveDeviceLink(params);
+  }, []);
+
+  const getStoredRecoveryKey = useCallback(async () => {
+    return e2eeManager.getStoredRecoveryKey();
+  }, []);
+
   return {
     ...state,
     isLoading:
@@ -83,6 +98,11 @@ export function useE2EE() {
     refresh,
     lock,
     unlock,
+    initiateDeviceLink,
+    consumeDeviceLinkPayload,
+    pollDeviceLinkStatus,
+    approveDeviceLink,
+    getStoredRecoveryKey,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck,
   ShieldAlert,
@@ -11,6 +11,10 @@ import {
   FileKey,
   Shield,
   Key,
+  Laptop,
+  Smartphone,
+  Trash2,
+  QrCode,
 } from "lucide-react";
 import { useE2EE } from "../../hooks/useE2EE.js";
 import { E2EE_STATUS } from "../../lib/e2ee/e2ee.constants.js";
@@ -18,6 +22,13 @@ import { E2EESetupModal } from "./E2EESetupModal.jsx";
 import { E2EERestoreModal } from "./E2EERestoreModal.jsx";
 import { E2EEChangePassphraseModal } from "./E2EEChangePassphraseModal.jsx";
 import { E2EEResetModal } from "./E2EEResetModal.jsx";
+import { E2EEDeviceLinkModal } from "./E2EEDeviceLinkModal.jsx";
+import {
+  getRegisteredDevicesApi,
+  revokeDeviceApi,
+} from "../../lib/e2ee/e2ee.api.js";
+import { getDeviceId } from "../../lib/e2ee/e2eeDevice.js";
+import { customToast } from "../toast";
 
 export function E2EESettingsSection() {
   const {
@@ -35,7 +46,40 @@ export function E2EESettingsSection() {
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [changePassModalOpen, setChangePassModalOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkModalMode, setLinkModalMode] = useState("approve");
   const [refreshing, setRefreshing] = useState(false);
+
+  const [devices, setDevices] = useState([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const currentDeviceId = getDeviceId();
+
+  const loadDevices = useCallback(async () => {
+    if (!isReady) return;
+    setLoadingDevices(true);
+    try {
+      const devList = await getRegisteredDevicesApi();
+      setDevices(devList || []);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingDevices(false);
+    }
+  }, [isReady]);
+
+  useEffect(() => {
+    loadDevices();
+  }, [loadDevices]);
+
+  const handleRevokeDevice = async (deviceId, deviceName) => {
+    try {
+      await revokeDeviceApi(deviceId);
+      customToast.success(`Device "${deviceName || deviceId}" revoked.`);
+      setDevices((prev) => prev.filter((d) => d.deviceId !== deviceId));
+    } catch {
+      customToast.error("Failed to revoke device.");
+    }
+  };
 
   const getKeyStorageLabel = () => {
     if (isReady && me?.privateKey) {
@@ -72,6 +116,7 @@ export function E2EESettingsSection() {
     setRefreshing(true);
     try {
       await refresh();
+      await loadDevices();
     } finally {
       setRefreshing(false);
     }
@@ -127,6 +172,7 @@ export function E2EESettingsSection() {
 
   return (
     <div className="space-y-5">
+      {/* 1. Encryption Status Card */}
       <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-6 shadow-sm transition-all hover:border-base-content/20">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-base-200/80">
           <div className="flex items-center gap-3 min-w-0">
@@ -147,7 +193,7 @@ export function E2EESettingsSection() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-base-content"
+              className="btn btn-ghost btn-xs btn-circle text-base-content/60 hover:text-base-content cursor-pointer"
               title="Refresh E2EE status"
             >
               <RefreshCw
@@ -210,16 +256,26 @@ export function E2EESettingsSection() {
             <div className="flex items-center gap-2 min-w-0">
               <KeyRound className="size-4 shrink-0" />
               <span>
-                Enter your recovery passphrase to decrypt messages on this
-                device.
+                New device detected. Link with an existing verified device or enter your recovery key.
               </span>
             </div>
-            <button
-              onClick={() => setRestoreModalOpen(true)}
-              className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg w-full sm:w-auto"
-            >
-              Restore Now
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => {
+                  setLinkModalMode("link");
+                  setLinkModalOpen(true);
+                }}
+                className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg flex-1 sm:flex-none cursor-pointer"
+              >
+                Link Device
+              </button>
+              <button
+                onClick={() => setRestoreModalOpen(true)}
+                className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg flex-1 sm:flex-none cursor-pointer"
+              >
+                Enter Key
+              </button>
+            </div>
           </div>
         )}
 
@@ -228,20 +284,129 @@ export function E2EESettingsSection() {
             <div className="flex items-center gap-2 min-w-0">
               <Lock className="size-4 shrink-0" />
               <span>
-                Enable End-to-End Encryption to protect your messages with
-                zero-knowledge keys.
+                Enable End-to-End Encryption with automatic zero-password key generation.
               </span>
             </div>
             <button
               onClick={() => setSetupModalOpen(true)}
-              className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg w-full sm:w-auto"
+              className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[32px] shrink-0 font-semibold rounded-lg w-full sm:w-auto cursor-pointer"
             >
-              Enable E2EE
+              Activate E2EE
             </button>
           </div>
         )}
       </div>
 
+      {/* 2. Connected Devices & Automatic Key Sharing */}
+      {isReady && (
+        <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-6 shadow-sm transition-all hover:border-base-content/20">
+          <div className="flex items-center justify-between gap-3 pb-3.5 border-b border-base-200/80">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Laptop className="size-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-semibold text-base-content">
+                  Connected Devices & Key Sharing
+                </h3>
+                <p className="text-xs text-base-content/60">
+                  Manage registered devices and link new devices without passwords
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setLinkModalMode("approve");
+                setLinkModalOpen(true);
+              }}
+              className="btn btn-primary btn-sm rounded-xl gap-1.5 text-xs font-semibold cursor-pointer"
+            >
+              <Laptop className="size-3.5" />
+              Link a New Device
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-base-content/70">
+                Registered Devices ({devices.length})
+              </span>
+              <button
+                onClick={() => {
+                  setLinkModalMode("recovery-key");
+                  setLinkModalOpen(true);
+                }}
+                className="text-xs font-medium text-primary hover:underline cursor-pointer"
+              >
+                View 256-Bit Recovery Key
+              </button>
+            </div>
+
+            {loadingDevices ? (
+              <div className="py-4 text-center text-xs text-base-content/50">
+                Loading connected devices...
+              </div>
+            ) : devices.length === 0 ? (
+              <div className="rounded-xl bg-base-200/40 p-3 text-center text-xs text-base-content/60">
+                This device is the only verified device.
+              </div>
+            ) : (
+              <div className="divide-y divide-base-200 rounded-xl border border-base-300/60 bg-base-200/30 overflow-hidden">
+                {devices.map((dev) => {
+                  const isCurrent = dev.deviceId === currentDeviceId;
+                  return (
+                    <div
+                      key={dev.deviceId}
+                      className="flex items-center justify-between p-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {dev.deviceName?.toLowerCase().includes("android") ||
+                        dev.deviceName?.toLowerCase().includes("ios") ? (
+                          <Smartphone className="size-4 shrink-0 text-base-content/60" />
+                        ) : (
+                          <Laptop className="size-4 shrink-0 text-base-content/60" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-base-content truncate">
+                              {dev.deviceName || "Chatty Client"}
+                            </span>
+                            {isCurrent && (
+                              <span className="badge badge-primary badge-xs font-medium">
+                                Current Device
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-base-content/50 font-mono">
+                            Registered:{" "}
+                            {dev.registeredAt
+                              ? new Date(dev.registeredAt).toLocaleDateString()
+                              : "Active"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!isCurrent && (
+                        <button
+                          onClick={() =>
+                            handleRevokeDevice(dev.deviceId, dev.deviceName)
+                          }
+                          className="btn btn-ghost btn-xs text-error hover:bg-error/10 cursor-pointer"
+                          title="Revoke device access"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Multi-Device Key Backup Card */}
       <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-6 shadow-sm transition-all hover:border-base-content/20">
         <div className="flex items-center gap-3 pb-3.5 border-b border-base-200/80">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/10 text-secondary">
@@ -252,8 +417,7 @@ export function E2EESettingsSection() {
               Multi-Device Key Backup
             </h3>
             <p className="text-xs text-base-content/60">
-              Passphrase-protected backup for restoring your identity on new
-              devices
+              Encrypted backup for zero-knowledge key recovery across devices
             </p>
           </div>
         </div>
@@ -263,24 +427,36 @@ export function E2EESettingsSection() {
             Your private encryption key is client-encrypted using{" "}
             <strong>PBKDF2-SHA256 (600,000 iterations)</strong> and stored in
             encrypted form on the server. Only someone with your recovery
-            passphrase can decrypt it.
+            passphrase or recovery key can decrypt it.
           </p>
 
           <div className="flex flex-wrap items-center gap-2.5 pt-2">
             {isReady && (
-              <button
-                onClick={() => setChangePassModalOpen(true)}
-                className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
-              >
-                <Key className="size-3.5" />
-                Change Recovery Passphrase
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setLinkModalMode("recovery-key");
+                    setLinkModalOpen(true);
+                  }}
+                  className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
+                >
+                  <ShieldCheck className="size-3.5" />
+                  View Recovery Key
+                </button>
+                <button
+                  onClick={() => setChangePassModalOpen(true)}
+                  className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
+                >
+                  <Key className="size-3.5" />
+                  Change Recovery Passphrase
+                </button>
+              </>
             )}
 
             {isRestoreRequired && (
               <button
                 onClick={() => setRestoreModalOpen(true)}
-                className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
+                className="btn btn-warning btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
               >
                 <KeyRound className="size-3.5" />
                 Restore from Backup
@@ -290,7 +466,7 @@ export function E2EESettingsSection() {
             {isNotConfigured && (
               <button
                 onClick={() => setSetupModalOpen(true)}
-                className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
+                className="btn btn-primary btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
               >
                 <Lock className="size-3.5" />
                 Create Key & Backup
@@ -300,6 +476,7 @@ export function E2EESettingsSection() {
         </div>
       </div>
 
+      {/* 4. Danger Zone */}
       <div className="rounded-2xl sm:rounded-3xl border border-error/25 bg-base-100 p-4 sm:p-6 shadow-sm">
         <div className="flex items-center gap-3 pb-3.5 border-b border-error/15">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-error/10 text-error">
@@ -329,7 +506,7 @@ export function E2EESettingsSection() {
           <div className="pt-2">
             <button
               onClick={() => setResetModalOpen(true)}
-              className="btn btn-error btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto"
+              className="btn btn-error btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
             >
               <RotateCcw className="size-3.5" />
               Reset Encryption Identity
@@ -350,6 +527,12 @@ export function E2EESettingsSection() {
       <E2EEChangePassphraseModal
         isOpen={changePassModalOpen}
         onClose={() => setChangePassModalOpen(false)}
+      />
+      <E2EEDeviceLinkModal
+        isOpen={linkModalOpen}
+        onClose={() => setLinkModalOpen(false)}
+        initialMode={linkModalMode}
+        onOpenRestore={() => setRestoreModalOpen(true)}
       />
       <E2EEResetModal
         isOpen={resetModalOpen}

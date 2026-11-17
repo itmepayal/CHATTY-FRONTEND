@@ -16,12 +16,18 @@ const getDatabase = () => {
 
   dbInstancePromise = new Promise((resolve, reject) => {
     try {
-      const request = indexedDB.open(STORAGE_CONFIG.DB_NAME, 1);
+      const request = indexedDB.open(STORAGE_CONFIG.DB_NAME, 2);
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         if (!db.objectStoreNames.contains(STORAGE_CONFIG.STORE_NAME)) {
           db.createObjectStore(STORAGE_CONFIG.STORE_NAME);
+        }
+        if (
+          STORAGE_CONFIG.VAULT_STORE_NAME &&
+          !db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)
+        ) {
+          db.createObjectStore(STORAGE_CONFIG.VAULT_STORE_NAME);
         }
       };
 
@@ -127,6 +133,105 @@ export const hasKeyRecord = async (userId) => {
 };
 
 /**
+ * Generates a high-entropy 256-bit recovery key formatted into groups of 8 characters.
+ * @returns {string} e.g. "E8F34B9A-10293847-56473829-90182736-47382910-18273645-09182734-65473829"
+ */
+export const generateRecoveryKey = () => {
+  const bytes = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 32; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+  return hex.match(/.{1,8}/g).join("-");
+};
+
+/**
+ * Stores a user's recovery key securely in the local device vault.
+ * @param {string} userId
+ * @param {string} recoveryKey
+ */
+export const saveRecoveryKey = async (userId, recoveryKey) => {
+  if (!userId || !recoveryKey) return;
+  const uid = String(userId);
+  const db = await getDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORAGE_CONFIG.VAULT_STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME);
+    store.put(
+      {
+        userId: uid,
+        recoveryKey,
+        updatedAt: new Date().toISOString(),
+      },
+      uid,
+    );
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(new Error("Vault transaction aborted"));
+  });
+};
+
+/**
+ * Retrieves the user's recovery key from the local device vault.
+ * @param {string} userId
+ * @returns {Promise<string|null>}
+ */
+export const getRecoveryKey = async (userId) => {
+  if (!userId) return null;
+  const uid = String(userId);
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.VAULT_STORE_NAME, "readonly");
+      const store = tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME);
+      const req = store.get(uid);
+      req.onsuccess = () => resolve(req.result?.recoveryKey || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error(
+      `[E2EE KeyStore] Error getting recovery key for ${uid}:`,
+      err,
+    );
+    return null;
+  }
+};
+
+/**
+ * Deletes the user's recovery key from the local device vault.
+ * @param {string} userId
+ */
+export const deleteRecoveryKey = async (userId) => {
+  if (!userId) return;
+  const uid = String(userId);
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)) return;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.VAULT_STORE_NAME, "readwrite");
+      tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME).delete(uid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn(
+      `[E2EE KeyStore] Failed to delete recovery key for ${uid}:`,
+      err,
+    );
+  }
+};
+
+/**
  * Deletes a user's key record from local storage.
  * @param {string} userId - Authenticated user ID.
  */
@@ -143,6 +248,9 @@ export const deleteKeyRecord = async (userId) => {
       tx.onerror = () => reject(tx.error);
     });
 
+    // Also delete from local device vault
+    await deleteRecoveryKey(uid);
+
     // Also delete from legacy store if present
     await deleteLegacyKeyRecord(uid);
   } catch (err) {
@@ -157,8 +265,16 @@ export const clearAllKeys = async () => {
   try {
     const db = await getDatabase();
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readwrite");
+      const tx = db.transaction(
+        [STORAGE_CONFIG.STORE_NAME, STORAGE_CONFIG.VAULT_STORE_NAME].filter(
+          (name) => db.objectStoreNames.contains(name),
+        ),
+        "readwrite",
+      );
       tx.objectStore(STORAGE_CONFIG.STORE_NAME).clear();
+      if (db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)) {
+        tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME).clear();
+      }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

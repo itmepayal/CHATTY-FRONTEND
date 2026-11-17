@@ -8,12 +8,18 @@ import {
   getKeyRecord,
   saveKeyRecord,
   deleteKeyRecord,
+  generateRecoveryKey,
+  saveRecoveryKey,
+  getRecoveryKey,
+  deleteRecoveryKey,
 } from "./e2eeKeyStore.js";
 import {
   encryptPrivateKeyBackup,
   decryptPrivateKeyBackup,
   importNonExtractablePrivateKey,
   publicKeysMatch,
+  bufToB64,
+  b64ToBuf,
 } from "./e2eeBackup.crypto.js";
 import {
   getE2EEStatusApi,
@@ -22,8 +28,12 @@ import {
   updateE2EEBackupApi,
   resetE2EEIdentityApi,
   getUserPublicKeyApi,
+  requestDeviceLinkApi,
+  getDeviceLinkStatusApi,
+  lookupPendingLinkSessionApi,
+  approveDeviceLinkApi,
 } from "./e2ee.api.js";
-import { registerCurrentDevice } from "./e2eeDevice.js";
+import { registerCurrentDevice, getDeviceId, getDeviceName } from "./e2eeDevice.js";
 import { customToast as toast } from "../../components/toast/customToastService.js";
 
 const subtle = globalThis.crypto?.subtle;
@@ -40,6 +50,7 @@ class E2EEManager {
     this.currentUserId = null;
     this.readyPromise = Promise.resolve(E2EE_STATUS.IDLE);
     this.initInFlight = null;
+    this.activeLinkSession = null;
     this.listeners = new Set();
   }
 
@@ -172,9 +183,20 @@ class E2EEManager {
         // 3. Resolve state machine transitions
         if (!hasServerPublicKey) {
           if (!localRecord) {
-            // Fresh user: no keys on server and no keys locally
-            this.me = null;
-            return this.setStatus(E2EE_STATUS.NOT_CONFIGURED);
+            // Fresh user: automatically setup identity without manual password prompt
+            console.log(
+              "[E2EE Manager] Fresh user detected: auto-activating E2EE with zero manual password...",
+            );
+            try {
+              return await this.autoSetupIdentity();
+            } catch (autoErr) {
+              console.error(
+                "[E2EE Manager] Auto-setup failed, fallback to not configured:",
+                autoErr,
+              );
+              this.me = null;
+              return this.setStatus(E2EE_STATUS.NOT_CONFIGURED);
+            }
           } else {
             // Local key exists but server has no identity (e.g. server was reset)
             // Stored local key is orphaned
@@ -215,6 +237,22 @@ class E2EEManager {
 
         // Server has key, but local device does not have matching private key
         if (hasServerBackup) {
+          // Check if local device vault contains recovery key for auto-unlock
+          const localRecoveryKey = await getRecoveryKey(uid);
+          if (localRecoveryKey) {
+            try {
+              console.log(
+                "[E2EE Manager] Found recovery key in local device vault, auto-unlocking...",
+              );
+              return await this.restoreIdentity(localRecoveryKey);
+            } catch (autoRestoreErr) {
+              console.warn(
+                "[E2EE Manager] Auto-unlock from local device vault failed:",
+                autoRestoreErr?.message,
+              );
+            }
+          }
+
           this.me = null;
           return this.setStatus(E2EE_STATUS.RESTORE_REQUIRED);
         } else {
@@ -234,7 +272,95 @@ class E2EEManager {
   }
 
   /* ------------------------------------------------------------------ */
-  /*  First-Device Setup Flow                                           */
+  /*  Automatic Zero-Manual-Password Setup Flow                         */
+  /* ------------------------------------------------------------------ */
+
+  async autoSetupIdentity() {
+    if (!this.currentUserId)
+      throw new E2EENotReadyError("No authenticated user.");
+
+    this.setStatus(E2EE_STATUS.SETTING_UP);
+    const uid = this.currentUserId;
+
+    try {
+      // 1. Generate an extractable temporary key pair in memory
+      const tempPair = await subtle.generateKey(ECDH_ALGO, true, [
+        "deriveBits",
+      ]);
+
+      // 2. Export private JWK strictly in memory for backup encryption
+      const privateJwk = await subtle.exportKey("jwk", tempPair.privateKey);
+      const publicJwk = {
+        kty: "EC",
+        crv: "P-256",
+        x: privateJwk.x,
+        y: privateJwk.y,
+      };
+
+      // 3. Generate a 256-bit high-entropy recovery key
+      const recoveryKey = generateRecoveryKey();
+
+      // 4. Encrypt private key backup using recovery key with PBKDF2-SHA256 (600,000 iterations)
+      const backupResult = await encryptPrivateKeyBackup(
+        privateJwk,
+        recoveryKey,
+      );
+
+      // 5. Import private key as NON-EXTRACTABLE for local IndexedDB security
+      const nonExtractablePrivateKey =
+        await importNonExtractablePrivateKey(privateJwk);
+
+      // 6. Register with backend
+      try {
+        await registerE2EEKeysApi({
+          publicKey: publicJwk,
+          encryptedPrivateKey: backupResult.serialized,
+          backupVersion: 1,
+        });
+      } catch (apiErr) {
+        if (apiErr?.response?.status === 409) {
+          throw new E2EEConflictError();
+        }
+        throw apiErr;
+      }
+
+      // 7. Persist non-extractable identity in IndexedDB
+      await saveKeyRecord(uid, {
+        privateKey: nonExtractablePrivateKey,
+        publicJwk,
+        version: 1,
+      });
+
+      // 8. Store recovery key securely in local device vault
+      await saveRecoveryKey(uid, recoveryKey);
+
+      this.me = {
+        userId: uid,
+        privateKey: nonExtractablePrivateKey,
+        publicJwk,
+        version: 1,
+      };
+
+      // Refresh server status
+      try {
+        this.serverStatus = await getE2EEStatusApi();
+      } catch {
+        void 0;
+      }
+
+      this.setStatus(E2EE_STATUS.READY);
+      this.readyPromise = Promise.resolve(E2EE_STATUS.READY);
+      registerCurrentDevice(uid, publicJwk).catch(() => {});
+      return this.me;
+    } catch (err) {
+      console.error("[E2EE Manager] Auto-setup identity failed:", err);
+      await this.init(uid);
+      throw err;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  First-Device Setup Flow (Manual Fallback)                         */
   /* ------------------------------------------------------------------ */
 
   async setupIdentity(passphrase) {
@@ -296,6 +422,9 @@ class E2EEManager {
         publicJwk,
         version: 1,
       });
+
+      // 7. Persist passphrase into local device vault
+      await saveRecoveryKey(uid, passphrase);
 
       this.me = {
         userId: uid,
@@ -373,6 +502,9 @@ class E2EEManager {
         version: backupData.backupVersion || 1,
       });
 
+      // 6. Save recovery key / passphrase to local device vault
+      await saveRecoveryKey(uid, passphrase);
+
       this.me = {
         userId: uid,
         privateKey: nonExtractablePrivateKey,
@@ -444,6 +576,9 @@ class E2EEManager {
       this.me.version = nextVersion;
     }
 
+    // 5. Update local device vault with new passphrase
+    await saveRecoveryKey(uid, newPassphrase);
+
     try {
       this.serverStatus = await getE2EEStatusApi();
     } catch {
@@ -452,6 +587,296 @@ class E2EEManager {
 
     this.notify();
     return updated;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Device Linking & Ephemeral Zero-Knowledge Key Provisioning        */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Initiates a device linking session on a new (untrusted) device.
+   * Generates an ephemeral ECDH keypair and requests a linking PIN from the server.
+   * @returns {Promise<{ linkSessionId: string, linkingPin: string, expiresAt: string, ephemeralPublicJwk: object }>}
+   */
+  async initiateDeviceLink() {
+    if (!this.currentUserId) {
+      throw new E2EENotReadyError("No authenticated user.");
+    }
+
+    // 1. Generate an ephemeral ECDH P-256 keypair strictly for this linking session
+    const ephemeralPair = await subtle.generateKey(ECDH_ALGO, true, [
+      "deriveBits",
+      "deriveKey",
+    ]);
+    const ephemeralPublicJwk = await subtle.exportKey(
+      "jwk",
+      ephemeralPair.publicKey,
+    );
+
+    // 2. Request a link session from backend
+    const res = await requestDeviceLinkApi({
+      ephemeralPublicKey: {
+        kty: "EC",
+        crv: "P-256",
+        x: ephemeralPublicJwk.x,
+        y: ephemeralPublicJwk.y,
+      },
+      deviceId: getDeviceId(),
+      deviceName: getDeviceName(),
+    });
+
+    this.activeLinkSession = {
+      linkSessionId: res.linkSessionId,
+      linkingPin: res.linkingPin,
+      expiresAt: res.expiresAt,
+      ephemeralPair,
+    };
+
+    return {
+      linkSessionId: res.linkSessionId,
+      linkingPin: res.linkingPin,
+      expiresAt: res.expiresAt,
+      ephemeralPublicJwk,
+    };
+  }
+
+  /**
+   * Consumes an encrypted payload received from an approving trusted device.
+   * Derives shared secret via ephemeral ECDH and imports non-extractable private key.
+   * @param {{ ephemeralPublicKey: object, iv: string, ciphertext: string }} encryptedPayload
+   */
+  async consumeDeviceLinkPayload(encryptedPayload) {
+    if (!this.currentUserId) {
+      throw new E2EENotReadyError("No authenticated user.");
+    }
+    if (!this.activeLinkSession?.ephemeralPair?.privateKey) {
+      throw new Error("No active device linking session on this device.");
+    }
+    if (
+      !encryptedPayload?.ephemeralPublicKey ||
+      !encryptedPayload?.iv ||
+      !encryptedPayload?.ciphertext
+    ) {
+      throw new Error(
+        "Malformed encrypted payload received from approver device.",
+      );
+    }
+
+    const uid = this.currentUserId;
+
+    // 1. Import approver's ephemeral public key
+    const approverPublicKey = await subtle.importKey(
+      "jwk",
+      encryptedPayload.ephemeralPublicKey,
+      ECDH_ALGO,
+      false,
+      [],
+    );
+
+    // 2. Derive ephemeral AES-GCM 256-bit shared decryption key
+    const sharedKey = await subtle.deriveKey(
+      { name: "ECDH", public: approverPublicKey },
+      this.activeLinkSession.ephemeralPair.privateKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"],
+    );
+
+    // 3. Decrypt payload
+    const iv = b64ToBuf(encryptedPayload.iv);
+    const cipherBytes = b64ToBuf(encryptedPayload.ciphertext);
+    const decryptedBuf = await subtle.decrypt(
+      { name: "AES-GCM", iv },
+      sharedKey,
+      cipherBytes,
+    );
+
+    const data = JSON.parse(new TextDecoder().decode(decryptedBuf));
+    const { privateJwk, recoveryKey } = data;
+
+    if (!privateJwk || !privateJwk.d || !privateJwk.x || !privateJwk.y) {
+      throw new Error(
+        "Invalid private key material received in linked payload.",
+      );
+    }
+
+    // 4. Import private key as NON-EXTRACTABLE
+    const nonExtractablePrivateKey =
+      await importNonExtractablePrivateKey(privateJwk);
+
+    const publicJwk = {
+      kty: "EC",
+      crv: "P-256",
+      x: privateJwk.x,
+      y: privateJwk.y,
+    };
+
+    // 5. Persist non-extractable identity in IndexedDB
+    await saveKeyRecord(uid, {
+      privateKey: nonExtractablePrivateKey,
+      publicJwk,
+      version: 1,
+    });
+
+    // 6. Persist recovery key in local device vault
+    if (recoveryKey) {
+      await saveRecoveryKey(uid, recoveryKey);
+    }
+
+    // 7. Cleanup ephemeral session
+    this.activeLinkSession = null;
+
+    this.me = {
+      userId: uid,
+      privateKey: nonExtractablePrivateKey,
+      publicJwk,
+      version: 1,
+    };
+
+    try {
+      this.serverStatus = await getE2EEStatusApi();
+    } catch {
+      void 0;
+    }
+
+    this.setStatus(E2EE_STATUS.READY);
+    this.readyPromise = Promise.resolve(E2EE_STATUS.READY);
+    registerCurrentDevice(uid, publicJwk).catch(() => {});
+    return this.me;
+  }
+
+  /**
+   * Polls the backend for link approval if Socket.IO event was missed.
+   * @param {string} [linkSessionId]
+   */
+  async pollDeviceLinkStatus(linkSessionId) {
+    const id = linkSessionId || this.activeLinkSession?.linkSessionId;
+    if (!id) throw new Error("No active linking session ID.");
+
+    const res = await getDeviceLinkStatusApi(id);
+    if (res?.status === "approved" && res?.encryptedPayload) {
+      await this.consumeDeviceLinkPayload(res.encryptedPayload);
+      return { status: "approved", ready: true };
+    }
+    return { status: res?.status || "pending", ready: false };
+  }
+
+  /**
+   * Approves a pending device linking request from an existing trusted device.
+   * Transfers private key material end-to-end encrypted with an ephemeral ECDH shared secret.
+   * @param {{ linkSessionId: string, linkingPin: string, targetEphemeralPublicKey: object, passphrase?: string }} params
+   */
+  async approveDeviceLink({
+    linkSessionId,
+    linkingPin,
+    targetEphemeralPublicKey,
+    passphrase,
+  }) {
+    if (!this.currentUserId) {
+      throw new E2EENotReadyError("No authenticated user.");
+    }
+    const uid = this.currentUserId;
+
+    let targetKeyJwk = targetEphemeralPublicKey;
+    let sessionId = linkSessionId;
+
+    // If linking pin was provided without ephemeral key, query pending session
+    if (!targetKeyJwk && linkingPin) {
+      const session = await lookupPendingLinkSessionApi(linkingPin);
+      targetKeyJwk = session.ephemeralPublicKey;
+      sessionId = session.linkSessionId;
+    }
+
+    if (!targetKeyJwk) {
+      throw new Error(
+        "Target device ephemeral public key could not be determined.",
+      );
+    }
+
+    // 1. Retrieve recovery key from local vault or fallback to provided passphrase
+    let recoveryKey = passphrase || (await getRecoveryKey(uid));
+    if (!recoveryKey) {
+      throw new Error(
+        "Recovery key or passphrase is required to authorize device link.",
+      );
+    }
+
+    // 2. Fetch backup and decrypt private JWK in memory
+    const backupData = await getE2EEBackupApi();
+    if (!backupData?.encryptedPrivateKey) {
+      throw new Error("No encrypted private key backup found on server.");
+    }
+
+    const privateJwk = await decryptPrivateKeyBackup(
+      backupData.encryptedPrivateKey,
+      recoveryKey,
+    );
+
+    // 3. Generate ephemeral ECDH P-256 keypair for this session
+    const ephemeralPair = await subtle.generateKey(ECDH_ALGO, true, [
+      "deriveBits",
+      "deriveKey",
+    ]);
+    const ephemeralPublicJwk = await subtle.exportKey(
+      "jwk",
+      ephemeralPair.publicKey,
+    );
+
+    // 4. Import target device's ephemeral public key
+    const targetKey = await subtle.importKey(
+      "jwk",
+      targetKeyJwk,
+      ECDH_ALGO,
+      false,
+      [],
+    );
+
+    // 5. Derive ephemeral AES-GCM 256-bit shared encryption key
+    const sharedKey = await subtle.deriveKey(
+      { name: "ECDH", public: targetKey },
+      ephemeralPair.privateKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"],
+    );
+
+    // 6. Encrypt private JWK + recovery key payload
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const payloadBytes = new TextEncoder().encode(
+      JSON.stringify({ privateJwk, recoveryKey }),
+    );
+    const cipherBuffer = await subtle.encrypt(
+      { name: "AES-GCM", iv },
+      sharedKey,
+      payloadBytes,
+    );
+
+    const encryptedPayload = {
+      ephemeralPublicKey: {
+        kty: "EC",
+        crv: "P-256",
+        x: ephemeralPublicJwk.x,
+        y: ephemeralPublicJwk.y,
+      },
+      iv: bufToB64(iv),
+      ciphertext: bufToB64(cipherBuffer),
+    };
+
+    return await approveDeviceLinkApi({
+      linkSessionId: sessionId,
+      linkingPin,
+      encryptedPayload,
+      approverDeviceId: getDeviceId(),
+    });
+  }
+
+  /**
+   * Retrieves stored recovery key from the local device vault.
+   * @returns {Promise<string|null>}
+   */
+  async getStoredRecoveryKey() {
+    if (!this.currentUserId) return null;
+    return await getRecoveryKey(this.currentUserId);
   }
 
   /* ------------------------------------------------------------------ */

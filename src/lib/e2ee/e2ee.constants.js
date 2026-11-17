@@ -1,8 +1,3 @@
-/**
- * E2EE Client Constants
- * Cryptographic parameters, state machine enum, and storage identifiers.
- */
-
 export const E2EE_STATUS = Object.freeze({
   IDLE: "idle",
   LOADING: "loading",
@@ -43,12 +38,14 @@ export const RESET_CONFIRM_KEYWORD = "RESET_E2EE_IDENTITY";
 export const STORAGE_CONFIG = Object.freeze({
   DB_NAME: "chatty-e2ee-v2",
   STORE_NAME: "identities",
+  VAULT_STORE_NAME: "device_vault",
   LEGACY_DB_NAME: "chatty-e2ee",
   LEGACY_STORE_NAME: "keys",
 });
 
 export const E2EE_UI_MESSAGES = Object.freeze({
-  PEER_NO_KEY: "This user hasn't set up encryption yet. Ask them to open the app once.",
+  PEER_NO_KEY:
+    "This user hasn't set up encryption yet. Ask them to open the app once.",
   NOT_READY: "Encryption isn't ready yet. Please try again in a moment.",
   GROUP_NOT_ENCRYPTED: "This group has no encryption key yet.",
   NO_GROUP_KEY: "You don't have this group's encryption key yet.",
