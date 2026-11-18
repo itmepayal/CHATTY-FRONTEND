@@ -9,7 +9,7 @@ export const RING_GRADIENT =
 
 export const ChatHeaderContainer = ({ children, className = "" }) => (
   <header
-    className={`relative z-10 h-16 w-full shrink-0 border-b border-base-300/80 bg-base-100/90 px-3 sm:px-4 shadow-xs backdrop-blur-xl flex items-center justify-between select-none ${className}`}
+    className={`relative z-10 h-13 sm:h-14 w-full shrink-0 border-b border-base-300/80 bg-base-100/90 px-2.5 sm:px-4 shadow-xs backdrop-blur-xl flex items-center justify-between select-none ${className}`}
   >
     {/* Subtle ambient color wash */}
     <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-primary/[0.05] via-transparent to-secondary/[0.05]" />
@@ -61,9 +61,9 @@ export const ChatHeaderBackButton = ({
     onClick={onClick}
     aria-label={label}
     title={label}
-    className="btn btn-ghost btn-circle btn-sm -ml-1 sm:-ml-1.5 lg:hidden shrink-0 size-8 sm:size-9 min-h-[32px] min-w-[32px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center text-base-content/70 hover:text-base-content hover:bg-base-200/80 cursor-pointer"
+    className="btn btn-ghost btn-circle btn-sm -ml-1 sm:-ml-1.5 lg:hidden shrink-0 size-8 sm:size-8.5 min-h-[34px] min-w-[34px] flex items-center justify-center text-base-content/70 hover:text-base-content hover:bg-base-200/80 cursor-pointer"
   >
-    <ArrowLeft className="size-4.5" aria-hidden="true" />
+    <ArrowLeft className="size-4" aria-hidden="true" />
   </motion.button>
 );
 

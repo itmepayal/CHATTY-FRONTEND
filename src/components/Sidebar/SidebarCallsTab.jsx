@@ -1,5 +1,5 @@
 import { AnimatePresence } from "framer-motion";
-import { Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search, Video } from "lucide-react";
 import {
   Avatar,
   EmptyState,
@@ -75,22 +75,42 @@ export const SidebarCallsTab = ({
       </AnimatePresence>
 
       {filteredCalls.length === 0 && (
-        <EmptyState icon={Phone}>
-          {q
-            ? "No calls match your search"
-            : callFilter === "missed"
-              ? "No missed calls"
-              : "No calls yet"}
-          {callFilter === "missed" && !q && (
-            <button
-              type="button"
-              onClick={() => setCallFilter("all")}
-              className="btn btn-ghost btn-sm text-primary"
-            >
-              Show all calls
-            </button>
-          )}
-        </EmptyState>
+        (() => {
+          if (q) {
+            return (
+              <EmptyState
+                icon={Search}
+                title="No calls found"
+                description={`No call history matching "${q}".`}
+              />
+            );
+          }
+          if (callFilter === "missed") {
+            return (
+              <EmptyState
+                icon={PhoneMissed}
+                title="No missed calls"
+                description="You have no missed calls."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setCallFilter("all")}
+                    className="btn btn-ghost btn-xs sm:btn-sm text-primary"
+                  >
+                    Show all calls
+                  </button>
+                }
+              />
+            );
+          }
+          return (
+            <EmptyState
+              icon={Phone}
+              title="No recent calls"
+              description="Audio and video calls with your contacts will appear here."
+            />
+          );
+        })()
       )}
     </>
   );

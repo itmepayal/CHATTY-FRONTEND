@@ -80,6 +80,69 @@ export const getSidebarEmptyText = ({
   return "No contacts yet";
 };
 
+export const getSidebarEmptyConfig = ({
+  showArchived,
+  q,
+  hasActiveFilters,
+  tab,
+  presence,
+}) => {
+  if (showArchived && !q && !hasActiveFilters) {
+    return {
+      type: "archived",
+      title: "No archived chats",
+      description: "Chats you archive will be neatly stored here.",
+    };
+  }
+  if (q) {
+    return {
+      type: "search",
+      title: "No results found",
+      description: `No contacts match "${q}". Check spelling or try a different name.`,
+    };
+  }
+  if (tab !== "all" && presence !== "any") {
+    return {
+      type: "filter-combo",
+      title: "No matching conversations",
+      description: "No chats match this filter combination. Try adjusting your filters.",
+    };
+  }
+  if (tab === "unread") {
+    return {
+      type: "unread",
+      title: "You're all caught up",
+      description: "There are no unread messages waiting for your attention right now.",
+    };
+  }
+  if (tab === "favorites") {
+    return {
+      type: "favorites",
+      title: "No favorite contacts",
+      description: "Star conversations to quickly access your favorite people here.",
+    };
+  }
+  if (presence === "online") {
+    return {
+      type: "online",
+      title: "No one online right now",
+      description: "None of your contacts are active right now. You can still message them anytime.",
+    };
+  }
+  if (presence === "offline") {
+    return {
+      type: "offline",
+      title: "Everyone is online",
+      description: "All of your contacts are currently active and ready to chat.",
+    };
+  }
+  return {
+    type: "conversations",
+    title: "No conversations yet",
+    description: "Start connecting! Add your friends and teammates to begin chatting.",
+  };
+};
+
 const plural = (n, word) => `${n} ${n === 1 ? word : `${word}s`}`;
 
 export const getSidebarHeaderTexts = ({

@@ -26,24 +26,24 @@ export const Avatar = ({
   <div className="relative shrink-0">
     {group && !src ? (
       <div
-        className={`grid size-11 place-items-center rounded-full bg-primary/10 text-base font-semibold text-primary ring-2 transition-colors ${
+        className={`grid size-10 sm:size-11 place-items-center rounded-full bg-primary/10 text-sm sm:text-base font-semibold text-primary ring-2 transition-colors ${
           selected ? "ring-primary/30" : "ring-transparent"
         }`}
       >
-        {name?.[0]?.toUpperCase() || <UsersRound className="size-5" />}
+        {name?.[0]?.toUpperCase() || <UsersRound className="size-4.5 sm:size-5" />}
       </div>
     ) : (
       <img
         src={src}
         alt={name}
-        className={`size-11 rounded-full object-cover ring-2 transition-colors ${
+        className={`size-10 sm:size-11 rounded-full object-cover ring-2 transition-colors ${
           selected ? "ring-primary/30" : "ring-transparent"
         }`}
       />
     )}
     {online && (
       <span
-        className="absolute bottom-0 right-0 size-3 rounded-full bg-success ring-2 ring-base-100"
+        className="absolute bottom-0 right-0 size-2.5 sm:size-3 rounded-full bg-success ring-2 ring-base-100"
         aria-label="Online"
       />
     )}
@@ -51,8 +51,8 @@ export const Avatar = ({
 );
 
 export const IconAvatar = ({ icon: Icon }) => (
-  <span className="grid size-11 shrink-0 place-items-center rounded-full bg-base-200 text-base-content/60">
-    <Icon className="size-5" />
+  <span className="grid size-10 sm:size-11 shrink-0 place-items-center rounded-full bg-base-200 text-base-content/60">
+    <Icon className="size-4.5 sm:size-5" />
   </span>
 );
 
@@ -86,7 +86,7 @@ export const Row = ({
         type="button"
         onClick={onClick}
         aria-current={selected ? "true" : undefined}
-        className={`relative flex h-[68px] w-full items-center gap-3 rounded-lg px-3 text-left transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
+        className={`relative flex h-[62px] sm:h-[68px] w-full items-center gap-2.5 sm:gap-3 rounded-xl px-2.5 sm:px-3 text-left transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
           selected ? "" : "hover:bg-base-200 active:bg-base-200"
         }`}
       >
@@ -94,9 +94,9 @@ export const Row = ({
           <motion.span
             layoutId="sidebar-selected"
             transition={SPRING}
-            className="absolute inset-0 rounded-lg bg-primary/10"
+            className="absolute inset-0 rounded-xl bg-primary/10"
           >
-            <span className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-primary" />
+            <span className="absolute inset-y-2.5 left-0 w-1 rounded-full bg-primary" />
           </motion.span>
         )}
 
@@ -104,14 +104,14 @@ export const Row = ({
 
         <div className="relative z-10 min-w-0 flex-1">
           <div
-            className={`truncate text-[15px] ${
+            className={`truncate text-sm sm:text-[15px] ${
               danger ? "text-error" : ""
             } ${hasUnread ? "font-semibold" : "font-medium"}`}
           >
             {title}
           </div>
           <div
-            className={`truncate text-[13px] ${
+            className={`truncate text-xs sm:text-[13px] ${
               hasUnread
                 ? "font-medium text-base-content"
                 : "text-base-content/55"
@@ -123,12 +123,12 @@ export const Row = ({
 
         <div
           className={`relative z-10 flex shrink-0 flex-col items-end self-stretch ${
-            time ? "justify-between py-3" : "justify-center"
+            time ? "justify-between py-2.5 sm:py-3" : "justify-center"
           }`}
         >
           {time && (
             <span
-              className={`whitespace-nowrap text-[11px] ${
+              className={`whitespace-nowrap text-[10px] sm:text-[11px] ${
                 danger
                   ? "font-medium text-error"
                   : hasUnread
@@ -240,9 +240,9 @@ export const HeaderButton = ({ icon: Icon, label, onClick }) => (
     onClick={onClick}
     aria-label={label}
     title={label}
-    className="grid size-9 place-items-center rounded-lg text-base-content/70 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary/50"
+    className="grid size-8.5 sm:size-9 place-items-center rounded-lg text-base-content/70 transition-colors hover:bg-base-200 hover:text-base-content focus-visible:outline focus-visible:outline-primary/50"
   >
-    <Icon className="size-[18px]" />
+    <Icon className="size-4 sm:size-[18px]" />
   </button>
 );
 
@@ -251,7 +251,7 @@ export const BackBar = ({ label, onClick }) => (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors hover:bg-base-200"
+      className="flex h-9 sm:h-10 w-full items-center gap-2 rounded-lg px-3 text-xs sm:text-sm font-semibold transition-colors hover:bg-base-200"
     >
       <ArrowLeft className="size-4" />
       {label}
@@ -275,16 +275,35 @@ export const ArchivedRow = ({ count, unread, onClick, noun = "chat" }) => (
 );
 
 export const SectionLabel = ({ children }) => (
-  <div className="px-5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/45">
+  <div className="px-4 sm:px-5 pb-1 pt-2.5 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-base-content/45">
     {children}
   </div>
 );
 
-export const EmptyState = ({ icon: Icon, children }) => (
-  <div className="flex flex-col items-center gap-3 px-6 py-14 text-center text-sm text-base-content/55">
-    <div className="grid size-14 place-items-center rounded-full bg-base-200">
-      <Icon className="size-6 text-base-content/40" />
-    </div>
+export const EmptyState = ({
+  icon: Icon,
+  title,
+  description,
+  action,
+  children,
+}) => (
+  <div className="flex flex-col items-center justify-center px-4 py-8 sm:py-10 text-center max-w-xs mx-auto animate-fadeIn">
+    {Icon && (
+      <div className="grid size-11 sm:size-12 place-items-center rounded-2xl bg-base-200/80 text-base-content/50 mb-2.5 shadow-xs">
+        <Icon className="size-5 sm:size-6" />
+      </div>
+    )}
+    {title && (
+      <h3 className="text-sm sm:text-base font-semibold text-base-content mb-1">
+        {title}
+      </h3>
+    )}
+    {description && (
+      <p className="text-xs sm:text-sm text-base-content/60 mb-3 leading-relaxed">
+        {description}
+      </p>
+    )}
+    {action && <div className="mt-1">{action}</div>}
     {children}
   </div>
 );
@@ -294,14 +313,14 @@ export const ListSkeleton = () => (
     {Array.from({ length: 7 }).map((_, i) => (
       <div
         key={i}
-        className="flex h-[68px] items-center gap-3 rounded-lg px-3 animate-pulse"
+        className="flex h-[62px] sm:h-[68px] items-center gap-2.5 sm:gap-3 rounded-xl px-2.5 sm:px-3 animate-pulse"
       >
-        <div className="size-11 rounded-full bg-base-300" />
-        <div className="flex-1 space-y-2">
+        <div className="size-10 sm:size-11 rounded-full bg-base-300 shrink-0" />
+        <div className="flex-1 space-y-2 min-w-0">
           <div className="h-3 w-2/5 rounded bg-base-300" />
           <div className="h-2.5 w-3/5 rounded bg-base-200" />
         </div>
-        <div className="h-2.5 w-8 rounded bg-base-200" />
+        <div className="h-2.5 w-8 rounded bg-base-200 shrink-0" />
       </div>
     ))}
   </div>
@@ -320,7 +339,7 @@ export const FooterAction = ({
     aria-label={label}
     title={label}
     aria-current={active ? "page" : undefined}
-    className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
+    className={`grid size-8 sm:size-8.5 shrink-0 place-items-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-primary/50 ${
       danger
         ? "text-base-content/60 hover:bg-error/10 hover:text-error"
         : active
@@ -328,6 +347,6 @@ export const FooterAction = ({
           : "text-base-content/60 hover:bg-base-200 hover:text-base-content"
     }`}
   >
-    <Icon className="size-[18px]" />
+    <Icon className="size-4 sm:size-[18px]" />
   </button>
 );

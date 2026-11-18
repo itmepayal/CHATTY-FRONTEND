@@ -17,6 +17,7 @@ import { Segmented } from "./Sidebar/SidebarComponents.jsx";
 import { LogoutConfirm } from "./Sidebar/LogoutConfirmModal.jsx";
 import { SidebarHeader } from "./Sidebar/SidebarHeader.jsx";
 import { SidebarFooter } from "./Sidebar/SidebarFooter.jsx";
+import { SidebarFilterBar } from "./Sidebar/SidebarFilterBar.jsx";
 import { SidebarChatsTab } from "./Sidebar/SidebarChatsTab.jsx";
 import { SidebarGroupsTab } from "./Sidebar/SidebarGroupsTab.jsx";
 import { SidebarCallsTab } from "./Sidebar/SidebarCallsTab.jsx";
@@ -163,7 +164,7 @@ const Sidebar = () => {
           changeMode={changeMode}
         />
 
-        <div className="px-3 pt-3 pb-2 sm:px-4">
+        <div className="px-3 pt-2 pb-1 sm:px-4 sm:pt-2.5 sm:pb-1.5">
           <Segmented
             items={modes}
             value={mode}
@@ -173,12 +174,12 @@ const Sidebar = () => {
           />
         </div>
 
-        <div className="space-y-2 px-3 pb-3 sm:px-4">
-          <label className="input input-bordered flex h-10 items-center gap-2 rounded-xl bg-base-200/50 border-base-300 transition-colors focus-within:border-primary/60 focus-within:bg-base-100 focus-within:outline-none">
-            <Search className="size-4 shrink-0 text-base-content/50" />
+        <div className="space-y-1.5 px-3 pb-2 sm:px-4 sm:pb-2.5">
+          <div className="flex h-8.5 sm:h-9 w-full items-center gap-2 rounded-xl bg-base-200/60 border border-base-300/70 px-3 transition-colors focus-within:border-primary/60 focus-within:bg-base-100 shadow-2xs">
+            <Search className="size-3.5 sm:size-4 shrink-0 text-base-content/50" />
             <input
               type="text"
-              className="min-w-0 grow text-sm"
+              className="min-w-0 grow bg-transparent text-xs sm:text-sm focus:outline-none placeholder:text-base-content/45"
               placeholder={searchPlaceholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -188,12 +189,12 @@ const Sidebar = () => {
                 type="button"
                 onClick={() => setQuery("")}
                 aria-label="Clear search"
-                className="grid size-6 shrink-0 place-items-center rounded-md text-base-content/40 transition-colors hover:bg-base-200 hover:text-base-content"
+                className="grid size-5.5 shrink-0 place-items-center rounded-md text-base-content/40 transition-colors hover:bg-base-200 hover:text-base-content"
               >
-                <X className="size-4" />
+                <X className="size-3.5" />
               </button>
             )}
-          </label>
+          </div>
 
           <AnimatePresence initial={false} mode="wait">
             {mode === "chats" && (
@@ -203,21 +204,17 @@ const Sidebar = () => {
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.18 }}
-                className="space-y-2 overflow-hidden"
+                className="overflow-hidden"
               >
-                <Segmented
-                  items={tabItems}
-                  value={tab}
-                  onChange={setTab}
-                  layoutId="sidebar-tabs"
-                  label="Filter conversations"
-                />
-                <Segmented
-                  items={presenceItems}
-                  value={presence}
-                  onChange={setPresence}
-                  layoutId="sidebar-presence"
-                  label="Filter by status"
+                <SidebarFilterBar
+                  tabItems={tabItems}
+                  tab={tab}
+                  setTab={setTab}
+                  presenceItems={presenceItems}
+                  presence={presence}
+                  setPresence={setPresence}
+                  hasActiveFilters={hasActiveFilters}
+                  clearFilters={clearFilters}
                 />
               </motion.div>
             )}
@@ -231,13 +228,44 @@ const Sidebar = () => {
                 transition={{ duration: 0.18 }}
                 className="overflow-hidden"
               >
-                <Segmented
-                  items={callFilterItems}
-                  value={callFilter}
-                  onChange={setCallFilter}
-                  layoutId="sidebar-callfilter"
-                  label="Filter calls"
-                />
+                <div
+                  className="no-scrollbar flex items-center gap-1.5 overflow-x-auto py-0.5"
+                  role="tablist"
+                  aria-label="Filter calls"
+                >
+                  {callFilterItems.map(({ key, label: text, count, badge }) => {
+                    const active = callFilter === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setCallFilter(key)}
+                        className={`relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-all ${
+                          active
+                            ? "bg-primary text-primary-content shadow-xs"
+                            : "bg-base-200/70 text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                        }`}
+                      >
+                        <span>{text}</span>
+                        {count !== undefined && count !== null && count > 0 && (
+                          <span
+                            className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums ${
+                              active
+                                ? "bg-primary-content/20 text-primary-content"
+                                : badge
+                                  ? "bg-error text-error-content"
+                                  : "bg-base-300 text-base-content/70"
+                            }`}
+                          >
+                            {count > 99 ? "99+" : count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -296,6 +324,9 @@ const Sidebar = () => {
                   showArchived={showArchived}
                   setShowArchived={setShowArchived}
                   q={q}
+                  setQuery={setQuery}
+                  tab={tab}
+                  presence={presence}
                   archivedUsers={archivedUsers}
                   archivedUnread={archivedUnread}
                   showSections={showSections}

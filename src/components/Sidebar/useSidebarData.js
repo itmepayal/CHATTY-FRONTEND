@@ -14,6 +14,7 @@ import {
   buildAllChatUsers,
   buildSidebarFilterItems,
   filterSidebarUsers,
+  getSidebarEmptyConfig,
   getSidebarEmptyText,
   getSidebarHeaderTexts,
 } from "./sidebarFilters.js";
@@ -231,6 +232,9 @@ export const useSidebarData = () => {
   const getEmptyText = () =>
     getSidebarEmptyText({ showArchived, q, hasActiveFilters, tab, presence });
 
+  const getEmptyConfig = () =>
+    getSidebarEmptyConfig({ showArchived, q, hasActiveFilters, tab, presence });
+
   const allCalls = buildAllCalls(userCalls, groupCalls, authUser?.id);
   const filteredCalls = allCalls.filter((c) => {
     if (callFilter === "missed" && !c.missed) return false;
@@ -388,6 +392,7 @@ export const useSidebarData = () => {
     hasActiveFilters,
     clearFilters,
     getEmptyText,
+    getEmptyConfig,
     missedCount,
     callsInitialLoading,
     chatUnread,

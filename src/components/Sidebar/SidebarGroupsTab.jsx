@@ -1,5 +1,5 @@
 import { AnimatePresence } from "framer-motion";
-import { Archive, ArchiveRestore, UsersRound } from "lucide-react";
+import { Archive, ArchiveRestore, Plus, Search, UsersRound } from "lucide-react";
 import {
   Avatar,
   ArchivedRow,
@@ -113,31 +113,52 @@ export const SidebarGroupsTab = ({
       </AnimatePresence>
 
       {filteredGroups.length === 0 && (
-        <EmptyState icon={UsersRound}>
-          {q
-            ? "No groups match your search"
-            : showArchivedGroups
-              ? "No archived groups"
-              : "You're not in any groups yet"}
-          {!q && showArchivedGroups && (
-            <button
-              type="button"
-              onClick={() => setShowArchivedGroups(false)}
-              className="btn btn-ghost btn-sm text-primary"
-            >
-              Back to groups
-            </button>
-          )}
-          {!q && !showArchivedGroups && (
-            <button
-              type="button"
-              onClick={onCreateGroup}
-              className="btn btn-primary btn-sm"
-            >
-              Create a group
-            </button>
-          )}
-        </EmptyState>
+        (() => {
+          if (q) {
+            return (
+              <EmptyState
+                icon={Search}
+                title="No groups found"
+                description={`No groups matching "${q}".`}
+              />
+            );
+          }
+          if (showArchivedGroups) {
+            return (
+              <EmptyState
+                icon={Archive}
+                title="No archived groups"
+                description="Archived groups will appear here."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setShowArchivedGroups(false)}
+                    className="btn btn-ghost btn-xs sm:btn-sm text-primary"
+                  >
+                    Back to groups
+                  </button>
+                }
+              />
+            );
+          }
+          return (
+            <EmptyState
+              icon={UsersRound}
+              title="No groups yet"
+              description="Create a group to chat and share with multiple friends at once."
+              action={
+                <button
+                  type="button"
+                  onClick={onCreateGroup}
+                  className="btn btn-primary btn-xs sm:btn-sm gap-1"
+                >
+                  <Plus className="size-3.5" />
+                  Create a group
+                </button>
+              }
+            />
+          );
+        })()
       )}
     </>
   );

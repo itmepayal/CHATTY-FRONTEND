@@ -2,9 +2,12 @@ import { AnimatePresence } from "framer-motion";
 import {
   Archive,
   ArchiveRestore,
+  CheckCircle2,
   MessageCircle,
+  Search,
   Star,
   UserPlus,
+  Users,
 } from "lucide-react";
 import {
   Avatar,
@@ -29,6 +32,9 @@ export const SidebarChatsTab = ({
   showArchived,
   setShowArchived,
   q,
+  setQuery,
+  tab,
+  presence,
   archivedUsers,
   archivedUnread,
   showSections,
@@ -157,37 +163,116 @@ export const SidebarChatsTab = ({
       )}
 
       {filteredUsers.length === 0 && (
-        <EmptyState icon={MessageCircle}>
-          {getEmptyText()}
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="btn btn-ghost btn-sm text-primary"
-            >
-              Clear filters
-            </button>
-          )}
-          {!hasActiveFilters &&
-            (showArchived ? (
-              <button
-                type="button"
-                onClick={() => setShowArchived(false)}
-                className="btn btn-ghost btn-sm text-primary"
-              >
-                Back to chats
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onAddContact}
-                className="btn btn-primary btn-sm gap-1"
-              >
-                <UserPlus className="size-4" />
-                {q ? "Find people to add" : "Add contacts"}
-              </button>
-            ))}
-        </EmptyState>
+        (() => {
+          if (q) {
+            return (
+              <EmptyState
+                icon={Search}
+                title="No conversations found"
+                description={`We couldn't find any chats matching "${q}".`}
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {setQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setQuery("")}
+                        className="btn btn-ghost btn-xs sm:btn-sm text-primary"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onAddContact}
+                      className="btn btn-primary btn-xs sm:btn-sm gap-1"
+                    >
+                      <UserPlus className="size-3.5" />
+                      Find people
+                    </button>
+                  </div>
+                }
+              />
+            );
+          }
+
+          if (showArchived) {
+            return (
+              <EmptyState
+                icon={Archive}
+                title="No archived chats"
+                description="Archived chats will appear here once you archive a conversation."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived(false)}
+                    className="btn btn-ghost btn-xs sm:btn-sm text-primary"
+                  >
+                    Back to chats
+                  </button>
+                }
+              />
+            );
+          }
+
+          if (hasActiveFilters) {
+            let Icon = MessageCircle;
+            let title = "No matching chats";
+            let description = "Try selecting different filters to see conversations.";
+
+            if (tab === "unread") {
+              Icon = CheckCircle2;
+              title = "All caught up";
+              description = "You don't have any unread messages at the moment.";
+            } else if (tab === "favorites") {
+              Icon = Star;
+              title = "No favorite chats";
+              description = "Star contacts to keep your favorite conversations right here.";
+            } else if (presence === "online") {
+              Icon = Users;
+              title = "No one online";
+              description = "None of your contacts are currently active.";
+            } else if (presence === "offline") {
+              Icon = Users;
+              title = "Everyone is online";
+              description = "All of your contacts are currently active.";
+            }
+
+            return (
+              <EmptyState
+                icon={Icon}
+                title={title}
+                description={description}
+                action={
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="btn btn-ghost btn-xs sm:btn-sm text-primary"
+                  >
+                    Reset filters
+                  </button>
+                }
+              />
+            );
+          }
+
+          return (
+            <EmptyState
+              icon={MessageCircle}
+              title="No conversations yet"
+              description="Connect with friends and colleagues to start chatting."
+              action={
+                <button
+                  type="button"
+                  onClick={onAddContact}
+                  className="btn btn-primary btn-xs sm:btn-sm gap-1"
+                >
+                  <UserPlus className="size-3.5" />
+                  Add contacts
+                </button>
+              }
+            />
+          );
+        })()
       )}
     </>
   );

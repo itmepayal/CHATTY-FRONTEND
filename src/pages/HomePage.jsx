@@ -15,8 +15,12 @@ const HomePage = () => {
   const { selectedUser } = useChatStore();
   const { selectedGroup } = useGroupStore();
 
-  const [showInfo, setShowInfo] = useState(true);
-  const [showGroupInfo, setShowGroupInfo] = useState(true);
+  const [showInfo, setShowInfo] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1280 : false,
+  );
+  const [showGroupInfo, setShowGroupInfo] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1280 : false,
+  );
   const [showGroupModal, setShowGroupModal] = useState(false);
 
   let content;
