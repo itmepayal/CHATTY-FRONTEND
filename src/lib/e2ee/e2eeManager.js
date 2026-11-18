@@ -34,6 +34,7 @@ import {
   getDeviceLinkStatusApi,
   lookupPendingLinkSessionApi,
   approveDeviceLinkApi,
+  cancelDeviceLinkApi,
   rotateDeviceApi,
 } from "./e2ee.api.js";
 import {
@@ -842,6 +843,26 @@ class E2EEManager {
   }
 
   /**
+   * Cancels the active device linking session if any.
+   * @param {string} [linkSessionId]
+   */
+  async cancelDeviceLink(linkSessionId) {
+    const id = linkSessionId || this.activeLinkSession?.linkSessionId;
+    this.activeLinkSession = null;
+    if (id) {
+      try {
+        await cancelDeviceLinkApi(id);
+      } catch (err) {
+        console.warn(
+          "[e2eeManager] Failed to cancel link session on backend:",
+          err?.message,
+        );
+      }
+    }
+    return { cancelled: true };
+  }
+
+  /**
    * Approves a pending device linking request from an existing trusted device.
    * Transfers private key material end-to-end encrypted with an ephemeral ECDH shared secret.
    * @param {{ linkSessionId: string, linkingPin: string, targetEphemeralPublicKey: object, passphrase?: string }} params
@@ -1007,6 +1028,28 @@ class E2EEManager {
     this.readyPromise = Promise.resolve(E2EE_STATUS.NOT_CONFIGURED);
 
     return result;
+  }
+
+  /**
+   * Handles remote encryption identity reset triggered from another device or socket.
+   */
+  async handleRemoteReset() {
+    const uid = this.currentUserId;
+    if (uid) {
+      try {
+        await deleteKeyRecord(uid);
+      } catch (err) {
+        console.warn(
+          "[e2eeManager] Error deleting key record on remote reset:",
+          err?.message,
+        );
+      }
+    }
+    this.me = null;
+    this.serverStatus = null;
+    this.activeLinkSession = null;
+    this.setStatus(E2EE_STATUS.NOT_CONFIGURED);
+    this.readyPromise = Promise.resolve(E2EE_STATUS.NOT_CONFIGURED);
   }
 
   /* ------------------------------------------------------------------ */

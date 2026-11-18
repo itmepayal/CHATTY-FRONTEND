@@ -1935,6 +1935,18 @@ export const useChatStore = create((set, get) => {
       }
     },
 
+    sendScheduledNow: async (scheduleId, receiverId) => {
+      try {
+        await axiosInstance.post(`/messages/scheduled/${scheduleId}/send-now`);
+        toast.success("Message sent immediately");
+        if (receiverId) get().getScheduled(receiverId);
+        return true;
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to send scheduled message now"));
+        return false;
+      }
+    },
+
     /* ---------------- DISAPPEARING ---------------- */
     getDisappearing: async (userId) => {
       try {

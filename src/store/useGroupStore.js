@@ -984,6 +984,18 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
+  sendScheduledNow: async (scheduleId, groupId) => {
+    try {
+      await axiosInstance.post(`/scheduled/${scheduleId}/send-now`);
+      toast.success("Group message sent immediately");
+      if (groupId) get().getScheduled(groupId);
+      return true;
+    } catch (error) {
+      toast.error(errMsg(error, "Failed to send scheduled group message now"));
+      return false;
+    }
+  },
+
   /* =====================================================
    *            LIVE LOCATION (not encrypted)
    * ===================================================== */

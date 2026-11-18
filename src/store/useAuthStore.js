@@ -671,6 +671,63 @@ export const useAuthStore = create((set, get) => ({
       );
     });
 
+    socket.on("e2ee:device:registered", (data) => {
+      console.log("[e2ee] device registered:", data?.deviceId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-registered", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:device-link:requested", (data) => {
+      console.log("[e2ee] incoming device-link requested:", data?.linkSessionId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-link-requested", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:device-link:connecting", (data) => {
+      console.log("[e2ee] device-link connecting:", data?.linkSessionId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-link-connecting", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:device-link:approved", (data) => {
+      console.log("[e2ee] device-link approved:", data?.linkSessionId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-link-approved", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:device-link:completed", (data) => {
+      console.log("[e2ee] device-link completed:", data?.deviceId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-link-completed", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:device-link:cancelled", (data) => {
+      console.log("[e2ee] device-link cancelled:", data?.linkSessionId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-link-cancelled", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:backup:updated", (data) => {
+      console.log("[e2ee] backup updated:", data);
+      window.dispatchEvent(
+        new CustomEvent("chatty:e2ee-backup-updated", { detail: data }),
+      );
+    });
+
+    socket.on("e2ee:reset", (data) => {
+      console.log("[e2ee] identity reset event received:", data);
+      e2eeManager.handleRemoteReset();
+      window.dispatchEvent(
+        new CustomEvent("chatty:e2ee-reset", { detail: data }),
+      );
+    });
+
     socket.on("disconnect", async (reason) => {
       console.log("[socket] disconnected:", reason);
 

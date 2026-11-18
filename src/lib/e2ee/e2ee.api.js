@@ -152,7 +152,11 @@ export const getBatchPublicKeysApi = async (userIds) => {
  * Registers this device's public key for multi-device E2EE.
  * @param {{ deviceId: string, publicKey: object, deviceName?: string }} payload
  */
-export const registerDeviceApi = async ({ deviceId, publicKey, deviceName }) => {
+export const registerDeviceApi = async ({
+  deviceId,
+  publicKey,
+  deviceName,
+}) => {
   const res = await axiosInstance.post(
     "/e2ee/devices",
     {
@@ -212,7 +216,11 @@ export const revokeDeviceApi = async (deviceId) => {
  * Rotates an active device's public key.
  * @param {{ deviceId: string, newPublicKey: object, deviceName?: string }} payload
  */
-export const rotateDeviceApi = async ({ deviceId, newPublicKey, deviceName }) => {
+export const rotateDeviceApi = async ({
+  deviceId,
+  newPublicKey,
+  deviceName,
+}) => {
   const res = await axiosInstance.post(
     "/e2ee/devices/rotate",
     {
@@ -288,7 +296,9 @@ export const getDeviceLinkStatusApi = async (linkSessionId) => {
  * @returns {Promise<{ linkSessionId: string, linkingPin: string, ephemeralPublicKey: object, newDeviceId: string, newDeviceName: string, expiresAt: string }>}
  */
 export const lookupPendingLinkSessionApi = async (linkingPin) => {
-  const cleanPin = String(linkingPin).trim().replace(/[\s-]+/g, "");
+  const cleanPin = String(linkingPin)
+    .trim()
+    .replace(/[\s-]+/g, "");
   const res = await axiosInstance.get(
     `/e2ee/devices/link/pin/${encodeURIComponent(cleanPin)}`,
     { withCredentials: true },
@@ -308,7 +318,9 @@ export const approveDeviceLinkApi = async ({
   approverDeviceId,
 }) => {
   const cleanPin = linkingPin
-    ? String(linkingPin).trim().replace(/[\s-]+/g, "")
+    ? String(linkingPin)
+        .trim()
+        .replace(/[\s-]+/g, "")
     : undefined;
   const res = await axiosInstance.post(
     "/e2ee/devices/link/approve",
@@ -318,6 +330,19 @@ export const approveDeviceLinkApi = async ({
       encryptedPayload,
       approverDeviceId,
     },
+    { withCredentials: true },
+  );
+  return res.data?.data;
+};
+
+/**
+ * Cancels an active or pending device linking session.
+ * @param {string} linkSessionId
+ * @returns {Promise<{ cancelled: boolean, linkSessionId: string }>}
+ */
+export const cancelDeviceLinkApi = async (linkSessionId) => {
+  const res = await axiosInstance.delete(
+    `/e2ee/devices/link/${encodeURIComponent(linkSessionId)}`,
     { withCredentials: true },
   );
   return res.data?.data;

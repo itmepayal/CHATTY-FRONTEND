@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { customToast } from "../toast";
 import {
   AlertTriangle,
@@ -18,6 +18,25 @@ export function E2EEResetModal({ isOpen, onClose }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Lock background body scroll and listen for Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        if (onClose) onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -54,14 +73,14 @@ export function E2EEResetModal({ isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200">
       <div
-        className="w-full max-w-md rounded-2xl border border-error/20 bg-base-100 p-6 shadow-2xl transition-all"
+        className="w-full max-w-md max-h-[92dvh] sm:max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-2xl border border-error/20 bg-base-100 shadow-2xl transition-all overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="reset-e2ee-title"
       >
-        <div className="flex items-center justify-between border-b border-base-content/10 pb-4">
+        <div className="flex items-center justify-between border-b border-base-content/10 px-5 sm:px-6 py-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-error/10 text-error">
               <AlertTriangle className="size-5" />
@@ -81,14 +100,14 @@ export function E2EEResetModal({ isOpen, onClose }) {
           <button
             onClick={onClose}
             disabled={loading}
-            className="rounded-lg p-1.5 text-base-content/50 hover:bg-base-200 hover:text-base-content"
+            className="rounded-xl p-2 min-h-[36px] min-w-[36px] flex items-center justify-center text-base-content/50 hover:bg-base-200 hover:text-base-content transition-colors cursor-pointer"
             aria-label="Close modal"
           >
             <X className="size-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <form onSubmit={handleSubmit} className="overflow-y-auto px-5 sm:px-6 py-4 space-y-4 flex-1">
           <div className="rounded-xl border border-error/20 bg-error/5 p-3.5 text-xs text-error leading-relaxed">
             <p className="font-semibold mb-1">Warning: Irreversible Action</p>
             <p>
@@ -156,12 +175,12 @@ export function E2EEResetModal({ isOpen, onClose }) {
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-base-content/10">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="rounded-xl px-4 py-2 text-xs font-medium text-base-content/70 hover:bg-base-200"
+              className="rounded-xl px-4 py-2.5 min-h-[42px] text-xs font-medium text-base-content/70 hover:bg-base-200 transition-colors cursor-pointer w-full sm:w-auto"
             >
               Cancel
             </button>
@@ -172,7 +191,7 @@ export function E2EEResetModal({ isOpen, onClose }) {
                 !password ||
                 confirmKeyword.trim() !== RESET_CONFIRM_KEYWORD
               }
-              className="flex items-center gap-2 rounded-xl bg-error px-5 py-2 text-xs font-semibold text-error-content shadow-sm transition-all hover:bg-error/90 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-xl bg-error px-5 py-2.5 min-h-[42px] text-xs font-semibold text-error-content shadow-sm transition-all hover:bg-error/90 disabled:opacity-50 cursor-pointer w-full sm:w-auto"
             >
               {loading ? (
                 <>

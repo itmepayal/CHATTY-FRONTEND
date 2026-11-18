@@ -47,6 +47,25 @@ export function E2EERecoveryKeyModal({
     }
   }, [isOpen, isOnboarding, pendingRecoveryOnboarding, getStoredRecoveryKey]);
 
+  // Lock background body scroll and listen for Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && (!isOnboarding || !pendingRecoveryOnboarding)) {
+        if (onClose) onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, isOnboarding, pendingRecoveryOnboarding, onClose]);
+
   if (!isOpen) return null;
 
   const handleCopy = () => {
@@ -114,15 +133,15 @@ HOW TO USE THIS KEY:
   const canConfirm = confirmedSaved || copied || downloaded;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200">
       <div
-        className="w-full max-w-lg rounded-2xl sm:rounded-3xl border border-primary/20 bg-base-100 p-5 sm:p-7 shadow-2xl transition-all"
+        className="w-full max-w-lg max-h-[92dvh] sm:max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-primary/20 bg-base-100 shadow-2xl transition-all overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="recovery-key-modal-title"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-base-content/10 pb-4">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between border-b border-base-content/10 px-5 sm:px-7 py-4 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-inner">
               <ShieldCheck className="size-6" />
@@ -144,7 +163,7 @@ HOW TO USE THIS KEY:
           {(!isOnboarding || !pendingRecoveryOnboarding) && onClose && (
             <button
               onClick={onClose}
-              className="rounded-xl p-1.5 text-base-content/50 hover:bg-base-200 hover:text-base-content transition-all cursor-pointer"
+              className="rounded-xl p-2 min-h-[36px] min-w-[36px] flex items-center justify-center text-base-content/50 hover:bg-base-200 hover:text-base-content transition-all cursor-pointer"
               aria-label="Close modal"
             >
               <X className="size-4" />
@@ -152,8 +171,8 @@ HOW TO USE THIS KEY:
           )}
         </div>
 
-        {/* Content */}
-        <div className="mt-4 space-y-4">
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto px-5 sm:px-7 py-4 space-y-4 flex-1">
           <div className="rounded-xl border border-warning/20 bg-warning/5 p-3.5 text-xs text-warning leading-relaxed flex items-start gap-2.5">
             <AlertTriangle className="size-4 shrink-0 mt-0.5" />
             <div>
@@ -253,12 +272,12 @@ HOW TO USE THIS KEY:
           )}
 
           {/* Footer Actions */}
-          <div className="flex items-center justify-between pt-2 border-t border-base-content/10">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-base-content/10">
             {isOnboarding ? (
               <button
                 type="button"
                 onClick={onClose}
-                className="text-xs text-base-content/60 hover:text-base-content underline cursor-pointer"
+                className="text-xs text-base-content/60 hover:text-base-content underline cursor-pointer text-center sm:text-left py-1"
               >
                 Remind Me Later
               </button>
@@ -270,7 +289,7 @@ HOW TO USE THIS KEY:
               type="button"
               onClick={handleComplete}
               disabled={isOnboarding && !canConfirm}
-              className="flex items-center gap-2 rounded-xl bg-primary px-6 py-2.5 text-xs font-bold text-primary-content shadow-sm hover:bg-primary/90 transition-all cursor-pointer disabled:opacity-40"
+              className="flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-2.5 min-h-[42px] text-xs font-bold text-primary-content shadow-sm hover:bg-primary/90 transition-all cursor-pointer disabled:opacity-40 w-full sm:w-auto"
             >
               <Check className="size-4" />
               <span>

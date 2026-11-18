@@ -1129,6 +1129,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
     scheduleGroupMessage,
     cancelScheduled,
     editScheduledMessage,
+    sendScheduledNow,
   } = useGroupStore();
   const { authUser } = useAuthStore();
   const onlineUsers = useVisibleOnlineUsers();
@@ -1831,9 +1832,11 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
     setShowTools(false);
   };
 
-  const confirmSchedule = async (iso) => {
+  const confirmSchedule = async (iso, msgText) => {
     if (!group?.id) return false;
-    const ok = await scheduleGroupMessage(group.id, text.trim(), iso);
+    const textToSchedule = (msgText !== undefined ? msgText : text).trim();
+    if (!textToSchedule) return false;
+    const ok = await scheduleGroupMessage(group.id, textToSchedule, iso);
     if (ok) {
       stopTyping();
       setText("");
@@ -1841,7 +1844,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
     return ok;
   };
 
-  const canSchedule = !file && Boolean(text.trim());
+  const canSchedule = !file;
 
   const handleSend = (e) => {
     e?.preventDefault();
@@ -2528,16 +2531,24 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
                 className="order-3 flex-1 min-w-0 resize-none bg-transparent outline-none py-1.5 text-base sm:text-sm max-h-[120px]"
               />
 
-              {/* Schedule button when there is text */}
+              {/* Schedule button */}
               {canSchedule && (
                 <motion.button
                   key="schedule-btn"
                   type="button"
                   whileTap={{ scale: 0.88 }}
-                  className="order-4 shrink-0 btn btn-ghost btn-sm btn-circle text-base-content/70 hover:text-primary"
+                  className={`order-4 shrink-0 btn btn-ghost btn-sm btn-circle transition-colors cursor-pointer ${
+                    text.trim()
+                      ? "text-primary hover:bg-primary/15"
+                      : "text-base-content/60 hover:text-primary hover:bg-base-200"
+                  }`}
                   onClick={() => setShowSchedule(true)}
                   aria-label="Schedule message"
-                  title="Schedule message"
+                  title={
+                    text.trim()
+                      ? "Schedule message for later"
+                      : "Schedule a message"
+                  }
                 >
                   <Clock className="size-4" />
                 </motion.button>
@@ -3034,6 +3045,8 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
             <ScheduleModal
               key="schedule-modal"
               text={text.trim()}
+              recipient={group}
+              isGroup={true}
               onClose={() => setShowSchedule(false)}
               onConfirm={confirmSchedule}
             />
@@ -3046,12 +3059,18 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
             <ScheduledModal
               key="scheduled-modal"
               items={scheduled}
+              recipient={group}
               isGroup={true}
               onClose={() => setShowScheduled(false)}
               onCancel={cancelScheduled}
               onEdit={(id, newText, newTime) =>
                 editScheduledMessage(id, group?.id, newText, newTime)
               }
+              onSendNow={(id) => sendScheduledNow(id, group?.id)}
+              onOpenSchedule={() => {
+                setShowScheduled(false);
+                setShowSchedule(true);
+              }}
             />
           )}
         </AnimatePresence>

@@ -1358,9 +1358,11 @@ const ChatInput = () => {
     selectFile(e.dataTransfer.files?.[0], "any");
   };
 
-  // schedule the text currently in the box (encrypted by the store)
-  const confirmSchedule = async (iso) => {
-    const ok = await scheduleMessage(targetId, text.trim(), iso);
+  // schedule the text currently in the box or modal (encrypted by the store)
+  const confirmSchedule = async (iso, msgText) => {
+    const textToSchedule = (msgText !== undefined ? msgText : text).trim();
+    if (!textToSchedule) return false;
+    const ok = await scheduleMessage(targetId, textToSchedule, iso);
     if (ok) {
       stopTyping();
       setText("");
@@ -1368,7 +1370,7 @@ const ChatInput = () => {
     return ok;
   };
 
-  const canSchedule = !isEditing && !file && Boolean(text.trim());
+  const canSchedule = !isEditing && !file;
 
   return (
     <div className="relative border-t border-base-300 bg-base-100 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3 sm:pb-3">
@@ -1736,26 +1738,28 @@ const ChatInput = () => {
           />
 
           <div className="order-4 flex shrink-0 items-center gap-1">
-            {/* Schedule the typed text for later */}
-            <AnimatePresence initial={false}>
-              {canSchedule && (
-                <motion.button
-                  key="schedule-btn"
-                  type="button"
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.5 }}
-                  transition={springSnappy}
-                  whileTap={{ scale: 0.88 }}
-                  className="btn btn-ghost btn-sm btn-circle"
-                  onClick={() => setShowSchedule(true)}
-                  aria-label="Schedule message"
-                  title="Schedule message"
-                >
-                  <Clock className="size-5" />
-                </motion.button>
-              )}
-            </AnimatePresence>
+            {/* Schedule message action near the send button */}
+            {!isEditing && !file && (
+              <motion.button
+                key="schedule-btn"
+                type="button"
+                whileTap={{ scale: 0.88 }}
+                className={`btn btn-ghost btn-sm btn-circle transition-colors cursor-pointer ${
+                  text.trim()
+                    ? "text-primary hover:bg-primary/15"
+                    : "text-base-content/60 hover:text-primary hover:bg-base-200"
+                }`}
+                onClick={() => setShowSchedule(true)}
+                aria-label="Schedule message"
+                title={
+                  text.trim()
+                    ? "Schedule message for later"
+                    : "Schedule a message"
+                }
+              >
+                <Clock className="size-5" />
+              </motion.button>
+            )}
 
             {/* Send / save when there's content, otherwise record a voice note */}
             <SendMicButton
@@ -1787,6 +1791,7 @@ const ChatInput = () => {
           <ScheduleModal
             key="schedule"
             text={text.trim()}
+            recipient={selectedUser}
             onClose={() => setShowSchedule(false)}
             onConfirm={confirmSchedule}
           />
@@ -2233,6 +2238,7 @@ const ChatContainer = ({ onToggleInfo }) => {
   const [highlightId, setHighlightId] = useState(null);
   const [forwardMsg, setForwardMsg] = useState(null);
   const [showScheduled, setShowScheduled] = useState(false);
+  const [showScheduleDirect, setShowScheduleDirect] = useState(false);
   const [pinIndex, setPinIndex] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState("");
@@ -3306,6 +3312,7 @@ const ChatContainer = ({ onToggleInfo }) => {
             <ScheduledModal
               key="scheduled"
               items={scheduled}
+              recipient={selectedUser}
               onClose={() => setShowScheduled(false)}
               onCancel={cancelScheduled}
               onEdit={(id, newText, newTime) =>
@@ -3313,6 +3320,33 @@ const ChatContainer = ({ onToggleInfo }) => {
                   .getState()
                   .editScheduledMessage(id, selectedUser.id, newText, newTime)
               }
+              onSendNow={(id) =>
+                useChatStore
+                  .getState()
+                  .sendScheduledNow(id, selectedUser.id)
+              }
+              onOpenSchedule={() => {
+                setShowScheduled(false);
+                setShowScheduleDirect(true);
+              }}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Schedule modal triggered from ScheduledModal CTA */}
+        <AnimatePresence>
+          {showScheduleDirect && (
+            <ScheduleModal
+              key="schedule-direct"
+              text=""
+              recipient={selectedUser}
+              onClose={() => setShowScheduleDirect(false)}
+              onConfirm={async (iso, msgText) => {
+                const ok = await useChatStore
+                  .getState()
+                  .scheduleMessage(selectedUser?.id, msgText, iso);
+                return ok;
+              }}
             />
           )}
         </AnimatePresence>
