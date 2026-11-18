@@ -288,7 +288,7 @@ export const getDeviceLinkStatusApi = async (linkSessionId) => {
  * @returns {Promise<{ linkSessionId: string, linkingPin: string, ephemeralPublicKey: object, newDeviceId: string, newDeviceName: string, expiresAt: string }>}
  */
 export const lookupPendingLinkSessionApi = async (linkingPin) => {
-  const cleanPin = String(linkingPin).trim().replace(/\s+/g, "");
+  const cleanPin = String(linkingPin).trim().replace(/[\s-]+/g, "");
   const res = await axiosInstance.get(
     `/e2ee/devices/link/pin/${encodeURIComponent(cleanPin)}`,
     { withCredentials: true },
@@ -307,11 +307,14 @@ export const approveDeviceLinkApi = async ({
   encryptedPayload,
   approverDeviceId,
 }) => {
+  const cleanPin = linkingPin
+    ? String(linkingPin).trim().replace(/[\s-]+/g, "")
+    : undefined;
   const res = await axiosInstance.post(
     "/e2ee/devices/link/approve",
     {
       linkSessionId,
-      linkingPin,
+      linkingPin: cleanPin,
       encryptedPayload,
       approverDeviceId,
     },

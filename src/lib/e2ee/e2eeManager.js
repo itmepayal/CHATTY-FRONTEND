@@ -862,7 +862,8 @@ class E2EEManager {
 
     // If linking pin was provided without ephemeral key, query pending session
     if (!targetKeyJwk && linkingPin) {
-      const session = await lookupPendingLinkSessionApi(linkingPin);
+      const cleanPin = String(linkingPin).trim().replace(/[\s-]+/g, "");
+      const session = await lookupPendingLinkSessionApi(cleanPin);
       targetKeyJwk = session.ephemeralPublicKey;
       sessionId = session.linkSessionId;
     }
@@ -944,7 +945,9 @@ class E2EEManager {
 
     return await approveDeviceLinkApi({
       linkSessionId: sessionId,
-      linkingPin,
+      linkingPin: linkingPin
+        ? String(linkingPin).trim().replace(/[\s-]+/g, "")
+        : undefined,
       encryptedPayload,
       approverDeviceId: getDeviceId(),
     });

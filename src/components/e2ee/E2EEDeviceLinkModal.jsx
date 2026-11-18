@@ -136,9 +136,9 @@ export function E2EEDeviceLinkModal({
   const handleApproveSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    const cleanPin = approvalPin.trim().replace(/\s+/g, "");
+    const cleanPin = approvalPin.trim().replace(/[\s-]+/g, "");
 
-    if (cleanPin.length !== 6) {
+    if (cleanPin.length !== 6 || !/^\d{6}$/.test(cleanPin)) {
       setError(
         "Please enter the complete 6-digit code shown on the other device.",
       );
@@ -246,11 +246,21 @@ export function E2EEDeviceLinkModal({
                 </span>
                 <div className="flex items-center justify-center gap-2 font-mono text-3xl font-extrabold tracking-widest text-primary">
                   {linkingPin ? (
-                    <>
-                      <span>{linkingPin.slice(0, 3)}</span>
-                      <span className="text-primary/40 font-normal">-</span>
-                      <span>{linkingPin.slice(3, 6)}</span>
-                    </>
+                    (() => {
+                      const digits = String(linkingPin).replace(/\D/g, "");
+                      if (digits.length >= 6) {
+                        return (
+                          <>
+                            <span>{digits.slice(0, 3)}</span>
+                            <span className="text-primary/40 font-normal">
+                              -
+                            </span>
+                            <span>{digits.slice(3, 6)}</span>
+                          </>
+                        );
+                      }
+                      return <span>{linkingPin}</span>;
+                    })()
                   ) : (
                     <span>------</span>
                   )}
@@ -296,10 +306,10 @@ export function E2EEDeviceLinkModal({
               </label>
               <input
                 type="text"
-                maxLength={7}
+                maxLength={9}
                 value={approvalPin}
                 onChange={(e) => setApprovalPin(e.target.value)}
-                placeholder="e.g. 123456"
+                placeholder="e.g. 123-456 or 123456"
                 className="w-full text-center font-mono text-xl tracking-widest font-bold rounded-xl border border-base-content/20 bg-base-200/50 py-3 text-base-content outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/20"
                 autoFocus
                 disabled={loading}
@@ -328,7 +338,10 @@ export function E2EEDeviceLinkModal({
               )}
               <button
                 type="submit"
-                disabled={loading || approvalPin.trim().length < 6}
+                disabled={
+                  loading ||
+                  approvalPin.trim().replace(/[\s-]+/g, "").length !== 6
+                }
                 className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-xs font-semibold text-primary-content shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
               >
                 {loading ? (
