@@ -11,8 +11,6 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   AlertCircle,
-  Archive,
-  ArchiveRestore,
   ArrowLeft,
   Ban,
   Check,
@@ -32,7 +30,6 @@ import {
   Link2,
   Loader2,
   Lock,
-  LogOut,
   MapPin,
   MessageSquareText,
   Mic,
@@ -44,7 +41,6 @@ import {
   Plus,
   RotateCw,
   Send,
-  Settings2,
   ShieldCheck,
   Smile,
   SmilePlus,
@@ -74,6 +70,7 @@ import {
 import { whenE2EEReady } from "../../lib/e2ee.js";
 import { displayText } from "../../lib/e2eeMessages.js";
 import AiAssist from "../common/AiAssist.jsx";
+import E2EENotice from "../common/E2EENotice.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoRecorderModal from "./VideoRecorderModal.jsx";
 // ---- group calls ----
@@ -82,8 +79,10 @@ import { useGroupCallStore } from "../../store/useGroupCallStore";
 import { useGroupCallHistoryStore } from "../../store/useGroupCallHistoryStore";
 import GroupCallBanner from "./GroupCallBanner.jsx";
 import GroupChatHeader from "./GroupChatHeader.jsx";
-import ChatToolbar from "../Chat/Common/ChatToolBar.jsx";
-import { ScheduleModal, ScheduledModal } from "../Chat/Common/ScheduleModals.jsx";
+import {
+  ScheduleModal,
+  ScheduledModal,
+} from "../Chat/Common/ScheduleModals.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -405,25 +404,6 @@ const renderStatus = (m, mine, seenBy, s, myReadReceipts = true) => {
     </span>
   );
 };
-
-/* ------------------------------------------------------------------ */
-/*  E2EE notice (WhatsApp style)                                       */
-/*  Small yellow pill at the very top of the chat. Tap -> info modal.  */
-/*  It scrolls away with the messages, exactly like WhatsApp.          */
-/* ------------------------------------------------------------------ */
-const E2EENotice = ({ onOpen }) => (
-  <div className="flex justify-center px-1 pb-3 sm:pb-4">
-    <button
-      type="button"
-      onClick={onOpen}
-      className="max-w-md rounded-xl border border-warning/30 bg-warning/15 px-3 py-2 text-center text-xs leading-snug text-base-content/80 shadow-sm transition-colors hover:bg-warning/25 focus-visible:outline-2 focus-visible:outline-offset-2 sm:text-[13px]"
-    >
-      <Lock className="mr-1 inline size-3 -translate-y-px" />
-      Text messages in this group are end-to-end encrypted. Only people in this
-      group can read them, not even the server. Tap to learn more.
-    </button>
-  </div>
-);
 
 // One row inside the E2EE info modal
 const E2EEPoint = ({ icon: Icon, title, text }) => (
@@ -1679,12 +1659,16 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.classList.add("bg-primary/10", "rounded-xl", "transition-colors");
-      setTimeout(() => el.classList.remove("bg-primary/10", "rounded-xl"), 1500);
+      setTimeout(
+        () => el.classList.remove("bg-primary/10", "rounded-xl"),
+        1500,
+      );
     }
   }, []);
 
   const handleLeaveGroup = async () => {
-    if (!window.confirm(`Are you sure you want to leave "${group?.name}"?`)) return;
+    if (!window.confirm(`Are you sure you want to leave "${group?.name}"?`))
+      return;
     try {
       await useGroupStore.getState().leaveGroup(group.id);
       customToast.success("You left the group");
@@ -1693,83 +1677,6 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
       customToast.error(err.response?.data?.message || "Failed to leave group");
     }
   };
-
-  const groupToolbarSections = useMemo(
-    () => [
-      {
-        title: "Group Information",
-        items: [
-          onToggleInfo && {
-            id: "group-info",
-            label: "Group info",
-            icon: Info,
-            onClick: onToggleInfo,
-          },
-          onManage && {
-            id: "group-manage",
-            label: "Manage group",
-            icon: Settings2,
-            onClick: onManage,
-          },
-        ].filter(Boolean),
-      },
-      {
-        title: "Sharing & Tools",
-        items: [
-          {
-            id: "group-location",
-            label: myShare ? "Sharing live location" : "Share location",
-            icon: MapPin,
-            live: Boolean(myShare),
-            onClick: openLocationModal,
-          },
-          {
-            id: "scheduled-messages",
-            label: "Scheduled messages",
-            icon: Clock,
-            count: scheduled.length > 0 ? scheduled.length : null,
-            onClick: () => setShowScheduled(true),
-          },
-        ].filter(Boolean),
-      },
-      {
-        title: "Group Management",
-        items: [
-          {
-            id: "group-archive",
-            label: isArchived ? "Unarchive group" : "Archive group",
-            icon: isArchived ? ArchiveRestore : Archive,
-            onClick: toggleArchive,
-          },
-          {
-            id: "group-leave",
-            label: "Exit group",
-            icon: LogOut,
-            danger: true,
-            onClick: handleLeaveGroup,
-          },
-          {
-            id: "group-close",
-            label: "Close chat",
-            icon: X,
-            danger: true,
-            onClick: closeGroup,
-          },
-        ].filter(Boolean),
-      },
-    ],
-    [
-      onToggleInfo,
-      onManage,
-      myShare,
-      isArchived,
-      closeGroup,
-      group?.id,
-      group?.name,
-      toggleArchive,
-      scheduled.length,
-    ]
-  );
 
   const openPopover = (e, type, m, mine) => {
     if (popover?.type === type && sameId(popover.id, m.id)) {
@@ -2127,37 +2034,30 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
   return (
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100">
-        {/* ---------------- Header ---------------- */}
+        {/* ---------------- Single Merged Header ---------------- */}
         <GroupChatHeader
           group={group}
           onlineCount={onlineCount}
           typingText={typingText}
           onToggleInfo={onToggleInfo}
+          onManage={onManage}
           closeGroup={closeGroup}
           startGroupCall={startGroupCall}
           hasActiveGroupCall={hasActiveGroupCall}
           callBlocked={callBlocked}
           avatarSrc={avatarSrc}
-          scheduledCount={scheduled.length}
-          onOpenScheduled={() => setShowScheduled(true)}
-        />
-
-        {/* ---------------- Toolbar ---------------- */}
-        <ChatToolbar
           searchOpen={searchOpen}
           setSearchOpen={setSearchOpen}
           searchQ={searchQ}
           setSearchQ={setSearchQ}
           searching={searching}
-          placeholder="Search in group conversation"
           scheduledCount={scheduled.length}
           onOpenScheduled={() => setShowScheduled(true)}
-          showLocation={true}
           isSharingLive={Boolean(myShare)}
           onOpenLocation={openLocationModal}
           isArchived={isArchived}
           onArchive={toggleArchive}
-          menuSections={groupToolbarSections}
+          onLeaveGroup={handleLeaveGroup}
         />
 
         {/* Group Search Results collapse bar */}
@@ -2184,10 +2084,15 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
                     className="block w-full px-4 py-2 text-left hover:bg-base-200 transition-colors"
                   >
                     <span className="flex items-center justify-between gap-2 text-xs text-base-content/60">
-                      <span>{r.sender?.fullName || (sameId(r.senderId, myId) ? "You" : "Member")}</span>
+                      <span>
+                        {r.sender?.fullName ||
+                          (sameId(r.senderId, myId) ? "You" : "Member")}
+                      </span>
                       <span>{formatTime(r.createdAt)}</span>
                     </span>
-                    <span className="block truncate text-sm text-base-content">{displayText(r) || r.text}</span>
+                    <span className="block truncate text-sm text-base-content">
+                      {displayText(r) || r.text}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -2271,7 +2176,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
         <div
           ref={listRef}
           onScroll={handleListScroll}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-4 sm:px-6 sm:py-5 bg-base-200/40"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5 [scrollbar-gutter:stable]"
         >
           {isGroupMessagesLoading && (
             <div className="flex justify-center py-8">
@@ -2280,7 +2185,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage }) => {
           )}
 
           {!isGroupMessagesLoading && (
-            <E2EENotice onOpen={() => setE2eeInfoOpen(true)} />
+            <E2EENotice onOpen={() => setE2eeInfoOpen(true)} isGroup={true} />
           )}
 
           {!isGroupMessagesLoading && timeline.length === 0 && (

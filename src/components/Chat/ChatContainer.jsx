@@ -75,6 +75,7 @@ import { displayText } from "../../lib/e2eeMessages.js";
 import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
 import AiAssist from "../common/AiAssist.jsx";
+import E2EENotice from "../common/E2EENotice.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoMessage from "./VideoMessage.jsx";
 import {
@@ -330,24 +331,6 @@ const getFileIcon = (mimeType = "", name = "") => {
     return FileText;
   return FileIcon;
 };
-
-/* ------------------------------------------------------------------ */
-/*  E2EE notice (WhatsApp style)                                       */
-/*  Small yellow pill at the very top of the chat. Tap -> info modal.  */
-/* ------------------------------------------------------------------ */
-const E2EENotice = ({ onOpen }) => (
-  <div className="flex justify-center px-1 pb-3 sm:pb-4">
-    <button
-      type="button"
-      onClick={onOpen}
-      className="max-w-md rounded-xl border border-warning/30 bg-warning/15 px-3 py-2 text-center text-xs leading-snug text-base-content/80 shadow-sm transition-colors hover:bg-warning/25 focus-visible:outline-2 focus-visible:outline-offset-2 sm:text-[13px]"
-    >
-      <Lock className="mr-1 inline size-3 -translate-y-px" />
-      Text messages in this chat are end-to-end encrypted. Only you and the
-      other person can read them, not even the server. Tap to learn more.
-    </button>
-  </div>
-);
 
 // One row inside the E2EE info modal
 const E2EEPoint = ({ icon: Icon, title, text }) => (
@@ -3036,10 +3019,10 @@ const ChatContainer = ({ onToggleInfo }) => {
           <div
             ref={listRef}
             onScroll={handleListScroll}
-            className="flex-1 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5 [scrollbar-gutter:stable] pr-2 sm:pr-4"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5 [scrollbar-gutter:stable]"
           >
             {/* ---- WhatsApp-style E2EE notice (top of the chat) ---- */}
-            <E2EENotice onOpen={() => setE2eeInfoOpen(true)} />
+            <E2EENotice onOpen={() => setE2eeInfoOpen(true)} isGroup={false} />
 
             {timeline.length === 0 && (
               <motion.div
