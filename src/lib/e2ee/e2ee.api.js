@@ -171,6 +171,23 @@ export const registerDeviceApi = async ({ deviceId, publicKey, deviceName }) => 
 };
 
 /**
+ * Updates last active timestamp for this device without re-registering full public keys.
+ * @param {string} deviceId
+ */
+export const heartbeatDeviceApi = async (deviceId) => {
+  try {
+    const res = await axiosInstance.post(
+      "/e2ee/devices/heartbeat",
+      { deviceId },
+      { withCredentials: true },
+    );
+    return res.data?.data;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Retrieves all registered devices for the current authenticated user.
  */
 export const getRegisteredDevicesApi = async () => {
@@ -188,6 +205,28 @@ export const revokeDeviceApi = async (deviceId) => {
   const res = await axiosInstance.delete(`/e2ee/devices/${deviceId}`, {
     withCredentials: true,
   });
+  return res.data?.data;
+};
+
+/**
+ * Rotates an active device's public key.
+ * @param {{ deviceId: string, newPublicKey: object, deviceName?: string }} payload
+ */
+export const rotateDeviceApi = async ({ deviceId, newPublicKey, deviceName }) => {
+  const res = await axiosInstance.post(
+    "/e2ee/devices/rotate",
+    {
+      deviceId,
+      newPublicKey: {
+        kty: "EC",
+        crv: "P-256",
+        x: newPublicKey.x,
+        y: newPublicKey.y,
+      },
+      deviceName,
+    },
+    { withCredentials: true },
+  );
   return res.data?.data;
 };
 

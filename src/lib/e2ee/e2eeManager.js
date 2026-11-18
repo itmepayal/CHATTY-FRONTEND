@@ -11,6 +11,8 @@ import {
   generateRecoveryKey,
   saveRecoveryKey,
   getRecoveryKey,
+  getRecoveryKeyMetadata,
+  setRecoveryKeyAcknowledged,
   deleteRecoveryKey,
 } from "./e2eeKeyStore.js";
 import {
@@ -32,8 +34,14 @@ import {
   getDeviceLinkStatusApi,
   lookupPendingLinkSessionApi,
   approveDeviceLinkApi,
+  rotateDeviceApi,
 } from "./e2ee.api.js";
-import { registerCurrentDevice, getDeviceId, getDeviceName } from "./e2eeDevice.js";
+import {
+  registerCurrentDevice,
+  getDeviceId,
+  getDeviceName,
+  clearDeviceCache,
+} from "./e2eeDevice.js";
 import { customToast as toast } from "../../components/toast/customToastService.js";
 
 const subtle = globalThis.crypto?.subtle;
@@ -51,6 +59,8 @@ class E2EEManager {
     this.readyPromise = Promise.resolve(E2EE_STATUS.IDLE);
     this.initInFlight = null;
     this.activeLinkSession = null;
+    this.pendingRecoveryOnboarding = false;
+    this.isDeviceRevoked = false;
     this.listeners = new Set();
   }
 
@@ -72,6 +82,8 @@ class E2EEManager {
           isReady: this.status === E2EE_STATUS.READY,
           me: this.me,
           serverStatus: this.serverStatus,
+          pendingRecoveryOnboarding: this.pendingRecoveryOnboarding,
+          isDeviceRevoked: Boolean(this.isDeviceRevoked),
         });
       } catch (e) {
         console.error("[E2EE Manager] Error notifying listener:", e);
@@ -223,7 +235,28 @@ class E2EEManager {
               publicJwk: localRecord.publicJwk,
               version: localRecord.version || 1,
             };
-            registerCurrentDevice(uid, localRecord.publicJwk).catch(() => {});
+
+            // Check if user has acknowledged/saved their recovery key
+            try {
+              const meta = await getRecoveryKeyMetadata(uid);
+              const localAck =
+                localStorage.getItem(`chatty_e2ee_recovery_ack_${uid}`) ===
+                "true";
+              this.pendingRecoveryOnboarding = Boolean(
+                meta?.recoveryKey && !meta?.acknowledged && !localAck,
+              );
+            } catch {
+              this.pendingRecoveryOnboarding = false;
+            }
+
+            registerCurrentDevice(uid, localRecord.publicJwk)
+              .then((res) => {
+                if (res?.isRevoked) {
+                  this.isDeviceRevoked = true;
+                  this.notify();
+                }
+              })
+              .catch(() => {});
             return this.setStatus(E2EE_STATUS.READY);
           } else if (serverKey) {
             // Cryptographic mismatch
@@ -331,8 +364,14 @@ class E2EEManager {
         version: 1,
       });
 
-      // 8. Store recovery key securely in local device vault
-      await saveRecoveryKey(uid, recoveryKey);
+      // 8. Store recovery key securely in local device vault (unacknowledged until user reviews & saves)
+      await saveRecoveryKey(uid, recoveryKey, false);
+      try {
+        localStorage.removeItem(`chatty_e2ee_recovery_ack_${uid}`);
+      } catch {
+        // ignore
+      }
+      this.pendingRecoveryOnboarding = true;
 
       this.me = {
         userId: uid,
@@ -456,10 +495,14 @@ class E2EEManager {
   /*  Multi-Device Restoration Flow                                     */
   /* ------------------------------------------------------------------ */
 
-  async restoreIdentity(passphrase) {
+  async restoreIdentity(passphrase, { overwrite = false } = {}) {
     if (!this.currentUserId)
       throw new E2EENotReadyError("No authenticated user.");
     if (!passphrase) throw new Error("Passphrase is required to restore.");
+
+    if (this.status === E2EE_STATUS.READY && this.me?.privateKey && !overwrite) {
+      throw new Error("An active encryption identity already exists on this device. Overwrite confirmation required.");
+    }
 
     this.setStatus(E2EE_STATUS.RESTORING);
     const uid = this.currentUserId;
@@ -528,6 +571,43 @@ class E2EEManager {
       this.setStatus(E2EE_STATUS.RESTORE_REQUIRED);
       throw err;
     }
+  }
+
+  handleDeviceRevocation(revokedDeviceId) {
+    clearDeviceCache();
+    const currentDeviceId = getDeviceId();
+    if (revokedDeviceId === currentDeviceId) {
+      this.isDeviceRevoked = true;
+      this.notify();
+    }
+  }
+
+  async rotateCurrentDeviceKey() {
+    if (!this.currentUserId || this.status !== E2EE_STATUS.READY || !this.me) {
+      throw new E2EENotReadyError("Cannot rotate key when E2EE is not ready.");
+    }
+    const currentDeviceId = getDeviceId();
+    const pair = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      false, // non-extractable
+      ["deriveBits"],
+    );
+    const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    await rotateDeviceApi({
+      deviceId: currentDeviceId,
+      newPublicKey: publicJwk,
+      deviceName: getDeviceName(),
+    });
+    this.me.privateKey = pair.privateKey;
+    this.me.publicJwk = publicJwk;
+    await saveKeyRecord(this.currentUserId, {
+      privateKey: pair.privateKey,
+      publicJwk,
+      version: this.me.version,
+    });
+    clearDeviceCache();
+    this.notify();
+    return this.me;
   }
 
   /* ------------------------------------------------------------------ */
@@ -879,6 +959,25 @@ class E2EEManager {
     return await getRecoveryKey(this.currentUserId);
   }
 
+  /**
+   * Marks the recovery key as acknowledged/backed up by the user.
+   */
+  async acknowledgeRecoveryKey() {
+    if (!this.currentUserId) return;
+    const uid = this.currentUserId;
+    try {
+      await setRecoveryKeyAcknowledged(uid, true);
+      localStorage.setItem(`chatty_e2ee_recovery_ack_${uid}`, "true");
+    } catch (e) {
+      console.warn(
+        "[E2EE Manager] Failed to mark recovery key acknowledged:",
+        e,
+      );
+    }
+    this.pendingRecoveryOnboarding = false;
+    this.notify();
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Destructive Identity Reset                                        */
   /* ------------------------------------------------------------------ */
@@ -934,6 +1033,8 @@ class E2EEManager {
     this.serverStatus = null;
     this.currentUserId = null;
     this.initInFlight = null;
+    this.pendingRecoveryOnboarding = false;
+    this.isDeviceRevoked = false;
     this.readyPromise = Promise.resolve(E2EE_STATUS.IDLE);
     this.notify();
   }

@@ -72,6 +72,9 @@ export const FAILED_TEXT = "🔒 Encrypted message";
 export const displayText = (m, fallback = FAILED_TEXT) => {
   if (!m) return "";
   if (m.decryptFailed || (m.encrypted && !m.decrypted)) {
+    if (m.decryptError === "Sent before this device was added") {
+      return "🔒 Sent before this device was added";
+    }
     return fallback;
   }
   return m.text ?? "";

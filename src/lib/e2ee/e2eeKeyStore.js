@@ -1,7 +1,34 @@
 import { STORAGE_CONFIG } from "./e2ee.constants.js";
 
+export const checkStorageAvailability = () => {
+  const hasLocalStorage = (function () {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      const k = "__storage_test__";
+      localStorage.setItem(k, "1");
+      localStorage.removeItem(k);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  const hasIndexedDB =
+    typeof window !== "undefined" &&
+    "indexedDB" in window &&
+    window.indexedDB !== null;
+
+  return {
+    hasLocalStorage,
+    hasIndexedDB,
+    isFullySupported: hasLocalStorage && hasIndexedDB,
+  };
+};
+
 const isIndexedDBSupported = () =>
-  typeof window !== "undefined" && "indexedDB" in window;
+  typeof window !== "undefined" &&
+  "indexedDB" in window &&
+  window.indexedDB !== null;
 
 let dbInstancePromise = null;
 
@@ -50,6 +77,7 @@ const getDatabase = () => {
 
 /**
  * Retrieves a user's cryptographic record from IndexedDB.
+ * Throws when storage is unavailable or access is denied so callers can transition to STORAGE_ERROR.
  * @param {string} userId - Authenticated user ID.
  * @returns {Promise<{ privateKey: CryptoKey, publicJwk: object, version?: number, updatedAt?: string } | null>}
  */
@@ -57,23 +85,22 @@ export const getKeyRecord = async (userId) => {
   if (!userId) return null;
   const uid = String(userId);
 
+  const db = await getDatabase();
+  const record = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readonly");
+    const store = tx.objectStore(STORAGE_CONFIG.STORE_NAME);
+    const req = store.get(uid);
+
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (record) return record;
+
+  // Check legacy store as fallback if not present in v2
   try {
-    const db = await getDatabase();
-    const record = await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORAGE_CONFIG.STORE_NAME, "readonly");
-      const store = tx.objectStore(STORAGE_CONFIG.STORE_NAME);
-      const req = store.get(uid);
-
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-
-    if (record) return record;
-
-    // Check legacy store as fallback if not present in v2
     return await getLegacyKeyRecord(uid);
-  } catch (err) {
-    console.error(`[E2EE KeyStore] Error getting keys for user ${uid}:`, err);
+  } catch {
     return null;
   }
 };
@@ -156,8 +183,13 @@ export const generateRecoveryKey = () => {
  * Stores a user's recovery key securely in the local device vault.
  * @param {string} userId
  * @param {string} recoveryKey
+ * @param {boolean} [acknowledged=false] - Whether user has confirmed saving/backing up the key.
  */
-export const saveRecoveryKey = async (userId, recoveryKey) => {
+export const saveRecoveryKey = async (
+  userId,
+  recoveryKey,
+  acknowledged = false,
+) => {
   if (!userId || !recoveryKey) return;
   const uid = String(userId);
   const db = await getDatabase();
@@ -168,6 +200,7 @@ export const saveRecoveryKey = async (userId, recoveryKey) => {
       {
         userId: uid,
         recoveryKey,
+        acknowledged: Boolean(acknowledged),
         updatedAt: new Date().toISOString(),
       },
       uid,
@@ -176,6 +209,73 @@ export const saveRecoveryKey = async (userId, recoveryKey) => {
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(new Error("Vault transaction aborted"));
   });
+};
+
+/**
+ * Retrieves the user's recovery key metadata from the local device vault.
+ * @param {string} userId
+ * @returns {Promise<{ userId: string, recoveryKey: string, acknowledged: boolean, updatedAt: string } | null>}
+ */
+export const getRecoveryKeyMetadata = async (userId) => {
+  if (!userId) return null;
+  const uid = String(userId);
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)) {
+      return null;
+    }
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.VAULT_STORE_NAME, "readonly");
+      const store = tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME);
+      const req = store.get(uid);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.error(
+      `[E2EE KeyStore] Error getting recovery key metadata for ${uid}:`,
+      err,
+    );
+    return null;
+  }
+};
+
+/**
+ * Marks a user's recovery key as acknowledged/backed up.
+ * @param {string} userId
+ * @param {boolean} [acknowledged=true]
+ */
+export const setRecoveryKeyAcknowledged = async (
+  userId,
+  acknowledged = true,
+) => {
+  if (!userId) return;
+  const uid = String(userId);
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(STORAGE_CONFIG.VAULT_STORE_NAME)) return;
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_CONFIG.VAULT_STORE_NAME, "readwrite");
+      const store = tx.objectStore(STORAGE_CONFIG.VAULT_STORE_NAME);
+      const req = store.get(uid);
+      req.onsuccess = () => {
+        const item = req.result;
+        if (item) {
+          item.acknowledged = Boolean(acknowledged);
+          item.updatedAt = new Date().toISOString();
+          store.put(item, uid);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(new Error("Vault transaction aborted"));
+    });
+  } catch (err) {
+    console.warn(
+      `[E2EE KeyStore] Failed to set recovery key acknowledged:`,
+      err,
+    );
+  }
 };
 
 /**

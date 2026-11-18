@@ -148,4 +148,37 @@ test("Automatic E2EE & Device Linking Cryptography Suite", async (t) => {
       "AES-GCM must reject corrupted ciphertext authentication tag",
     );
   });
+
+  await t.test("5. Emergency recovery kit text generator formats valid 256-bit key document", () => {
+    const recoveryKey = generateRecoveryKey();
+    const userName = "Alice Developer";
+    const deviceName = "Chrome on Linux";
+    const dateStr = "2026-11-18 14:00:00";
+
+    const content = `===================================================================
+CHATTY END-TO-END ENCRYPTION (E2EE) RECOVERY KEY
+===================================================================
+
+Account: ${userName}
+Generated: ${dateStr}
+Device: ${deviceName}
+
+YOUR 256-BIT RECOVERY KEY:
+-------------------------------------------------------------------
+${recoveryKey}
+-------------------------------------------------------------------
+
+HOW TO USE THIS KEY:
+1. Store this file or printed copy in a secure location (e.g. a password manager or safe).
+2. If you sign in to Chatty on a new browser, phone, or computer without your previous device,
+   enter this exact 256-bit key to restore and decrypt your messages.
+3. Chatty's servers never store this key in plaintext. The team cannot restore your messages for you.
+4. Never share this key with anyone.
+===================================================================`;
+
+    assert.ok(content.includes(recoveryKey), "Emergency kit text must contain the recovery key");
+    assert.ok(content.includes("YOUR 256-BIT RECOVERY KEY"), "Must have header");
+    assert.ok(content.includes(userName), "Must mention user name");
+    assert.ok(content.includes(deviceName), "Must mention device");
+  });
 });

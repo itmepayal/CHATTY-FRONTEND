@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Lock,
   KeyRound,
   AlertTriangle,
   ShieldAlert,
+  ShieldCheck,
   ChevronRight,
   QrCode,
 } from "lucide-react";
@@ -12,26 +13,81 @@ import { E2EESetupModal } from "./E2EESetupModal.jsx";
 import { E2EERestoreModal } from "./E2EERestoreModal.jsx";
 import { E2EEResetModal } from "./E2EEResetModal.jsx";
 import { E2EEDeviceLinkModal } from "./E2EEDeviceLinkModal.jsx";
+import { E2EERecoveryKeyModal } from "./E2EERecoveryKeyModal.jsx";
 
 export function E2EEStatusBanner() {
   const {
     isReady,
+    pendingRecoveryOnboarding,
     isRestoreRequired,
     isNotConfigured,
     isBackupMissing,
     isMismatch,
     isUnsupported,
+    isStorageError,
+    isDeviceRevoked,
   } = useE2EE();
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
-  if (isReady) return null;
+  // Auto-prompt recovery key modal once on first onboarding
+  useEffect(() => {
+    if (isReady && pendingRecoveryOnboarding && !hasAutoOpened) {
+      setRecoveryModalOpen(true);
+      setHasAutoOpened(true);
+    }
+  }, [isReady, pendingRecoveryOnboarding, hasAutoOpened]);
+
+  if (isReady && !pendingRecoveryOnboarding && !isDeviceRevoked) return null;
 
   return (
     <>
+      {isDeviceRevoked && (
+        <div className="flex items-center justify-between border-b border-error/30 bg-error/15 px-4 py-2.5 text-xs text-error transition-all">
+          <div className="flex items-center gap-2.5">
+            <ShieldAlert className="size-4 shrink-0 text-error" />
+            <span>
+              <strong>Device Revoked:</strong> This device has been revoked and will no longer receive future encrypted messages. Previously downloaded messages cannot be remotely erased.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isStorageError && (
+        <div className="flex items-center justify-between border-b border-warning/30 bg-warning/15 px-4 py-2.5 text-xs text-warning transition-all">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="size-4 shrink-0 text-warning" />
+            <span>
+              <strong>Storage Unavailable:</strong> Browser storage (IndexedDB / localStorage) is blocked or restricted in this window. Keys cannot be persisted across reloads.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isReady && pendingRecoveryOnboarding && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-warning/30 bg-warning/10 px-4 py-2.5 text-xs text-warning transition-all">
+          <div className="flex items-center gap-2.5">
+            <KeyRound className="size-4 shrink-0 text-warning" />
+            <span>
+              <strong>Backup your recovery key:</strong> Save your 256-bit
+              encryption key to ensure you can restore messages on new devices.
+            </span>
+          </div>
+          <button
+            onClick={() => setRecoveryModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-warning px-3 py-1 font-bold text-warning-content shadow-xs hover:bg-warning/90 transition-all cursor-pointer"
+          >
+            <ShieldCheck className="size-3.5" />
+            <span>View & Save Key</span>
+          </button>
+        </div>
+      )}
+
       {isUnsupported && (
         <div className="flex items-center justify-between border-b border-error/20 bg-error/10 px-4 py-2.5 text-xs text-error transition-all">
           <div className="flex items-center gap-2.5">
@@ -139,6 +195,11 @@ export function E2EEStatusBanner() {
         onOpenReset={() => setResetOpen(true)}
       />
       <E2EEResetModal isOpen={resetOpen} onClose={() => setResetOpen(false)} />
+      <E2EERecoveryKeyModal
+        isOpen={recoveryModalOpen}
+        onClose={() => setRecoveryModalOpen(false)}
+        isOnboarding={pendingRecoveryOnboarding}
+      />
     </>
   );
 }

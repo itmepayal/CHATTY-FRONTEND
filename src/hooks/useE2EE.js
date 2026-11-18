@@ -12,6 +12,8 @@ export function useE2EE() {
     isReady: e2eeManager.getStatus() === E2EE_STATUS.READY,
     me: e2eeManager.me,
     serverStatus: e2eeManager.serverStatus,
+    pendingRecoveryOnboarding: e2eeManager.pendingRecoveryOnboarding || false,
+    isDeviceRevoked: e2eeManager.isDeviceRevoked || false,
   }));
 
   useEffect(() => {
@@ -79,8 +81,13 @@ export function useE2EE() {
     return e2eeManager.getStoredRecoveryKey();
   }, []);
 
+  const acknowledgeRecoveryKey = useCallback(async () => {
+    return e2eeManager.acknowledgeRecoveryKey();
+  }, []);
+
   return {
     ...state,
+    pendingRecoveryOnboarding: Boolean(state.pendingRecoveryOnboarding),
     isLoading:
       state.status === E2EE_STATUS.LOADING ||
       state.status === E2EE_STATUS.SETTING_UP ||
@@ -91,6 +98,8 @@ export function useE2EE() {
     isMismatch: state.status === E2EE_STATUS.IDENTITY_MISMATCH,
     isLocked: state.status === E2EE_STATUS.LOCKED,
     isUnsupported: state.status === E2EE_STATUS.UNSUPPORTED,
+    isStorageError: state.status === E2EE_STATUS.STORAGE_ERROR,
+    isDeviceRevoked: Boolean(state.isDeviceRevoked),
     setup,
     restore,
     changePassphrase,
@@ -103,6 +112,7 @@ export function useE2EE() {
     pollDeviceLinkStatus,
     approveDeviceLink,
     getStoredRecoveryKey,
+    acknowledgeRecoveryKey,
   };
 }
 

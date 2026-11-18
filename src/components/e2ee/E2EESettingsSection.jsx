@@ -23,20 +23,27 @@ import { E2EERestoreModal } from "./E2EERestoreModal.jsx";
 import { E2EEChangePassphraseModal } from "./E2EEChangePassphraseModal.jsx";
 import { E2EEResetModal } from "./E2EEResetModal.jsx";
 import { E2EEDeviceLinkModal } from "./E2EEDeviceLinkModal.jsx";
+import { E2EERecoveryKeyModal } from "./E2EERecoveryKeyModal.jsx";
 import {
   getRegisteredDevicesApi,
   revokeDeviceApi,
 } from "../../lib/e2ee/e2ee.api.js";
-import { getDeviceId } from "../../lib/e2ee/e2eeDevice.js";
+import {
+  getDeviceId,
+  computeKeyFingerprint,
+  clearDeviceCache,
+} from "../../lib/e2ee/e2eeDevice.js";
 import { customToast } from "../toast";
 
 export function E2EESettingsSection() {
   const {
     status,
     isReady,
+    pendingRecoveryOnboarding,
     isRestoreRequired,
     isNotConfigured,
     isMismatch,
+    isStorageError,
     me,
     serverStatus,
     refresh,
@@ -48,10 +55,13 @@ export function E2EESettingsSection() {
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkModalMode, setLinkModalMode] = useState("approve");
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [devices, setDevices] = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+  const [deviceFingerprints, setDeviceFingerprints] = useState({});
+  const [lastSyncTime, setLastSyncTime] = useState(null);
   const currentDeviceId = getDeviceId();
 
   const loadDevices = useCallback(async () => {
@@ -60,6 +70,17 @@ export function E2EESettingsSection() {
     try {
       const devList = await getRegisteredDevicesApi();
       setDevices(devList || []);
+      setLastSyncTime(new Date());
+
+      const fps = {};
+      if (Array.isArray(devList)) {
+        for (const d of devList) {
+          if (d?.publicKey) {
+            fps[d.deviceId] = await computeKeyFingerprint(d.publicKey);
+          }
+        }
+      }
+      setDeviceFingerprints(fps);
     } catch {
       // ignore
     } finally {
@@ -69,11 +90,26 @@ export function E2EESettingsSection() {
 
   useEffect(() => {
     loadDevices();
+    const handleDeviceEvent = () => {
+      loadDevices();
+    };
+    window.addEventListener("chatty:device-revoked", handleDeviceEvent);
+    window.addEventListener("chatty:device-rotated", handleDeviceEvent);
+    return () => {
+      window.removeEventListener("chatty:device-revoked", handleDeviceEvent);
+      window.removeEventListener("chatty:device-rotated", handleDeviceEvent);
+    };
   }, [loadDevices]);
 
   const handleRevokeDevice = async (deviceId, deviceName) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to revoke "${deviceName || deviceId}"?\n\nThis device will immediately stop receiving future encrypted messages. Note: previously downloaded messages on that physical device cannot be remotely erased.`,
+    );
+    if (!confirmed) return;
+
     try {
       await revokeDeviceApi(deviceId);
+      clearDeviceCache();
       customToast.success(`Device "${deviceName || deviceId}" revoked.`);
       setDevices((prev) => prev.filter((d) => d.deviceId !== deviceId));
     } catch {
@@ -82,6 +118,9 @@ export function E2EESettingsSection() {
   };
 
   const getKeyStorageLabel = () => {
+    if (isStorageError) {
+      return "Storage Blocked (IndexedDB / localStorage unavailable)";
+    }
     if (isReady && me?.privateKey) {
       return me.privateKey.extractable === false
         ? "IndexedDB (Non-extractable)"
@@ -331,14 +370,22 @@ export function E2EESettingsSection() {
 
           <div className="mt-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="text-base-content/70">
-                Registered Devices ({devices.length})
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-base-content/70">
+                  Registered Devices ({devices.length})
+                </span>
+                {lastSyncTime && (
+                  <span className="text-[11px] text-base-content/50">
+                    · Synced:{" "}
+                    {lastSyncTime.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
+              </div>
               <button
-                onClick={() => {
-                  setLinkModalMode("recovery-key");
-                  setLinkModalOpen(true);
-                }}
+                onClick={() => setRecoveryModalOpen(true)}
                 className="text-xs font-medium text-primary hover:underline cursor-pointer"
               >
                 View 256-Bit Recovery Key
@@ -379,13 +426,44 @@ export function E2EESettingsSection() {
                                 Current Device
                               </span>
                             )}
+                            <span className="badge badge-success/15 text-success border-success/30 badge-xs font-semibold">
+                              Verified
+                            </span>
                           </div>
-                          <span className="text-[11px] text-base-content/50 font-mono">
-                            Registered:{" "}
-                            {dev.registeredAt
-                              ? new Date(dev.registeredAt).toLocaleDateString()
-                              : "Active"}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-base-content/50 font-mono mt-0.5">
+                            <span className="w-full text-[10px] text-base-content/40 font-mono truncate">
+                              ID: {dev.deviceId}
+                            </span>
+                            <span>
+                              Registered:{" "}
+                              {dev.createdAt || dev.registeredAt
+                                ? new Date(
+                                    dev.createdAt || dev.registeredAt,
+                                  ).toLocaleDateString()
+                                : "Active"}
+                            </span>
+                            {dev.lastActiveAt && (
+                              <span>
+                                · Active:{" "}
+                                {new Date(dev.lastActiveAt).toLocaleDateString() ===
+                                new Date().toLocaleDateString()
+                                  ? `Today at ${new Date(
+                                      dev.lastActiveAt,
+                                    ).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}`
+                                  : new Date(
+                                      dev.lastActiveAt,
+                                    ).toLocaleDateString()}
+                              </span>
+                            )}
+                            {deviceFingerprints[dev.deviceId] && (
+                              <span className="w-full text-[10px] text-base-content/60 font-mono tracking-wider">
+                                Safety Number: {deviceFingerprints[dev.deviceId]}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -405,6 +483,13 @@ export function E2EESettingsSection() {
                 })}
               </div>
             )}
+
+            <div className="mt-2 text-[11px] text-base-content/60 bg-base-200/50 rounded-xl p-2.5 flex items-start gap-2">
+              <ShieldAlert className="size-3.5 shrink-0 text-base-content/50 mt-0.5" />
+              <span>
+                <strong>Device Management:</strong> Revoking a device stops it from receiving future message encryption keys. Previously downloaded keys and local messages cannot be remotely erased.
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -416,9 +501,20 @@ export function E2EESettingsSection() {
             <FileKey className="size-5" />
           </div>
           <div>
-            <h3 className="text-sm sm:text-base font-semibold text-base-content">
-              Multi-Device Key Backup
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-semibold text-base-content">
+                Multi-Device Key Backup
+              </h3>
+              {pendingRecoveryOnboarding ? (
+                <span className="badge badge-warning badge-xs font-semibold">
+                  Action Required: Key Not Saved
+                </span>
+              ) : (
+                <span className="badge badge-success badge-xs font-semibold">
+                  Backed Up & Verified
+                </span>
+              )}
+            </div>
             <p className="text-xs text-base-content/60">
               Encrypted backup for zero-knowledge key recovery across devices
             </p>
@@ -437,10 +533,7 @@ export function E2EESettingsSection() {
             {isReady && (
               <>
                 <button
-                  onClick={() => {
-                    setLinkModalMode("recovery-key");
-                    setLinkModalOpen(true);
-                  }}
+                  onClick={() => setRecoveryModalOpen(true)}
                   className="btn btn-outline btn-sm min-h-[44px] sm:min-h-[36px] rounded-xl gap-2 text-xs font-semibold w-full sm:w-auto cursor-pointer"
                 >
                   <ShieldCheck className="size-3.5" />
@@ -540,6 +633,11 @@ export function E2EESettingsSection() {
       <E2EEResetModal
         isOpen={resetModalOpen}
         onClose={() => setResetModalOpen(false)}
+      />
+      <E2EERecoveryKeyModal
+        isOpen={recoveryModalOpen}
+        onClose={() => setRecoveryModalOpen(false)}
+        isOnboarding={pendingRecoveryOnboarding}
       />
     </div>
   );

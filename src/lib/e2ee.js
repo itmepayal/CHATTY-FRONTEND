@@ -6,6 +6,7 @@ import {
   getDeviceId,
   fetchActiveDevicesForUsers,
   clearDeviceCache,
+  touchDeviceActivity,
 } from "./e2ee/e2eeDevice.js";
 import { customToast as toast } from "../components/toast/customToastService.js";
 
@@ -104,8 +105,7 @@ const importPublic = (jwk) =>
     [],
   );
 
-const importPublicRaw = (raw) =>
-  subtle.importKey("raw", raw, ECDH, true, []);
+const importPublicRaw = (raw) => subtle.importKey("raw", raw, ECDH, true, []);
 
 const fetchPeer = (userId) => {
   const id = String(userId);
@@ -179,6 +179,7 @@ const pairKey = (userId) => {
 
 export const encryptFor = async (peerId, plaintext) => {
   assertCryptoSubtle();
+  touchDeviceActivity()?.catch?.(() => {});
   await e2eeManager.whenReady();
   const me = e2eeManager.me;
   if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
@@ -291,6 +292,7 @@ export const encryptFor = async (peerId, plaintext) => {
 
 export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
   assertCryptoSubtle();
+  touchDeviceActivity()?.catch?.(() => {});
   await e2eeManager.whenReady();
   const me = e2eeManager.me;
   if (!me?.privateKey || e2eeManager.status !== E2EE_STATUS.READY) {
@@ -315,10 +317,10 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
     );
     if (defaultDevEnv) orderedEnvelopes.push(defaultDevEnv);
 
-    for (const e of myEnvelopes) {
-      if (!orderedEnvelopes.includes(e)) {
-        orderedEnvelopes.push(e);
-      }
+    // Only target envelopes addressed to this device (or legacy "default")
+    // Never attempt to decrypt envelopes destined for other devices
+    if (orderedEnvelopes.length === 0) {
+      throw new Error("Sent before this device was added");
     }
 
     for (const env of orderedEnvelopes) {

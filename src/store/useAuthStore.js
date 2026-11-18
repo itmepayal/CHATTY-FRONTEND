@@ -7,6 +7,7 @@ import { useChatPrefsStore } from "./useChatPrefsStore.js";
 import { useAppearanceStore } from "./useAppearanceStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
 import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
+import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 
 const baseUrl = import.meta.env.VITE_API_URL;
 
@@ -653,6 +654,21 @@ export const useAuthStore = create((set, get) => ({
     socket.on("session:revoke-others", ({ keepSessionId }) => {
       console.log("[security] other sessions revoked, keep:", keepSessionId);
       window.dispatchEvent(new CustomEvent("chatty:sessions-changed"));
+    });
+
+    socket.on("e2ee:device:revoked", ({ deviceId }) => {
+      console.log("[e2ee] device revoked:", deviceId);
+      e2eeManager.handleDeviceRevocation(deviceId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-revoked", { detail: { deviceId } }),
+      );
+    });
+
+    socket.on("e2ee:device:rotated", ({ deviceId }) => {
+      console.log("[e2ee] device rotated:", deviceId);
+      window.dispatchEvent(
+        new CustomEvent("chatty:device-rotated", { detail: { deviceId } }),
+      );
     });
 
     socket.on("disconnect", async (reason) => {
