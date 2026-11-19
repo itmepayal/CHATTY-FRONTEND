@@ -255,7 +255,8 @@ export default function AppLockScreen() {
               </div>
 
               <p className="text-xs text-base-content/70 leading-relaxed">
-                Enter your account password to verify your identity and remove the App Lock PIN on this device.
+                Enter your account password to verify your identity and remove
+                the App Lock PIN on this device.
               </p>
 
               <form onSubmit={handlePasswordRecovery} className="space-y-4">

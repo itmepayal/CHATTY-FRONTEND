@@ -3321,9 +3321,7 @@ const ChatContainer = ({ onToggleInfo }) => {
                   .editScheduledMessage(id, selectedUser.id, newText, newTime)
               }
               onSendNow={(id) =>
-                useChatStore
-                  .getState()
-                  .sendScheduledNow(id, selectedUser.id)
+                useChatStore.getState().sendScheduledNow(id, selectedUser.id)
               }
               onOpenSchedule={() => {
                 setShowScheduled(false);
