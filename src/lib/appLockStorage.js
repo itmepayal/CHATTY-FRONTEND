@@ -1,5 +1,6 @@
 /**
  * Device-local storage and lockout persistence for App Lock.
+ * Strict per-user scoping. No global or unauthenticated fallbacks.
  */
 
 const STORAGE_KEY_PREFIX = "chatty:app_lock";
@@ -13,8 +14,53 @@ export const TIMEOUT_MS = {
   "1h": 60 * 60 * 1000,
 };
 
+export function isValidUserId(userId) {
+  if (!userId) return false;
+  const str = String(userId).trim();
+  return Boolean(str && str !== "default" && str !== "undefined" && str !== "null");
+}
+
+export function getSessionUnlockedKey(userId) {
+  if (isValidUserId(userId)) {
+    return `${STORAGE_KEY_PREFIX}:unlocked:${String(userId).trim()}`;
+  }
+  return SESSION_UNLOCKED_KEY;
+}
+
+export function isSessionUnlocked(userId) {
+  try {
+    if (typeof sessionStorage === "undefined") return false;
+    const key = getSessionUnlockedKey(userId);
+    return sessionStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setSessionUnlocked(userId, unlocked) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    const key = getSessionUnlockedKey(userId);
+    if (unlocked) {
+      sessionStorage.setItem(key, "true");
+    } else {
+      sessionStorage.removeItem(key);
+      sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+    }
+  } catch (err) {
+    console.error("[appLock] setSessionUnlocked error:", err);
+  }
+}
+
+export function clearSessionUnlock(userId) {
+  setSessionUnlocked(userId, false);
+}
+
 export function getStorageKeys(userId) {
-  const uid = userId ? String(userId) : "default";
+  if (!isValidUserId(userId)) {
+    return { configKey: null, lockoutKey: null };
+  }
+  const uid = String(userId).trim();
   return {
     configKey: `${STORAGE_KEY_PREFIX}:config:${uid}`,
     lockoutKey: `${STORAGE_KEY_PREFIX}:lockout:${uid}`,
@@ -22,86 +68,74 @@ export function getStorageKeys(userId) {
 }
 
 export function loadLocalConfig(userId) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return null;
+  }
   try {
-    const uid = userId ? String(userId) : "default";
-    const { configKey } = getStorageKeys(uid);
-    let raw = localStorage.getItem(configKey);
+    const { configKey } = getStorageKeys(userId);
+    if (!configKey) return null;
 
-    // Fallback: check "default" key if configured before uid was resolved
-    if (!raw && uid !== "default") {
-      raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}:config:default`);
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed?.enabled && parsed?.verifier) {
-            localStorage.setItem(configKey, raw);
-          } else {
-            raw = null;
-          }
-        } catch {
-          raw = null;
-        }
-      }
+    const raw = localStorage.getItem(configKey);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.enabled === true && parsed.verifier) {
+      return parsed;
     }
-
-    // Fallback: search for any existing configured PIN for this device
-    if (!raw) {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(`${STORAGE_KEY_PREFIX}:config:`)) {
-          const candidate = localStorage.getItem(k);
-          if (candidate) {
-            try {
-              const parsed = JSON.parse(candidate);
-              if (parsed?.enabled && parsed?.verifier) {
-                raw = candidate;
-                if (uid !== "default") {
-                  localStorage.setItem(configKey, raw);
-                }
-                break;
-              }
-            } catch {}
-          }
-        }
-      }
-    }
-
-    return raw ? JSON.parse(raw) : null;
+    return null;
   } catch {
     return null;
   }
 }
 
 export function saveLocalConfig(userId, config) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return;
+  }
   try {
-    const uid = userId ? String(userId) : "default";
-    const { configKey } = getStorageKeys(uid);
+    const { configKey } = getStorageKeys(userId);
+    if (!configKey) return;
+
     if (!config) {
       localStorage.removeItem(configKey);
-      localStorage.removeItem(`${STORAGE_KEY_PREFIX}:config:default`);
     } else {
       const serialized = JSON.stringify(config);
       localStorage.setItem(configKey, serialized);
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}:config:default`, serialized);
     }
   } catch (err) {
     console.error("[appLock] saveLocalConfig error:", err);
   }
 }
 
-export function loadLockoutState(userId) {
+export function clearUserLockConfig(userId) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return;
+  }
   try {
-    const uid = userId ? String(userId) : "default";
-    const { lockoutKey } = getStorageKeys(uid);
-    let raw = localStorage.getItem(lockoutKey);
-    if (!raw && uid !== "default") {
-      raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}:lockout:default`);
-    }
+    const { configKey, lockoutKey } = getStorageKeys(userId);
+    if (configKey) localStorage.removeItem(configKey);
+    if (lockoutKey) localStorage.removeItem(lockoutKey);
+    clearSessionUnlock(userId);
+  } catch (err) {
+    console.error("[appLock] clearUserLockConfig error:", err);
+  }
+}
+
+export function loadLockoutState(userId) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return { failedAttempts: 0, lockoutUntil: 0 };
+  }
+  try {
+    const { lockoutKey } = getStorageKeys(userId);
+    if (!lockoutKey) return { failedAttempts: 0, lockoutUntil: 0 };
+
+    const raw = localStorage.getItem(lockoutKey);
     if (!raw) return { failedAttempts: 0, lockoutUntil: 0 };
+
     const parsed = JSON.parse(raw);
     return {
-      failedAttempts: parsed.failedAttempts || 0,
-      lockoutUntil: parsed.lockoutUntil || 0,
+      failedAttempts: Number(parsed.failedAttempts) || 0,
+      lockoutUntil: Number(parsed.lockoutUntil) || 0,
     };
   } catch {
     return { failedAttempts: 0, lockoutUntil: 0 };
@@ -109,12 +143,15 @@ export function loadLockoutState(userId) {
 }
 
 export function saveLockoutState(userId, state) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return;
+  }
   try {
-    const uid = userId ? String(userId) : "default";
-    const { lockoutKey } = getStorageKeys(uid);
+    const { lockoutKey } = getStorageKeys(userId);
+    if (!lockoutKey) return;
+
     const serialized = JSON.stringify(state);
     localStorage.setItem(lockoutKey, serialized);
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}:lockout:default`, serialized);
   } catch (err) {
     console.error("[appLock] saveLockoutState error:", err);
   }
@@ -126,3 +163,21 @@ export function getLockoutDurationSeconds(attempts) {
   if (attempts === 4) return 30;  // 30 seconds
   return 0;
 }
+
+/**
+ * One-time sanitization of legacy unscoped / contaminated keys.
+ * Preserves E2EE keys, sessions, and valid user-scoped keys.
+ */
+export function sanitizeLegacyLockStorage() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(`${STORAGE_KEY_PREFIX}:config:default`);
+    localStorage.removeItem(`${STORAGE_KEY_PREFIX}:lockout:default`);
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+    }
+  } catch {}
+}
+
+// Auto-run legacy cleanup on import
+sanitizeLegacyLockStorage();

@@ -7,6 +7,13 @@ export const useChatLockStore = create((set, get) => ({
   unlockedInSession: new Set(),
   activeLockModalChatId: null,
 
+  reset: () => {
+    set({
+      unlockedInSession: new Set(),
+      activeLockModalChatId: null,
+    });
+  },
+
   openUnlockModal: (chatId) => {
     set({ activeLockModalChatId: chatId });
   },
@@ -15,8 +22,28 @@ export const useChatLockStore = create((set, get) => ({
     set({ activeLockModalChatId: null });
   },
 
+  getChatLockStatus: (chatId) => {
+    if (!chatId) return "unavailable";
+    const privacyState = usePrivacyStore.getState();
+    if (privacyState.isLoading || privacyState.isSaving) return "loading";
+
+    const isAppLockConfigured = Boolean(
+      useAppLockStore.getState().isConfigured,
+    );
+    if (!isAppLockConfigured) return "inactive";
+
+    const cid = String(chatId);
+    const lockedChats = (privacyState.privacy?.lockedChats || []).map(String);
+    return lockedChats.includes(cid) ? "active" : "inactive";
+  },
+
   isChatLocked: (chatId) => {
     if (!chatId) return false;
+    const isAppLockConfigured = Boolean(
+      useAppLockStore.getState().isConfigured,
+    );
+    if (!isAppLockConfigured) return false;
+
     const cid = String(chatId);
     const lockedChats = (
       usePrivacyStore.getState().privacy.lockedChats || []
@@ -27,6 +54,11 @@ export const useChatLockStore = create((set, get) => ({
 
   isChatLockConfigured: (chatId) => {
     if (!chatId) return false;
+    const isAppLockConfigured = Boolean(
+      useAppLockStore.getState().isConfigured,
+    );
+    if (!isAppLockConfigured) return false;
+
     const cid = String(chatId);
     const lockedChats = (
       usePrivacyStore.getState().privacy.lockedChats || []
@@ -53,6 +85,44 @@ export const useChatLockStore = create((set, get) => ({
       next.delete(String(chatId));
       return { unlockedInSession: next };
     });
+  },
+
+  enableLockWithPin: async (chatId, pin) => {
+    if (!chatId) return false;
+    const cid = String(chatId);
+    const isAppLockConfigured = Boolean(
+      useAppLockStore.getState().isConfigured,
+    );
+    if (!isAppLockConfigured) {
+      toast.error(
+        "Please configure an App Lock PIN in Settings > Privacy first.",
+      );
+      return false;
+    }
+
+    const success = await useAppLockStore.getState().unlock(pin);
+    if (!success) {
+      return false;
+    }
+
+    const current = (usePrivacyStore.getState().privacy.lockedChats || []).map(
+      String,
+    );
+    const updated = [...new Set([...current, cid])];
+
+    const ok = await usePrivacyStore
+      .getState()
+      .updateExceptions("lockedChats", updated);
+    if (ok) {
+      set((state) => {
+        const next = new Set(state.unlockedInSession);
+        next.add(cid);
+        return { unlockedInSession: next };
+      });
+      toast.success("Conversation locked. PIN required after leaving.");
+      return true;
+    }
+    return false;
   },
 
   disableLockWithPin: async (chatId, pin) => {
@@ -92,10 +162,10 @@ export const useChatLockStore = create((set, get) => ({
     const isCurrentlyLocked = current.includes(cid);
 
     if (!isCurrentlyLocked) {
-      // Enabling lock: ensure App Lock PIN is configured on device or account
-      const isAppLockConfigured =
-        Boolean(useAppLockStore.getState().isConfigured) ||
-        Boolean(usePrivacyStore.getState().privacy?.appLockEnabled);
+      // Enabling lock: strictly require App Lock PIN configured on this device
+      const isAppLockConfigured = Boolean(
+        useAppLockStore.getState().isConfigured,
+      );
       if (!isAppLockConfigured) {
         toast.error(
           "Please configure an App Lock PIN in Settings > Privacy first.",
@@ -108,7 +178,6 @@ export const useChatLockStore = create((set, get) => ({
         .getState()
         .updateExceptions("lockedChats", updated);
       if (ok) {
-        // Keep in session unlocked so current conversation and Contact Info remain open
         set((state) => {
           const next = new Set(state.unlockedInSession);
           next.add(cid);

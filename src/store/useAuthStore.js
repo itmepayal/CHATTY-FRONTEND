@@ -3,13 +3,16 @@ import { axiosInstance } from "../lib/axios.js";
 import { customToast as toast } from "../components/toast/customToastService.js";
 import { io } from "socket.io-client";
 import { usePrivacyStore } from "./usePrivacyStore.js";
+import { useAppLockStore } from "./useAppLockStore.js";
+import { useChatLockStore } from "./useChatLockStore.js";
 import { useChatPrefsStore } from "./useChatPrefsStore.js";
 import { useAppearanceStore } from "./useAppearanceStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
 import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 
-const baseUrl = import.meta.env.VITE_API_URL;
+const baseUrl =
+  import.meta?.env?.VITE_API_URL || globalThis.process?.env?.VITE_API_URL || "";
 
 const socketUrl = (() => {
   if (!baseUrl || baseUrl.startsWith("/")) return undefined;
@@ -75,6 +78,9 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       console.log(error);
       set({ authUser: null });
+      useAppLockStore.getState().reset?.();
+      useChatLockStore.getState().reset?.();
+      usePrivacyStore.getState().resetPrivacy?.();
     } finally {
       set({ isCheckingAuth: false });
     }
@@ -226,6 +232,9 @@ export const useAuthStore = create((set, get) => ({
       useChatPrefsStore.getState().reset?.();
       useAppearanceStore.getState().reset?.();
       useNotificationSettings.getState().resetSettings?.();
+      useAppLockStore.getState().reset?.();
+      useChatLockStore.getState().reset?.();
+      usePrivacyStore.getState().resetPrivacy?.();
       console.log("[E2EE] logout: encryption cache cleared");
       set({ authUser: null, presenceMap: {} });
       toast.success("You have been logged out successfully.");
@@ -358,10 +367,19 @@ export const useAuthStore = create((set, get) => ({
       );
       const user = extractUser(res);
       set((state) => ({
-        authUser: user || (state.authUser ? {
-          ...state.authUser,
-          blockedUsers: [...new Set([...(state.authUser.blockedUsers || []), String(id)])],
-        } : null),
+        authUser:
+          user ||
+          (state.authUser
+            ? {
+                ...state.authUser,
+                blockedUsers: [
+                  ...new Set([
+                    ...(state.authUser.blockedUsers || []),
+                    String(id),
+                  ]),
+                ],
+              }
+            : null),
       }));
       toast.success("User blocked.");
       await get().fetchBlockedUsers();
@@ -378,12 +396,16 @@ export const useAuthStore = create((set, get) => ({
       const user = extractUser(res);
       const strId = String(id);
       set((state) => ({
-        authUser: user || (state.authUser ? {
-          ...state.authUser,
-          blockedUsers: (state.authUser.blockedUsers || []).filter(
-            (b) => String(b) !== strId,
-          ),
-        } : null),
+        authUser:
+          user ||
+          (state.authUser
+            ? {
+                ...state.authUser,
+                blockedUsers: (state.authUser.blockedUsers || []).filter(
+                  (b) => String(b) !== strId,
+                ),
+              }
+            : null),
         blockedUsersList: state.blockedUsersList.filter(
           (u) => String(u._id || u.id) !== strId,
         ),
@@ -428,9 +450,18 @@ export const useAuthStore = create((set, get) => ({
         },
         withCredentials: true,
       });
+      const uid = get().authUser?._id ?? get().authUser?.id;
       get().disconnectSocket();
       set({ authUser: null, isDeletingAccount: false });
       useAppearanceStore.getState().reset();
+      useAppLockStore.getState().reset?.();
+      useChatLockStore.getState().reset?.();
+      usePrivacyStore.getState().resetPrivacy?.();
+      if (uid) {
+        import("../lib/appLockStorage.js").then(({ clearUserLockConfig }) => {
+          clearUserLockConfig(uid);
+        });
+      }
       toast.success("Your account has been permanently deleted.");
     } catch (error) {
       set({ isDeletingAccount: false });
@@ -679,7 +710,10 @@ export const useAuthStore = create((set, get) => ({
     });
 
     socket.on("e2ee:device-link:requested", (data) => {
-      console.log("[e2ee] incoming device-link requested:", data?.linkSessionId);
+      console.log(
+        "[e2ee] incoming device-link requested:",
+        data?.linkSessionId,
+      );
       window.dispatchEvent(
         new CustomEvent("chatty:device-link-requested", { detail: data }),
       );

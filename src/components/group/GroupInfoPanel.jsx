@@ -19,6 +19,8 @@ import { usePrivacyStore } from "../../store/usePrivacyStore";
 import { useChatLockStore } from "../../store/useChatLockStore";
 import { useAppLockStore } from "../../store/useAppLockStore";
 import { VerifyPinModal } from "../Chat/userInfo/UserInfoPrivacySection.jsx";
+import SecurityLockToggle from "../common/SecurityLockToggle.jsx";
+import { customToast as toast } from "../toast/customToastService.js";
 
 import {
   parseDate,
@@ -40,11 +42,9 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   const hiddenSet = useMemo(() => new Set(toIds(hiddenUsers)), [hiddenUsers]);
 
   const groupId = group ? String(group._id ?? group.id) : null;
-  const toggleLock = useChatLockStore((s) => s.toggleLock);
+  const enableLockWithPin = useChatLockStore((s) => s.enableLockWithPin);
   const disableLockWithPin = useChatLockStore((s) => s.disableLockWithPin);
-  const isAppLockConfigured =
-    useAppLockStore((s) => s.isConfigured) ||
-    usePrivacyStore((s) => Boolean(s.privacy?.appLockEnabled));
+  const isAppLockConfigured = useAppLockStore((s) => s.isConfigured);
 
   const isLocked = usePrivacyStore((s) => {
     if (!groupId) return false;
@@ -53,7 +53,10 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   });
 
   const [isSavingLock, setIsSavingLock] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalConfig, setAuthModalConfig] = useState({
+    open: false,
+    mode: "enable",
+  });
 
   // Close on Escape on mobile / tablet
   useEffect(() => {
@@ -115,33 +118,33 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
   const createdAt = formatDate(group.createdAt);
   const adminIds = toIds(group.admins);
 
-  const handleToggleLockClick = async (e) => {
-    e.stopPropagation();
+  const handleToggleLockClick = (targetChecked) => {
     if (isSavingLock || !groupId) return;
 
     if (isLocked) {
-      // Disabling lock: require PIN authorization if App Lock is configured
-      if (isAppLockConfigured) {
-        setShowAuthModal(true);
-        return;
-      }
-      setIsSavingLock(true);
-      await toggleLock(groupId);
-      setIsSavingLock(false);
+      // Disabling lock
+      setAuthModalConfig({ open: true, mode: "disable" });
     } else {
       // Enabling lock
-      setIsSavingLock(true);
-      await toggleLock(groupId);
-      setIsSavingLock(false);
+      if (!isAppLockConfigured) {
+        toast.error("Please configure an App Lock PIN in Settings > Privacy first.");
+        return;
+      }
+      setAuthModalConfig({ open: true, mode: "enable" });
     }
   };
 
-  const handleVerifyDisable = async (enteredPin) => {
+  const handleVerifyPin = async (enteredPin) => {
     setIsSavingLock(true);
-    const ok = await disableLockWithPin(groupId, enteredPin);
+    let ok = false;
+    if (authModalConfig.mode === "enable") {
+      ok = await enableLockWithPin(groupId, enteredPin);
+    } else {
+      ok = await disableLockWithPin(groupId, enteredPin);
+    }
     setIsSavingLock(false);
     if (ok) {
-      setShowAuthModal(false);
+      setAuthModalConfig({ open: false, mode: "enable" });
       return true;
     }
     return false;
@@ -273,51 +276,38 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
           {/* Privacy & Security */}
           <Section title="Privacy & Security">
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center justify-between p-3 rounded-xl bg-base-200/50 border border-base-300/40"
-            >
-              <div className="flex items-center gap-2.5">
-                <Lock className="size-4 text-primary" />
-                <div>
-                  <p className="text-xs font-semibold text-base-content">
-                    Lock Conversation
-                  </p>
-                  <p className="text-[11px] text-base-content/60">
-                    Require PIN to open this group
-                  </p>
-                </div>
-              </div>
-              <div
-                className="flex items-center gap-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {isSavingLock && (
-                  <Loader2 className="size-3.5 animate-spin text-primary" />
-                )}
-                <input
-                  type="checkbox"
-                  className="toggle toggle-primary toggle-sm"
-                  checked={Boolean(isLocked)}
-                  disabled={isSavingLock}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleLockClick(e);
-                  }}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                  }}
-                  aria-label="Toggle Lock Conversation"
-                />
-              </div>
-            </div>
+            <SecurityLockToggle
+              label="Group Chat Lock"
+              description="Require PIN to open this group"
+              status={
+                isSavingLock
+                  ? "verifying"
+                  : isLocked && isAppLockConfigured
+                    ? "active"
+                    : "inactive"
+              }
+              onToggle={handleToggleLockClick}
+              disabled={isSavingLock}
+            />
           </Section>
 
           <VerifyPinModal
-            open={showAuthModal}
+            open={authModalConfig.open}
             loading={isSavingLock}
-            onClose={() => setShowAuthModal(false)}
-            onVerify={handleVerifyDisable}
+            title={
+              authModalConfig.mode === "enable"
+                ? "Lock Group Chat"
+                : "Unlock Group Chat"
+            }
+            description={
+              authModalConfig.mode === "enable"
+                ? "Enter your 4-digit PIN to lock this group"
+                : "Enter your 4-digit PIN to remove group lock"
+            }
+            onClose={() =>
+              setAuthModalConfig({ open: false, mode: "enable" })
+            }
+            onVerify={handleVerifyPin}
           />
 
           <div className="border-t border-base-200/70" />

@@ -23,7 +23,7 @@ const TIMEOUT_OPTIONS = [
   { value: "1h", label: "1 hour" },
 ];
 
-export default function AppLockModal({ isOpen, onClose }) {
+export default function AppLockModal({ isOpen, onClose, initialMode }) {
   const { authUser } = useAuthStore();
   const {
     isConfigured,
@@ -50,13 +50,13 @@ export default function AppLockModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (isOpen) {
-      setMode(isConfigured ? "VIEW" : "ENTER_NEW");
+      setMode(initialMode || (isConfigured ? "VIEW" : "ENTER_NEW"));
       setPin("");
       setFirstPin("");
       setCurrentVerifiedPin("");
       setTimeoutVal(autoLockDuration || "immediately");
     }
-  }, [isOpen, isConfigured, autoLockDuration]);
+  }, [isOpen, isConfigured, autoLockDuration, initialMode]);
 
   // Physical keyboard support
   useEffect(() => {
@@ -161,7 +161,8 @@ export default function AppLockModal({ isOpen, onClose }) {
 
   const getHeading = () => {
     if (mode === "VIEW") return "App Lock";
-    if (mode === "ENTER_NEW") return currentVerifiedPin ? "Enter New PIN" : "Enter a 4-Digit PIN";
+    if (mode === "ENTER_NEW")
+      return currentVerifiedPin ? "Enter New PIN" : "Enter a 4-Digit PIN";
     if (mode === "CONFIRM_NEW") return "Confirm Your PIN";
     if (mode === "VERIFY_FOR_CHANGE") return "Enter Current PIN";
     if (mode === "VERIFY_FOR_DISABLE") return "Enter PIN to Disable";
@@ -172,8 +173,10 @@ export default function AppLockModal({ isOpen, onClose }) {
     if (mode === "VIEW") return "Require PIN code to unlock Chatty.";
     if (mode === "ENTER_NEW") return "Choose a 4-digit PIN you will remember.";
     if (mode === "CONFIRM_NEW") return "Re-enter the 4-digit PIN to confirm.";
-    if (mode === "VERIFY_FOR_CHANGE") return "Enter your current PIN to change it.";
-    if (mode === "VERIFY_FOR_DISABLE") return "Enter your current PIN to disable app lock.";
+    if (mode === "VERIFY_FOR_CHANGE")
+      return "Enter your current PIN to change it.";
+    if (mode === "VERIFY_FOR_DISABLE")
+      return "Enter your current PIN to disable app lock.";
     return "";
   };
 

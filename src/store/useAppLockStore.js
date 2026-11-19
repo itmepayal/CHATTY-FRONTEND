@@ -10,8 +10,11 @@ import {
   authenticateWithBiometrics,
 } from "../lib/appLockCrypto.js";
 import {
-  SESSION_UNLOCKED_KEY,
   TIMEOUT_MS,
+  isValidUserId,
+  isSessionUnlocked,
+  setSessionUnlocked,
+  clearSessionUnlock,
   loadLocalConfig,
   saveLocalConfig,
   loadLockoutState,
@@ -24,6 +27,7 @@ let listenerAttached = false;
 let lockoutTimer = null;
 
 export const useAppLockStore = create((set, get) => ({
+  status: "inactive",
   isLocked: false,
   isUnlockedThisSession: false,
   isConfigured: false,
@@ -35,6 +39,37 @@ export const useAppLockStore = create((set, get) => ({
   remainingCooldownSeconds: 0,
   activeUserId: null,
 
+  getAppLockStatus: () => {
+    const s = get();
+    if (s.remainingCooldownSeconds > 0) return "error";
+    if (s.isConfigured) return "active";
+    return "inactive";
+  },
+
+  reset: () => {
+    if (lockoutTimer) {
+      clearInterval(lockoutTimer);
+      lockoutTimer = null;
+    }
+    const currentUid = get().activeUserId;
+    if (currentUid) {
+      clearSessionUnlock(currentUid);
+    }
+    set({
+      status: "inactive",
+      isLocked: false,
+      isUnlockedThisSession: false,
+      isConfigured: false,
+      autoLockDuration: "immediately",
+      biometricsEnabled: false,
+      biometricsSupported: false,
+      failedAttempts: 0,
+      lockoutUntil: 0,
+      remainingCooldownSeconds: 0,
+      activeUserId: null,
+    });
+  },
+
   initAppLock: async (userPrivacy, currentUserId) => {
     let uid = currentUserId;
     if (!uid) {
@@ -44,41 +79,36 @@ export const useAppLockStore = create((set, get) => ({
         uid = authUser?._id ?? authUser?.id;
       } catch {}
     }
-    const safeUid = uid ? String(uid) : "default";
+
+    if (!isValidUserId(uid)) {
+      get().reset();
+      return;
+    }
+
+    const safeUid = String(uid).trim();
     set({ activeUserId: safeUid });
 
     const biometricsSupported = await isPlatformBiometricsAvailable();
     set({ biometricsSupported });
 
-    let localConfig = loadLocalConfig(safeUid);
+    const localConfig = loadLocalConfig(safeUid);
 
-    // Migration from legacy privacy store if local config is absent
-    if (!localConfig && (userPrivacy?.appLockEnabled || userPrivacy?.appLockPinHash)) {
-      if (userPrivacy?.appLockPinHash) {
-        localConfig = {
-          enabled: true,
-          verifier: userPrivacy.appLockPinHash,
-          timeout: userPrivacy.appLockTimeout || "immediately",
-          biometricsEnabled: false,
-        };
-        saveLocalConfig(safeUid, localConfig);
-      }
-    }
-
+    // App Lock is strictly configured ONLY if this specific user has a verified PIN on this device
     const isConfigured = Boolean(
-      (localConfig?.enabled && localConfig?.verifier) ||
-      userPrivacy?.appLockEnabled
+      localConfig?.enabled === true && localConfig?.verifier
     );
-    const autoLockDuration = localConfig?.timeout || userPrivacy?.appLockTimeout || "immediately";
+    const autoLockDuration =
+      localConfig?.timeout || userPrivacy?.appLockTimeout || "immediately";
     const biometricsEnabled = Boolean(localConfig?.biometricsEnabled);
 
-    // Check lockout state
+    // Check lockout state for this user
     const lockout = loadLockoutState(safeUid);
     const now = Date.now();
     const remainingMs = Math.max(0, lockout.lockoutUntil - now);
     const remainingSeconds = Math.ceil(remainingMs / 1000);
 
     set({
+      status: isConfigured ? "active" : "inactive",
       isConfigured,
       autoLockDuration,
       biometricsEnabled,
@@ -92,7 +122,7 @@ export const useAppLockStore = create((set, get) => ({
     }
 
     if (isConfigured) {
-      const unlocked = sessionStorage.getItem(SESSION_UNLOCKED_KEY) === "true";
+      const unlocked = isSessionUnlocked(safeUid);
       set({ isLocked: !unlocked, isUnlockedThisSession: unlocked });
     } else {
       set({ isLocked: false, isUnlockedThisSession: false });
@@ -100,12 +130,16 @@ export const useAppLockStore = create((set, get) => ({
 
     if (!listenerAttached && typeof window !== "undefined") {
       listenerAttached = true;
-      const handleActivity = () => { lastActiveTime = Date.now(); };
+      const handleActivity = () => {
+        lastActiveTime = Date.now();
+      };
       const handleVisibilityChange = () => {
         if (document.visibilityState === "hidden") {
           lastActiveTime = Date.now();
         } else if (document.visibilityState === "visible") {
           const state = get();
+          if (!isValidUserId(state.activeUserId)) return;
+
           const cfg = loadLocalConfig(state.activeUserId);
           if (!cfg?.enabled || !cfg?.verifier) return;
 
@@ -114,7 +148,7 @@ export const useAppLockStore = create((set, get) => ({
           const idleElapsed = Date.now() - lastActiveTime;
 
           if (durationSetting === "immediately" || idleElapsed >= maxIdle) {
-            sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+            setSessionUnlocked(state.activeUserId, false);
             set({ isLocked: true, isUnlockedThisSession: false });
           }
         }
@@ -138,7 +172,12 @@ export const useAppLockStore = create((set, get) => ({
         lockoutTimer = null;
         set({ remainingCooldownSeconds: 0, lockoutUntil: 0 });
         const uid = get().activeUserId;
-        saveLockoutState(uid, { failedAttempts: get().failedAttempts, lockoutUntil: 0 });
+        if (isValidUserId(uid)) {
+          saveLockoutState(uid, {
+            failedAttempts: get().failedAttempts,
+            lockoutUntil: 0,
+          });
+        }
       } else {
         set({ remainingCooldownSeconds: current - 1 });
       }
@@ -147,6 +186,8 @@ export const useAppLockStore = create((set, get) => ({
 
   unlock: async (enteredPin) => {
     const { activeUserId, remainingCooldownSeconds } = get();
+    if (!isValidUserId(activeUserId)) return false;
+
     if (remainingCooldownSeconds > 0) {
       toast.error(`App is locked. Try again in ${remainingCooldownSeconds}s`);
       return false;
@@ -154,7 +195,7 @@ export const useAppLockStore = create((set, get) => ({
 
     const cfg = loadLocalConfig(activeUserId);
     if (!cfg?.enabled || !cfg?.verifier) {
-      set({ isLocked: false, isUnlockedThisSession: true });
+      set({ isLocked: false, isUnlockedThisSession: true, isConfigured: false });
       return true;
     }
 
@@ -167,7 +208,7 @@ export const useAppLockStore = create((set, get) => ({
         saveLocalConfig(activeUserId, cfg);
       }
 
-      sessionStorage.setItem(SESSION_UNLOCKED_KEY, "true");
+      setSessionUnlocked(activeUserId, true);
       saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
 
       set({
@@ -190,23 +231,31 @@ export const useAppLockStore = create((set, get) => ({
 
     if (cooldownSecs > 0) {
       get().startCooldownTimer(cooldownSecs);
-      toast.error(`Too many failed attempts. Locked for ${cooldownSecs} seconds.`);
+      toast.error(
+        `Too many failed attempts. Locked for ${cooldownSecs} seconds.`,
+      );
     } else {
       const rem = 4 - newAttempts;
-      toast.error(rem > 0 ? `Incorrect PIN. ${rem} attempt${rem === 1 ? "" : "s"} before lockout.` : "Incorrect PIN.");
+      toast.error(
+        rem > 0
+          ? `Incorrect PIN. ${rem} attempt${rem === 1 ? "" : "s"} before lockout.`
+          : "Incorrect PIN.",
+      );
     }
     return false;
   },
 
   unlockWithBiometrics: async () => {
     const { activeUserId, biometricsEnabled, remainingCooldownSeconds } = get();
-    if (remainingCooldownSeconds > 0 || !biometricsEnabled) return false;
+    if (!isValidUserId(activeUserId) || remainingCooldownSeconds > 0 || !biometricsEnabled) {
+      return false;
+    }
 
     try {
       const cfg = loadLocalConfig(activeUserId);
       const verified = await authenticateWithBiometrics(cfg?.credentialId);
       if (verified) {
-        sessionStorage.setItem(SESSION_UNLOCKED_KEY, "true");
+        setSessionUnlocked(activeUserId, true);
         saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
         set({
           isLocked: false,
@@ -228,17 +277,32 @@ export const useAppLockStore = create((set, get) => ({
   },
 
   lockNow: () => {
-    const { activeUserId } = get();
+    const { activeUserId, isConfigured } = get();
+    if (!isValidUserId(activeUserId) || !isConfigured) return;
+
     const cfg = loadLocalConfig(activeUserId);
     if (cfg?.enabled && cfg?.verifier) {
-      sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+      setSessionUnlocked(activeUserId, false);
       set({ isLocked: true, isUnlockedThisSession: false });
     }
   },
 
   setupPin: async (pin, duration = "immediately") => {
     try {
-      const { activeUserId } = get();
+      let { activeUserId } = get();
+      if (!isValidUserId(activeUserId)) {
+        const { useAuthStore } = await import("./useAuthStore.js");
+        const authUser = useAuthStore.getState().authUser;
+        const uid = authUser?._id ?? authUser?.id;
+        if (isValidUserId(uid)) {
+          activeUserId = String(uid).trim();
+          set({ activeUserId });
+        } else {
+          toast.error("User session not found. Please log in first.");
+          return false;
+        }
+      }
+
       const { verifier } = await hashPinPbkdf2(pin);
 
       const newConfig = {
@@ -249,7 +313,7 @@ export const useAppLockStore = create((set, get) => ({
       };
 
       saveLocalConfig(activeUserId, newConfig);
-      sessionStorage.setItem(SESSION_UNLOCKED_KEY, "true");
+      setSessionUnlocked(activeUserId, true);
 
       await usePrivacyStore.getState().setPrivacy({
         appLockEnabled: true,
@@ -258,6 +322,7 @@ export const useAppLockStore = create((set, get) => ({
       });
 
       set({
+        status: "active",
         isLocked: false,
         isUnlockedThisSession: true,
         isConfigured: true,
@@ -275,6 +340,8 @@ export const useAppLockStore = create((set, get) => ({
 
   changePin: async (currentPin, newPin) => {
     const { activeUserId } = get();
+    if (!isValidUserId(activeUserId)) return false;
+
     const cfg = loadLocalConfig(activeUserId);
     if (!cfg?.verifier) return false;
 
@@ -294,8 +361,9 @@ export const useAppLockStore = create((set, get) => ({
   disablePin: async (enteredPin) => {
     try {
       const { activeUserId } = get();
-      const cfg = loadLocalConfig(activeUserId);
+      if (!isValidUserId(activeUserId)) return false;
 
+      const cfg = loadLocalConfig(activeUserId);
       if (cfg?.verifier) {
         const isValid = await verifyPinPbkdf2(enteredPin, cfg.verifier);
         if (!isValid) {
@@ -305,7 +373,7 @@ export const useAppLockStore = create((set, get) => ({
       }
 
       saveLocalConfig(activeUserId, null);
-      sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+      clearSessionUnlock(activeUserId);
 
       await usePrivacyStore.getState().setPrivacy({
         appLockEnabled: false,
@@ -313,6 +381,7 @@ export const useAppLockStore = create((set, get) => ({
       });
 
       set({
+        status: "inactive",
         isLocked: false,
         isUnlockedThisSession: false,
         isConfigured: false,
@@ -329,6 +398,8 @@ export const useAppLockStore = create((set, get) => ({
 
   updateAutoLockDuration: async (duration) => {
     const { activeUserId } = get();
+    if (!isValidUserId(activeUserId)) return false;
+
     const cfg = loadLocalConfig(activeUserId) || {};
     cfg.timeout = duration;
     saveLocalConfig(activeUserId, cfg);
@@ -338,12 +409,16 @@ export const useAppLockStore = create((set, get) => ({
     });
 
     set({ autoLockDuration: duration });
-    toast.success(`Auto-lock set to ${duration === "immediately" ? "immediately" : duration}`);
+    toast.success(
+      `Auto-lock set to ${duration === "immediately" ? "immediately" : duration}`,
+    );
     return true;
   },
 
   toggleBiometrics: async (enable, userEmail) => {
     const { activeUserId } = get();
+    if (!isValidUserId(activeUserId)) return false;
+
     const cfg = loadLocalConfig(activeUserId);
     if (!cfg) return false;
 
@@ -372,15 +447,20 @@ export const useAppLockStore = create((set, get) => ({
 
   recoverWithPassword: async (password) => {
     try {
-      const res = await axiosInstance.post("/auth/verify-password", { password });
+      const res = await axiosInstance.post("/auth/verify-password", {
+        password,
+      });
       if (res?.data?.data?.verified) {
         const { activeUserId } = get();
-        saveLocalConfig(activeUserId, null);
-        saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
-        sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
+        if (isValidUserId(activeUserId)) {
+          saveLocalConfig(activeUserId, null);
+          saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
+          clearSessionUnlock(activeUserId);
+        }
 
         await usePrivacyStore.getState().setPrivacy({
           appLockEnabled: false,
+          appLockPinHash: null,
         });
 
         if (lockoutTimer) {

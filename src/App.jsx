@@ -29,6 +29,7 @@ import { useApplySettings } from "./hooks/useApplySettings.js";
 import AppLockScreen from "./components/settings/privacy/AppLockScreen.jsx";
 import { useAppLockStore } from "./store/useAppLockStore.js";
 import { usePrivacyStore } from "./store/usePrivacyStore.js";
+import { useChatLockStore } from "./store/useChatLockStore.js";
 
 const App = () => {
   useApplySettings();
@@ -45,6 +46,10 @@ const App = () => {
     if (uid) {
       useAppLockStore.getState().initAppLock(null, String(uid));
       usePrivacyStore.getState().fetchPrivacy?.();
+    } else {
+      useAppLockStore.getState().reset?.();
+      useChatLockStore.getState().reset?.();
+      usePrivacyStore.getState().resetPrivacy?.();
     }
   }, [authUser?._id, authUser?.id]);
 

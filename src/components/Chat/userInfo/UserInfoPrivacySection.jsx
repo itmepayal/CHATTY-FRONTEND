@@ -1,14 +1,22 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Lock, Loader2, X, Delete } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Section } from "./UserInfoUI.jsx";
 import { useChatLockStore } from "../../../store/useChatLockStore.js";
 import { useAppLockStore } from "../../../store/useAppLockStore.js";
 import { usePrivacyStore } from "../../../store/usePrivacyStore.js";
 import { customToast as toast } from "../../toast/customToastService.js";
+import SecurityLockToggle from "../../common/SecurityLockToggle.jsx";
 
-export const VerifyPinModal = ({ open, onClose, onVerify, loading }) => {
+export const VerifyPinModal = ({
+  open,
+  onClose,
+  onVerify,
+  loading,
+  title = "Unlock Conversation",
+  description = "Enter your 4-digit PIN to proceed",
+}) => {
   const [pin, setPin] = useState("");
   const [shake, setShake] = useState(false);
 
@@ -73,9 +81,7 @@ export const VerifyPinModal = ({ open, onClose, onVerify, loading }) => {
         <div className="flex items-center justify-between pb-3">
           <div className="flex items-center gap-2">
             <Lock className="size-4 text-primary" />
-            <h3 className="font-semibold text-sm text-base-content">
-              Unlock Conversation
-            </h3>
+            <h3 className="font-semibold text-sm text-base-content">{title}</h3>
           </div>
           <button
             type="button"
@@ -88,7 +94,7 @@ export const VerifyPinModal = ({ open, onClose, onVerify, loading }) => {
         </div>
 
         <p className="text-xs text-base-content/60 text-center mb-4">
-          Enter your 4-digit PIN to remove conversation lock
+          {description}
         </p>
 
         {/* Pin Dots */}
@@ -156,11 +162,9 @@ export const VerifyPinModal = ({ open, onClose, onVerify, loading }) => {
 };
 
 export const UserInfoPrivacySection = ({ selectedId }) => {
-  const toggleLock = useChatLockStore((s) => s.toggleLock);
+  const enableLockWithPin = useChatLockStore((s) => s.enableLockWithPin);
   const disableLockWithPin = useChatLockStore((s) => s.disableLockWithPin);
-  const isAppLockConfigured =
-    useAppLockStore((s) => s.isConfigured) ||
-    usePrivacyStore((s) => Boolean(s.privacy?.appLockEnabled));
+  const isAppLockConfigured = useAppLockStore((s) => s.isConfigured);
 
   // Single reliable source of truth for the selected conversation's lock status
   const isChatLocked = usePrivacyStore((s) => {
@@ -170,89 +174,78 @@ export const UserInfoPrivacySection = ({ selectedId }) => {
   });
 
   const [isSaving, setIsSaving] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalConfig, setAuthModalConfig] = useState({
+    open: false,
+    mode: "enable", // "enable" | "disable"
+  });
 
-  const handleToggleClick = async (e) => {
-    e.stopPropagation();
-    if (isSaving) return;
+  const handleToggleClick = (targetChecked) => {
+    if (isSaving || !selectedId) return;
 
     if (isChatLocked) {
-      // Disabling lock: require PIN authorization if App Lock is configured
-      if (isAppLockConfigured) {
-        setShowAuthModal(true);
+      // Disabling lock
+      setAuthModalConfig({ open: true, mode: "disable" });
+    } else {
+      // Enabling lock: ensure App Lock PIN is configured on this device
+      if (!isAppLockConfigured) {
+        toast.error(
+          "Please configure an App Lock PIN in Settings > Privacy first.",
+        );
         return;
       }
-      // If no App Lock PIN configured, toggle directly
-      setIsSaving(true);
-      await toggleLock(selectedId);
-      setIsSaving(false);
-    } else {
-      // Enabling lock
-      setIsSaving(true);
-      await toggleLock(selectedId);
-      setIsSaving(false);
+      setAuthModalConfig({ open: true, mode: "enable" });
     }
   };
 
-  const handleVerifyDisable = async (enteredPin) => {
+  const handleVerifyPin = async (enteredPin) => {
     setIsSaving(true);
-    const ok = await disableLockWithPin(selectedId, enteredPin);
+    let ok = false;
+    if (authModalConfig.mode === "enable") {
+      ok = await enableLockWithPin(selectedId, enteredPin);
+    } else {
+      ok = await disableLockWithPin(selectedId, enteredPin);
+    }
     setIsSaving(false);
     if (ok) {
-      setShowAuthModal(false);
+      setAuthModalConfig({ open: false, mode: "enable" });
       return true;
     }
     return false;
   };
 
+  const lockStatus = isSaving
+    ? "verifying"
+    : isChatLocked && isAppLockConfigured
+      ? "active"
+      : "inactive";
+
   return (
     <>
       <Section title="Privacy & Security">
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center justify-between p-3 rounded-xl bg-base-200/50 border border-base-300/40"
-        >
-          <div className="flex items-center gap-2.5">
-            <Lock className="size-4 text-primary" />
-            <div>
-              <p className="text-xs font-semibold text-base-content">
-                Lock Conversation
-              </p>
-              <p className="text-[11px] text-base-content/60">
-                Require PIN to open this chat
-              </p>
-            </div>
-          </div>
-          <div
-            className="flex items-center gap-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {isSaving && (
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-            )}
-            <input
-              type="checkbox"
-              className="toggle toggle-primary toggle-sm"
-              checked={Boolean(isChatLocked)}
-              disabled={isSaving}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleClick(e);
-              }}
-              onChange={(e) => {
-                e.stopPropagation();
-              }}
-              aria-label="Toggle Lock Conversation"
-            />
-          </div>
-        </div>
+        <SecurityLockToggle
+          label="Lock Conversation"
+          description="Require PIN to open this chat"
+          status={lockStatus}
+          onToggle={handleToggleClick}
+          disabled={isSaving}
+        />
       </Section>
 
       <VerifyPinModal
-        open={showAuthModal}
+        open={authModalConfig.open}
         loading={isSaving}
-        onClose={() => setShowAuthModal(false)}
-        onVerify={handleVerifyDisable}
+        title={
+          authModalConfig.mode === "enable"
+            ? "Lock Conversation"
+            : "Unlock Conversation"
+        }
+        description={
+          authModalConfig.mode === "enable"
+            ? "Enter your 4-digit PIN to lock this conversation"
+            : "Enter your 4-digit PIN to remove conversation lock"
+        }
+        onClose={() => setAuthModalConfig({ open: false, mode: "enable" })}
+        onVerify={handleVerifyPin}
       />
     </>
   );

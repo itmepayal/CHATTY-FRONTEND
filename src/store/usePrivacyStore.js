@@ -98,6 +98,14 @@ export const usePrivacyStore = create((set, get) => ({
   isLoading: false,
   isSaving: false,
 
+  resetPrivacy: () => {
+    set({
+      privacy: { ...DEFAULT_PRIVACY },
+      isLoading: false,
+      isSaving: false,
+    });
+  },
+
   fetchPrivacy: async () => {
     set({ isLoading: true });
     try {
@@ -109,7 +117,11 @@ export const usePrivacyStore = create((set, get) => ({
         .then(({ useAppLockStore }) => {
           const authUser = useAuthStore.getState().authUser;
           const uid = authUser?._id ?? authUser?.id;
-          useAppLockStore.getState().initAppLock(next, uid ? String(uid) : undefined);
+          if (uid) {
+            useAppLockStore.getState().initAppLock(next, String(uid));
+          } else {
+            useAppLockStore.getState().reset();
+          }
         })
         .catch(() => {});
     } catch (err) {
@@ -206,19 +218,18 @@ export const usePrivacyStore = create((set, get) => ({
       user.readReceipts === undefined &&
       user.showOnlineStatus === undefined &&
       user.typingIndicator === undefined &&
-      user.lastSeenVisibility === undefined
+      user.lastSeenVisibility === undefined &&
+      user.lockedChats === undefined &&
+      user.appLockEnabled === undefined
     ) {
       get().fetchPrivacy();
       return;
     }
-    const current = get().privacy || {};
     const nextLocked =
-      user.lockedChats !== undefined
-        ? toList(user.lockedChats)
-        : current.lockedChats || [];
+      user.lockedChats !== undefined ? toList(user.lockedChats) : [];
 
     const next = cleanPrivacy({
-      ...current,
+      ...DEFAULT_PRIVACY,
       ...user,
       lockedChats: nextLocked,
     });
@@ -230,7 +241,11 @@ export const usePrivacyStore = create((set, get) => ({
       .then(({ useAppLockStore }) => {
         const authUser = useAuthStore.getState().authUser;
         const uid = authUser?._id ?? authUser?.id;
-        useAppLockStore.getState().initAppLock(next, uid ? String(uid) : undefined);
+        if (uid) {
+          useAppLockStore.getState().initAppLock(next, String(uid));
+        } else {
+          useAppLockStore.getState().reset();
+        }
       })
       .catch(() => {});
     if (next.typingIndicator === false) {

@@ -6,6 +6,9 @@ import {
   Lock,
   Shield,
   LockKeyhole,
+  MessageSquareText,
+  Users,
+  Settings2,
 } from "lucide-react";
 import SettingsCard from "../common/SettingsCard";
 import SettingsRow from "../common/SettingsRow";
@@ -13,6 +16,7 @@ import SettingsToggle from "../common/SettingsToggle";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { useAppLockStore } from "../../../store/useAppLockStore";
+import { useGroupStore } from "../../../store/useGroupStore";
 import PersonalInfoCard from "../privacy/PersonalInfoCard";
 import ContactExclusionModal from "../privacy/ContactExclusionModal";
 import BlockedContactsModal from "../privacy/BlockedContactsModal";
@@ -27,7 +31,13 @@ export default function PrivacySection({
 }) {
   const { updateExceptions } = usePrivacyStore();
   const { authUser, blockedUsersList, fetchBlockedUsers } = useAuthStore();
-  const { isConfigured, autoLockDuration, lockNow } = useAppLockStore();
+  const {
+    isConfigured,
+    autoLockDuration,
+    biometricsEnabled,
+    lockNow,
+  } = useAppLockStore();
+  const groups = useGroupStore((s) => s.groups || []);
 
   useEffect(() => {
     fetchBlockedUsers();
@@ -36,7 +46,10 @@ export default function PrivacySection({
   // Modals state
   const [checkupOpen, setCheckupOpen] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
-  const [appLockOpen, setAppLockOpen] = useState(false);
+  const [appLockModal, setAppLockModal] = useState({
+    open: false,
+    initialMode: "VIEW",
+  });
 
   const [exclusionConfig, setExclusionConfig] = useState({
     isOpen: false,
@@ -70,7 +83,10 @@ export default function PrivacySection({
     authUser?.blockedUsers?.length || 0,
     blockedUsersList?.length || 0,
   );
-  const lockedCount = privacy?.lockedChats?.length || 0;
+  const lockedList = (privacy?.lockedChats || []).map(String);
+  const groupIds = new Set(groups.map((g) => String(g._id ?? g.id)));
+  const lockedGroupCount = lockedList.filter((id) => groupIds.has(id)).length;
+  const lockedIndividualCount = lockedList.filter((id) => !groupIds.has(id)).length;
 
   return (
     <div className="space-y-5">
@@ -86,7 +102,8 @@ export default function PrivacySection({
                 Privacy Checkup
               </h3>
               <p className="mt-0.5 text-xs sm:text-sm text-base-content/70 max-w-md leading-relaxed">
-                Control your privacy and choose the right settings for you. Review personal info, read receipts, and screen lock.
+                Control your privacy and choose the right settings for you.
+                Review personal info, read receipts, and screen lock.
               </p>
             </div>
           </div>
@@ -166,67 +183,192 @@ export default function PrivacySection({
           <ChevronRight className="size-4 text-base-content/40" />
         </div>
 
-        <div
-          onClick={() => setAppLockOpen(true)}
-          className="flex items-center justify-between py-3.5 cursor-pointer hover:bg-base-200/50 -mx-4 px-4 sm:-mx-6 sm:px-6 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10 text-primary">
-              <Lock className="size-4" />
+        {/* Category 1: App Lock */}
+        <div className="py-4 border-t border-base-200/70">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
+                <Lock className="size-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-base-content">
+                    App Lock
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                      isConfigured
+                        ? "bg-primary/10 text-primary border-primary/20"
+                        : "bg-base-200 text-base-content/60 border-base-300"
+                    }`}
+                  >
+                    {isConfigured ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <p className="text-xs text-base-content/60 mt-1">
+                  {isConfigured
+                    ? `Authentication: 4-digit PIN${biometricsEnabled ? " + Biometrics" : ""} · Locks ${
+                        autoLockDuration === "immediately"
+                          ? "immediately upon leaving"
+                          : `after ${autoLockDuration}`
+                      }`
+                    : "Require PIN to unlock Chatty and secure your messages on this device."}
+                </p>
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                  {isConfigured ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => lockNow()}
+                        className="px-2.5 py-1 rounded-lg bg-base-200 hover:bg-base-300 text-base-content text-xs font-semibold transition-colors flex items-center gap-1.5"
+                        title="Lock Chatty immediately"
+                      >
+                        <LockKeyhole className="size-3" />
+                        <span>Lock Now</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAppLockModal({ open: true, initialMode: "VIEW" })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-base-200 hover:bg-base-300 text-base-content text-xs font-semibold transition-colors flex items-center gap-1.5"
+                      >
+                        <Settings2 className="size-3" />
+                        <span>Manage App Lock</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAppLockModal({
+                            open: true,
+                            initialMode: "VERIFY_FOR_DISABLE",
+                          })
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-error/10 hover:bg-error/20 text-error text-xs font-semibold transition-colors"
+                      >
+                        Disable
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAppLockModal({
+                          open: true,
+                          initialMode: "ENTER_NEW",
+                        })
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-content text-xs font-semibold transition-colors"
+                    >
+                      Set Up App Lock
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-base-content">
-                App Lock (PIN)
-              </p>
-              <p className="text-xs text-base-content/60">
-                {isConfigured || privacy.appLockEnabled
-                  ? `Enabled · Locks ${autoLockDuration || privacy.appLockTimeout || "immediately"}`
-                  : "Disabled · Require PIN to unlock Chatty"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {(isConfigured || privacy.appLockEnabled) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  lockNow();
+
+            <div className="shrink-0 pt-0.5">
+              <SettingsToggle
+                checked={isConfigured}
+                onChange={(targetChecked) => {
+                  if (targetChecked) {
+                    setAppLockModal({ open: true, initialMode: "ENTER_NEW" });
+                  } else {
+                    setAppLockModal({
+                      open: true,
+                      initialMode: "VERIFY_FOR_DISABLE",
+                    });
+                  }
                 }}
-                className="px-2.5 py-1 rounded-lg bg-base-200 hover:bg-base-300 text-base-content text-xs font-semibold transition-colors flex items-center gap-1.5"
-                title="Lock Chatty immediately"
-              >
-                <LockKeyhole className="size-3" />
-                <span>Lock Now</span>
-              </button>
-            )}
-            <ChevronRight className="size-4 text-base-content/40" />
+                label="Toggle App Lock"
+              />
+            </div>
           </div>
         </div>
 
-        {lockedCount > 0 && (
-          <div className="flex items-center justify-between py-3.5 -mx-4 px-4 sm:-mx-6 sm:px-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-base-200 text-base-content/70">
-                <Shield className="size-4" />
+        {/* Category 2: Individual Chat Lock */}
+        <div className="py-4 border-t border-base-200/70">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
+                <MessageSquareText className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-base-content">
-                  Locked Chats
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-base-content">
+                    Individual Chat Lock
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                      lockedIndividualCount > 0
+                        ? "bg-primary/10 text-primary border-primary/20"
+                        : "bg-base-200 text-base-content/60 border-base-300"
+                    }`}
+                  >
+                    {lockedIndividualCount > 0 ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <p className="text-xs text-base-content/60 mt-1">
+                  Individual direct conversations have independent lock settings.
+                  Open any chat&apos;s Contact Info to lock or unlock it with your PIN.
                 </p>
-                <p className="text-xs text-base-content/60">
-                  {lockedCount} conversation{lockedCount === 1 ? "" : "s"} locked with PIN
+                <p className="text-xs font-medium text-base-content/80 mt-2">
+                  {lockedIndividualCount > 0
+                    ? `${lockedIndividualCount} conversation${
+                        lockedIndividualCount === 1 ? "" : "s"
+                      } locked with PIN`
+                    : "No individual conversations locked"}
                 </p>
               </div>
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Category 3: Group Chat Lock */}
+        <div className="py-4 border-t border-base-200/70">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
+                <Users className="size-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-base-content">
+                    Group Chat Lock
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                      lockedGroupCount > 0
+                        ? "bg-primary/10 text-primary border-primary/20"
+                        : "bg-base-200 text-base-content/60 border-base-300"
+                    }`}
+                  >
+                    {lockedGroupCount > 0 ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <p className="text-xs text-base-content/60 mt-1">
+                  Each group chat has an independent security configuration. Open
+                  any group&apos;s Group Info panel to manage its lock.
+                </p>
+                <p className="text-xs font-medium text-base-content/80 mt-2">
+                  {lockedGroupCount > 0
+                    ? `${lockedGroupCount} group${
+                        lockedGroupCount === 1 ? "" : "s"
+                      } locked with PIN`
+                    : "No group chats locked"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </SettingsCard>
 
       {/* Modals */}
       <ContactExclusionModal
         isOpen={exclusionConfig.isOpen}
-        onClose={() => setExclusionConfig((prev) => ({ ...prev, isOpen: false }))}
+        onClose={() =>
+          setExclusionConfig((prev) => ({ ...prev, isOpen: false }))
+        }
         title={exclusionConfig.title}
         description={exclusionConfig.description}
         initialSelectedIds={exclusionConfig.selectedIds}
@@ -250,13 +392,16 @@ export default function PrivacySection({
         }}
         onOpenAppLock={() => {
           setCheckupOpen(false);
-          setAppLockOpen(true);
+          setAppLockModal({ open: true, initialMode: "ENTER_NEW" });
         }}
       />
 
       <AppLockModal
-        isOpen={appLockOpen}
-        onClose={() => setAppLockOpen(false)}
+        isOpen={appLockModal.open}
+        initialMode={appLockModal.initialMode}
+        onClose={() =>
+          setAppLockModal({ open: false, initialMode: "VIEW" })
+        }
       />
     </div>
   );
