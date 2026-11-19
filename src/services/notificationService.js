@@ -1,22 +1,12 @@
-/**
- * Centralized Notification Service
- * Single source of truth for:
- * - Audio chime playback (throttled, soft chime support)
- * - Native desktop notifications (with chat-${chatId} tag and renotify: false)
- * - In-app fallback toasts
- * - Message ID deduplication (last 200 message IDs)
- * - Multi-tab coordination via BroadcastChannel & localStorage
- * - Channel resolution per message (focused-same-chat vs. background vs. different chat)
- */
-
 import { customToast } from "../components/toast/customToastService.js";
 import {
   useNotificationSettingsStore,
   NOTIFICATION_SETTINGS_DEFAULTS,
 } from "../store/useNotificationSettingsStore.js";
+import { useAppLockStore } from "../store/useAppLockStore.js";
+import { useChatLockStore } from "../store/useChatLockStore.js";
 import soundService from "./soundService.js";
 
-// Bounded LRU-style set for deduplicating message IDs
 export class MessageDeduplicator {
   constructor(maxSize = 200) {
     this.maxSize = maxSize;
@@ -344,8 +334,7 @@ export const requestPermission = async () => {
  */
 const playWebAudioChime = (volumeFraction) => {
   try {
-    const AudioContextClass =
-      window.AudioContext || window.webkitAudioContext;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
 
     const ctx = new AudioContextClass();
@@ -523,21 +512,36 @@ export const showDesktopNotification = ({
     }
   }
 
-  const { title, body } = formatNotificationPreview({
-    text,
-    showPreview,
-    senderName,
-    messageType,
-    hasImage,
-    hasVideo,
-    hasAudio,
-    hasFile,
-    hasLocation,
-  });
+  const isAppLocked = Boolean(useAppLockStore.getState?.().isLocked);
+  const isTargetChatLocked = Boolean(
+    chatId && useChatLockStore.getState?.().isChatLocked?.(chatId),
+  );
+  const isLocked = isAppLocked || isTargetChatLocked;
 
-  const iconUrl =
-    avatar && avatar.startsWith("http") ? avatar : "/chatty-favicon.png";
-  const tag = `chat-${chatId || "general"}`;
+  let title, body, iconUrl, tag;
+  if (isLocked) {
+    title = "New message";
+    body = "You have a new message";
+    iconUrl = "/chatty-favicon.png";
+    tag = "chatty-locked-message";
+  } else {
+    const preview = formatNotificationPreview({
+      text,
+      showPreview,
+      senderName,
+      messageType,
+      hasImage,
+      hasVideo,
+      hasAudio,
+      hasFile,
+      hasLocation,
+    });
+    title = preview.title;
+    body = preview.body;
+    iconUrl =
+      avatar && avatar.startsWith("http") ? avatar : "/chatty-favicon.png";
+    tag = `chat-${chatId || "general"}`;
+  }
 
   try {
     const notification = new Notification(title, {
@@ -554,7 +558,7 @@ export const showDesktopNotification = ({
         window.focus();
       } catch {}
 
-      if (typeof onNotificationClick === "function") {
+      if (!isLocked && typeof onNotificationClick === "function") {
         onNotificationClick(chatId);
       }
 
@@ -594,11 +598,7 @@ export const handleIncomingMessage = (message, options = {}) => {
   const senderId = String(
     message.senderId || message.sender?._id || message.sender?.id || "",
   );
-  if (
-    currentUserId &&
-    senderId &&
-    String(currentUserId) === String(senderId)
-  ) {
+  if (currentUserId && senderId && String(currentUserId) === String(senderId)) {
     return null;
   }
 
@@ -629,13 +629,11 @@ export const handleIncomingMessage = (message, options = {}) => {
     return null;
   }
 
-  // 6. Fetch user notification settings
   const settings =
     options.settings ||
     useNotificationSettingsStore.getState()?.settings ||
     NOTIFICATION_SETTINGS_DEFAULTS;
 
-  // 7. Check if user is currently focused on the same chat
   const isFocusedSameChat = Boolean(
     options.isFocusedSameChat !== undefined
       ? options.isFocusedSameChat
@@ -650,7 +648,6 @@ export const handleIncomingMessage = (message, options = {}) => {
     channel: null,
   };
 
-  // 8. Sound playback: optional soft sound when focused on same chat
   if (settings.soundEnabled) {
     playMessageSound({
       volume: settings.soundVolume,
@@ -677,63 +674,83 @@ export const handleIncomingMessage = (message, options = {}) => {
   const chatId = String(
     message.chatId || message.groupId || senderId || "general",
   );
-  const senderName =
-    message.senderName || message.sender?.fullName || "User";
-  const avatar = message.avatar || message.sender?.avatar || "";
+  const isAppLocked = Boolean(useAppLockStore.getState?.().isLocked);
+  const isTargetChatLocked = Boolean(
+    chatId && useChatLockStore.getState?.().isChatLocked?.(chatId),
+  );
+  const isLocked =
+    isAppLocked || isTargetChatLocked || Boolean(message.isLocked);
+
+  const senderName = isLocked
+    ? "Chatty"
+    : message.senderName || message.sender?.fullName || "User";
+  const avatar = isLocked ? "" : message.avatar || message.sender?.avatar || "";
+  const text = isLocked ? "You have a new message" : message.text;
 
   if (canShowDesktop) {
     const notif = showDesktopNotification({
       senderName,
-      text: message.text,
+      text,
       chatId,
       avatar,
-      messageType: message.file
-        ? "file"
-        : message.image
-          ? "image"
-          : message.video
-            ? "video"
-            : message.audio
-              ? "audio"
-              : message.location
-                ? "location"
-                : "text",
-      hasImage: Boolean(message.image?.url || message.image),
-      hasVideo: Boolean(message.video?.url || message.video),
-      hasAudio: Boolean(message.audio?.url || message.audio),
-      hasFile: Boolean(message.file?.url || message.file),
-      hasLocation: Boolean(message.location?.lat),
+      messageType: isLocked
+        ? "text"
+        : message.file
+          ? "file"
+          : message.image
+            ? "image"
+            : message.video
+              ? "video"
+              : message.audio
+                ? "audio"
+                : message.location
+                  ? "location"
+                  : "text",
+      hasImage: isLocked ? false : Boolean(message.image?.url || message.image),
+      hasVideo: isLocked ? false : Boolean(message.video?.url || message.video),
+      hasAudio: isLocked ? false : Boolean(message.audio?.url || message.audio),
+      hasFile: isLocked ? false : Boolean(message.file?.url || message.file),
+      hasLocation: isLocked ? false : Boolean(message.location?.lat),
       messageId: msgId,
-      showPreview: settings.showPreview,
+      showPreview: isLocked ? false : settings.showPreview,
       desktopNotifications: true,
-      onNotificationClick:
-        options.onNotificationClick || message.onNotificationClick,
+      onNotificationClick: isLocked
+        ? null
+        : options.onNotificationClick || message.onNotificationClick,
     });
     result.desktopShown = Boolean(notif);
     result.channel = "desktop";
   } else {
     // In-app fallback toast
-    const { title, body } = formatNotificationPreview({
-      text: message.text,
-      showPreview: settings.showPreview,
-      senderName,
-      messageType: message.file
-        ? "file"
-        : message.image
-          ? "image"
-          : message.video
-            ? "video"
-            : message.audio
-              ? "audio"
-              : message.location
-                ? "location"
-                : "text",
-      hasImage: Boolean(message.image?.url || message.image),
-      hasVideo: Boolean(message.video?.url || message.video),
-      hasAudio: Boolean(message.audio?.url || message.audio),
-      hasFile: Boolean(message.file?.url || message.file),
-      hasLocation: Boolean(message.location?.lat),
-    });
+    let title, body;
+    if (isLocked) {
+      title = "New message";
+      body = "You have a new message";
+    } else {
+      const preview = formatNotificationPreview({
+        text: message.text,
+        showPreview: settings.showPreview,
+        senderName,
+        messageType: message.file
+          ? "file"
+          : message.image
+            ? "image"
+            : message.video
+              ? "video"
+              : message.audio
+                ? "audio"
+                : message.location
+                  ? "location"
+                  : "text",
+        hasImage: Boolean(message.image?.url || message.image),
+        hasVideo: Boolean(message.video?.url || message.video),
+        hasAudio: Boolean(message.audio?.url || message.audio),
+        hasFile: Boolean(message.file?.url || message.file),
+        hasLocation: Boolean(message.location?.lat),
+      });
+      title = preview.title;
+      body = preview.body;
+    }
 
     try {
       customToast(body, {
@@ -744,10 +761,7 @@ export const handleIncomingMessage = (message, options = {}) => {
       result.toastShown = true;
       result.channel = "toast";
     } catch (err) {
-      console.warn(
-        "[notificationService] In-app toast failed:",
-        err?.message,
-      );
+      console.warn("[notificationService] In-app toast failed:", err?.message);
     }
   }
 

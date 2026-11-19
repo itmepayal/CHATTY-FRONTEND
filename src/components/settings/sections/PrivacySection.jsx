@@ -31,17 +31,18 @@ export default function PrivacySection({
 }) {
   const { updateExceptions } = usePrivacyStore();
   const { authUser, blockedUsersList, fetchBlockedUsers } = useAuthStore();
-  const {
-    isConfigured,
-    autoLockDuration,
-    biometricsEnabled,
-    lockNow,
-  } = useAppLockStore();
+  const { isConfigured, autoLockDuration, biometricsEnabled, lockNow } =
+    useAppLockStore();
   const groups = useGroupStore((s) => s.groups || []);
+  const isGroupsLoading = useGroupStore((s) => s.isGroupsLoading);
+  const getMyGroups = useGroupStore((s) => s.getMyGroups);
 
   useEffect(() => {
     fetchBlockedUsers();
-  }, [fetchBlockedUsers]);
+    if (!groups.length && getMyGroups) {
+      getMyGroups({ silent: true });
+    }
+  }, [fetchBlockedUsers, getMyGroups, groups.length]);
 
   // Modals state
   const [checkupOpen, setCheckupOpen] = useState(false);
@@ -85,8 +86,12 @@ export default function PrivacySection({
   );
   const lockedList = (privacy?.lockedChats || []).map(String);
   const groupIds = new Set(groups.map((g) => String(g._id ?? g.id)));
-  const lockedGroupCount = lockedList.filter((id) => groupIds.has(id)).length;
-  const lockedIndividualCount = lockedList.filter((id) => !groupIds.has(id)).length;
+  const lockedGroupCount = isGroupsLoading
+    ? null
+    : lockedList.filter((id) => groupIds.has(id)).length;
+  const lockedIndividualCount = isGroupsLoading
+    ? null
+    : lockedList.filter((id) => !groupIds.has(id)).length;
 
   return (
     <div className="space-y-5">
@@ -300,24 +305,33 @@ export default function PrivacySection({
                   </p>
                   <span
                     className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                      lockedIndividualCount > 0
-                        ? "bg-primary/10 text-primary border-primary/20"
-                        : "bg-base-200 text-base-content/60 border-base-300"
+                      isGroupsLoading
+                        ? "bg-base-200 text-base-content/40 border-base-300"
+                        : lockedIndividualCount > 0
+                          ? "bg-primary/10 text-primary border-primary/20"
+                          : "bg-base-200 text-base-content/60 border-base-300"
                     }`}
                   >
-                    {lockedIndividualCount > 0 ? "Active" : "Inactive"}
+                    {isGroupsLoading
+                      ? "..."
+                      : lockedIndividualCount > 0
+                        ? "Active"
+                        : "Inactive"}
                   </span>
                 </div>
                 <p className="text-xs text-base-content/60 mt-1">
-                  Individual direct conversations have independent lock settings.
-                  Open any chat&apos;s Contact Info to lock or unlock it with your PIN.
+                  Individual direct conversations have independent lock
+                  settings. Open any chat&apos;s Contact Info to lock or unlock
+                  it with your PIN.
                 </p>
                 <p className="text-xs font-medium text-base-content/80 mt-2">
-                  {lockedIndividualCount > 0
-                    ? `${lockedIndividualCount} conversation${
-                        lockedIndividualCount === 1 ? "" : "s"
-                      } locked with PIN`
-                    : "No individual conversations locked"}
+                  {isGroupsLoading
+                    ? "Loading lock status..."
+                    : lockedIndividualCount > 0
+                      ? `${lockedIndividualCount} conversation${
+                          lockedIndividualCount === 1 ? "" : "s"
+                        } locked with PIN`
+                      : "No individual conversations locked"}
                 </p>
               </div>
             </div>
@@ -338,24 +352,32 @@ export default function PrivacySection({
                   </p>
                   <span
                     className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                      lockedGroupCount > 0
-                        ? "bg-primary/10 text-primary border-primary/20"
-                        : "bg-base-200 text-base-content/60 border-base-300"
+                      isGroupsLoading
+                        ? "bg-base-200 text-base-content/40 border-base-300"
+                        : lockedGroupCount > 0
+                          ? "bg-primary/10 text-primary border-primary/20"
+                          : "bg-base-200 text-base-content/60 border-base-300"
                     }`}
                   >
-                    {lockedGroupCount > 0 ? "Active" : "Inactive"}
+                    {isGroupsLoading
+                      ? "..."
+                      : lockedGroupCount > 0
+                        ? "Active"
+                        : "Inactive"}
                   </span>
                 </div>
                 <p className="text-xs text-base-content/60 mt-1">
-                  Each group chat has an independent security configuration. Open
-                  any group&apos;s Group Info panel to manage its lock.
+                  Each group chat has an independent security configuration.
+                  Open any group&apos;s Group Info panel to manage its lock.
                 </p>
                 <p className="text-xs font-medium text-base-content/80 mt-2">
-                  {lockedGroupCount > 0
-                    ? `${lockedGroupCount} group${
-                        lockedGroupCount === 1 ? "" : "s"
-                      } locked with PIN`
-                    : "No group chats locked"}
+                  {isGroupsLoading
+                    ? "Loading lock status..."
+                    : lockedGroupCount > 0
+                      ? `${lockedGroupCount} group${
+                          lockedGroupCount === 1 ? "" : "s"
+                        } locked with PIN`
+                      : "No group chats locked"}
                 </p>
               </div>
             </div>
@@ -399,9 +421,7 @@ export default function PrivacySection({
       <AppLockModal
         isOpen={appLockModal.open}
         initialMode={appLockModal.initialMode}
-        onClose={() =>
-          setAppLockModal({ open: false, initialMode: "VIEW" })
-        }
+        onClose={() => setAppLockModal({ open: false, initialMode: "VIEW" })}
       />
     </div>
   );

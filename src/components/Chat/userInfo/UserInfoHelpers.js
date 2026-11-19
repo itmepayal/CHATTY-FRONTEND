@@ -71,6 +71,7 @@ export const getAvatar = (avatar) =>
 
 export const previewLastMessage = (msg) => {
   if (!msg || msg.isDeleted) return "";
+  if (msg.isLocked) return "🔒 Locked conversation";
   const text = msg.text?.trim();
   if (text) return text.length > 60 ? `${text.slice(0, 60)}…` : text;
   if (msg.image?.url) return "📷 Photo";

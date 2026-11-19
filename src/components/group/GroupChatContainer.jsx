@@ -71,6 +71,7 @@ import { whenE2EEReady } from "../../lib/e2ee.js";
 import { displayText } from "../../lib/e2eeMessages.js";
 import AiAssist from "../common/AiAssist.jsx";
 import E2EENotice from "../common/E2EENotice.jsx";
+import ExpandableMessage from "../common/ExpandableMessage.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoRecorderModal from "./VideoRecorderModal.jsx";
 // ---- group calls ----
@@ -997,15 +998,17 @@ const MessageRow = memo(function MessageRow({
                       </p>
                     </div>
                   ) : (
-                    <p
-                      className={`whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed ${
+                    <ExpandableMessage
+                      text={displayText(m)}
+                      messageId={m.id || m._id || m.clientId}
+                      isMine={mine}
+                      className={
                         largeEmoji && isEmojiOnly(m.text)
                           ? "text-4xl leading-tight"
                           : cs.text
-                      }`}
-                    >
-                      {displayText(m)}
-                    </p>
+                      }
+                      maxLines={8}
+                    />
                   ))}
               </div>
             )}

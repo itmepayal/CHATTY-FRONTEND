@@ -555,8 +555,17 @@ export const useAuthStore = create((set, get) => ({
         get().disconnectSocket();
         set({ authUser: null });
         try {
-          useAppearanceStore.getState().reset();
+          useAppLockStore.getState().reset?.();
+          useChatLockStore.getState().reset?.();
+          usePrivacyStore.getState().resetPrivacy?.();
+          useAppearanceStore.getState().reset?.();
           clearE2EECache();
+          import("./useChatStore.js").then(({ useChatStore }) => {
+            useChatStore.setState({ messages: [], selectedUser: null, users: [] });
+          });
+          import("./useGroupStore.js").then(({ useGroupStore }) => {
+            useGroupStore.setState({ groupMessages: [], selectedGroup: null, groups: [] });
+          });
         } catch {
           void 0;
         }
@@ -680,6 +689,24 @@ export const useAuthStore = create((set, get) => ({
       window.dispatchEvent(
         new CustomEvent("chatty:session-revoked", { detail: { sessionId } }),
       );
+      get().disconnectSocket();
+      set({ authUser: null });
+      try {
+        useAppLockStore.getState().reset?.();
+        useChatLockStore.getState().reset?.();
+        usePrivacyStore.getState().resetPrivacy?.();
+        useAppearanceStore.getState().reset?.();
+        clearE2EECache();
+        import("./useChatStore.js").then(({ useChatStore }) => {
+          useChatStore.setState({ messages: [], selectedUser: null, users: [] });
+        });
+        import("./useGroupStore.js").then(({ useGroupStore }) => {
+          useGroupStore.setState({ groupMessages: [], selectedGroup: null, groups: [] });
+        });
+      } catch {
+        void 0;
+      }
+      toast.error("Your session was revoked. Please sign in again.");
     });
 
     socket.on("session:revoke-others", ({ keepSessionId }) => {

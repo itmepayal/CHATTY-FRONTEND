@@ -20,6 +20,8 @@ import {
   loadLockoutState,
   saveLockoutState,
   getLockoutDurationSeconds,
+  isAppLockActiveSync,
+  setAppLockActiveSync,
 } from "../lib/appLockStorage.js";
 
 let lastActiveTime = Date.now();
@@ -31,6 +33,7 @@ export const useAppLockStore = create((set, get) => ({
   isLocked: false,
   isUnlockedThisSession: false,
   isConfigured: false,
+  unlockToken: null,
   autoLockDuration: "immediately",
   biometricsEnabled: false,
   biometricsSupported: false,
@@ -60,6 +63,7 @@ export const useAppLockStore = create((set, get) => ({
       isLocked: false,
       isUnlockedThisSession: false,
       isConfigured: false,
+      unlockToken: null,
       autoLockDuration: "immediately",
       biometricsEnabled: false,
       biometricsSupported: false,
@@ -92,11 +96,20 @@ export const useAppLockStore = create((set, get) => ({
     set({ biometricsSupported });
 
     const localConfig = loadLocalConfig(safeUid);
+    const serverEnabled = Boolean(userPrivacy?.appLockEnabled);
+    const syncActive = isAppLockActiveSync(safeUid);
 
-    // App Lock is strictly configured ONLY if this specific user has a verified PIN on this device
+    // App Lock is configured if local config exists OR server privacy says it's enabled OR persisted active flag
     const isConfigured = Boolean(
-      localConfig?.enabled === true && localConfig?.verifier
+      (localConfig?.enabled === true && localConfig?.verifier) ||
+      serverEnabled ||
+      syncActive,
     );
+
+    if (isConfigured) {
+      setAppLockActiveSync(safeUid, true);
+    }
+
     const autoLockDuration =
       localConfig?.timeout || userPrivacy?.appLockTimeout || "immediately";
     const biometricsEnabled = Boolean(localConfig?.biometricsEnabled);
@@ -122,7 +135,7 @@ export const useAppLockStore = create((set, get) => ({
     }
 
     if (isConfigured) {
-      const unlocked = isSessionUnlocked(safeUid);
+      const unlocked = isSessionUnlocked(safeUid, autoLockDuration);
       set({ isLocked: !unlocked, isUnlockedThisSession: unlocked });
     } else {
       set({ isLocked: false, isUnlockedThisSession: false });
@@ -193,61 +206,105 @@ export const useAppLockStore = create((set, get) => ({
       return false;
     }
 
-    const cfg = loadLocalConfig(activeUserId);
-    if (!cfg?.enabled || !cfg?.verifier) {
-      set({ isLocked: false, isUnlockedThisSession: true, isConfigured: false });
-      return true;
-    }
+    try {
+      const res = await axiosInstance.post("/users/lock/verify", {
+        pin: enteredPin,
+        scope: "app",
+      });
 
-    const isValid = await verifyPinPbkdf2(enteredPin, cfg.verifier);
+      const unlockToken = res.data?.data?.unlockToken;
+      const autoLockDuration = get().autoLockDuration;
+      const timeoutMs = TIMEOUT_MS[autoLockDuration] ?? 0;
 
-    if (isValid) {
-      if (!cfg.verifier.startsWith("pbkdf2:")) {
+      setSessionUnlocked(activeUserId, true, timeoutMs);
+      saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
+
+      // Save/refresh local verifier for offline convenience
+      try {
+        const cfg = loadLocalConfig(activeUserId) || { enabled: true };
         const { verifier } = await hashPinPbkdf2(enteredPin);
         cfg.verifier = verifier;
         saveLocalConfig(activeUserId, cfg);
-      }
-
-      setSessionUnlocked(activeUserId, true);
-      saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
+      } catch {}
 
       set({
+        unlockToken,
         isLocked: false,
         isUnlockedThisSession: true,
         failedAttempts: 0,
         lockoutUntil: 0,
         remainingCooldownSeconds: 0,
       });
+
+      // Synchronize with chat lock store
+      try {
+        const { useChatLockStore } = await import("./useChatLockStore.js");
+        useChatLockStore.setState((s) => ({
+          unlockTokens: { ...s.unlockTokens, app: unlockToken },
+        }));
+      } catch {}
+
       lastActiveTime = Date.now();
       return true;
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 429) {
+        const remaining = err.response?.data?.remainingSeconds || 30;
+        get().startCooldownTimer(remaining);
+        toast.error(
+          `Too many failed attempts. Locked for ${remaining} seconds.`,
+        );
+        return false;
+      }
+
+      // Check local verifier fallback if offline / network error
+      if (!status || status >= 500) {
+        const cfg = loadLocalConfig(activeUserId);
+        if (cfg?.verifier) {
+          const isValid = await verifyPinPbkdf2(enteredPin, cfg.verifier);
+          if (isValid) {
+            setSessionUnlocked(activeUserId, true);
+            set({ isLocked: false, isUnlockedThisSession: true });
+            return true;
+          }
+        }
+      }
+
+      const newAttempts = get().failedAttempts + 1;
+      const cooldownSecs = getLockoutDurationSeconds(newAttempts);
+      const lockoutUntil =
+        cooldownSecs > 0 ? Date.now() + cooldownSecs * 1000 : 0;
+
+      saveLockoutState(activeUserId, {
+        failedAttempts: newAttempts,
+        lockoutUntil,
+      });
+      set({ failedAttempts: newAttempts, lockoutUntil });
+
+      if (cooldownSecs > 0) {
+        get().startCooldownTimer(cooldownSecs);
+        toast.error(
+          `Too many failed attempts. Locked for ${cooldownSecs} seconds.`,
+        );
+      } else {
+        const rem = Math.max(0, 5 - newAttempts);
+        toast.error(
+          rem > 0
+            ? `Incorrect PIN. ${rem} attempt${rem === 1 ? "" : "s"} before lockout.`
+            : "Incorrect PIN.",
+        );
+      }
+      return false;
     }
-
-    const newAttempts = get().failedAttempts + 1;
-    const cooldownSecs = getLockoutDurationSeconds(newAttempts);
-    const lockoutUntil = cooldownSecs > 0 ? Date.now() + cooldownSecs * 1000 : 0;
-
-    saveLockoutState(activeUserId, { failedAttempts: newAttempts, lockoutUntil });
-    set({ failedAttempts: newAttempts, lockoutUntil });
-
-    if (cooldownSecs > 0) {
-      get().startCooldownTimer(cooldownSecs);
-      toast.error(
-        `Too many failed attempts. Locked for ${cooldownSecs} seconds.`,
-      );
-    } else {
-      const rem = 4 - newAttempts;
-      toast.error(
-        rem > 0
-          ? `Incorrect PIN. ${rem} attempt${rem === 1 ? "" : "s"} before lockout.`
-          : "Incorrect PIN.",
-      );
-    }
-    return false;
   },
 
   unlockWithBiometrics: async () => {
     const { activeUserId, biometricsEnabled, remainingCooldownSeconds } = get();
-    if (!isValidUserId(activeUserId) || remainingCooldownSeconds > 0 || !biometricsEnabled) {
+    if (
+      !isValidUserId(activeUserId) ||
+      remainingCooldownSeconds > 0 ||
+      !biometricsEnabled
+    ) {
       return false;
     }
 
@@ -303,6 +360,10 @@ export const useAppLockStore = create((set, get) => ({
         }
       }
 
+      // 1. Call server setup FIRST
+      await axiosInstance.post("/users/lock/setup", { pin });
+
+      // 2. Hash PIN locally for device convenience
       const { verifier } = await hashPinPbkdf2(pin);
 
       const newConfig = {
@@ -313,13 +374,18 @@ export const useAppLockStore = create((set, get) => ({
       };
 
       saveLocalConfig(activeUserId, newConfig);
-      setSessionUnlocked(activeUserId, true);
+      setAppLockActiveSync(activeUserId, true);
+      const timeoutMs = TIMEOUT_MS[duration] ?? 0;
+      setSessionUnlocked(activeUserId, true, timeoutMs);
 
-      await usePrivacyStore.getState().setPrivacy({
-        appLockEnabled: true,
-        appLockTimeout: duration,
-        appLockPinHash: verifier,
-      });
+      // 3. Update privacy store state
+      usePrivacyStore.setState((s) => ({
+        privacy: {
+          ...s.privacy,
+          appLockEnabled: true,
+          appLockTimeout: duration,
+        },
+      }));
 
       set({
         status: "active",
@@ -333,7 +399,8 @@ export const useAppLockStore = create((set, get) => ({
       return true;
     } catch (err) {
       console.error("[appLock] setupPin error:", err);
-      toast.error("Failed to configure PIN.");
+      const msg = err.response?.data?.message || "Failed to configure PIN.";
+      toast.error(msg);
       return false;
     }
   },
@@ -342,20 +409,27 @@ export const useAppLockStore = create((set, get) => ({
     const { activeUserId } = get();
     if (!isValidUserId(activeUserId)) return false;
 
-    const cfg = loadLocalConfig(activeUserId);
-    if (!cfg?.verifier) return false;
+    try {
+      // 1. Verify current PIN against server
+      await axiosInstance.post("/users/lock/verify", {
+        pin: currentPin,
+        scope: "app",
+      });
 
-    const isValid = await verifyPinPbkdf2(currentPin, cfg.verifier);
-    if (!isValid) {
-      toast.error("Incorrect current PIN.");
+      // 2. Setup new PIN on server
+      await axiosInstance.post("/users/lock/setup", { pin: newPin });
+
+      const { verifier } = await hashPinPbkdf2(newPin);
+      const cfg = loadLocalConfig(activeUserId) || { enabled: true };
+      cfg.verifier = verifier;
+      saveLocalConfig(activeUserId, cfg);
+      toast.success("PIN changed successfully.");
+      return true;
+    } catch (err) {
+      const msg = err.response?.data?.message || "Failed to change PIN.";
+      toast.error(msg);
       return false;
     }
-
-    const { verifier } = await hashPinPbkdf2(newPin);
-    cfg.verifier = verifier;
-    saveLocalConfig(activeUserId, cfg);
-    toast.success("PIN changed successfully.");
-    return true;
   },
 
   disablePin: async (enteredPin) => {
@@ -363,35 +437,40 @@ export const useAppLockStore = create((set, get) => ({
       const { activeUserId } = get();
       if (!isValidUserId(activeUserId)) return false;
 
-      const cfg = loadLocalConfig(activeUserId);
-      if (cfg?.verifier) {
-        const isValid = await verifyPinPbkdf2(enteredPin, cfg.verifier);
-        if (!isValid) {
-          toast.error("Incorrect PIN.");
-          return false;
-        }
-      }
+      // 1. Call server disable endpoint with step-up PIN
+      await axiosInstance.post("/users/lock/disable", { pin: enteredPin });
 
       saveLocalConfig(activeUserId, null);
+      setAppLockActiveSync(activeUserId, false);
       clearSessionUnlock(activeUserId);
 
-      await usePrivacyStore.getState().setPrivacy({
-        appLockEnabled: false,
-        appLockPinHash: null,
-      });
+      usePrivacyStore.setState((s) => ({
+        privacy: {
+          ...s.privacy,
+          appLockEnabled: false,
+          lockedChats: [],
+        },
+      }));
 
       set({
+        unlockToken: null,
         status: "inactive",
         isLocked: false,
         isUnlockedThisSession: false,
         isConfigured: false,
       });
 
+      try {
+        const { useChatLockStore } = await import("./useChatLockStore.js");
+        useChatLockStore.getState().reset();
+      } catch {}
+
       toast.success("App lock disabled.");
       return true;
     } catch (err) {
       console.error("[appLock] disablePin error:", err);
-      toast.error("Failed to disable App lock.");
+      const msg = err.response?.data?.message || "Failed to disable App lock.";
+      toast.error(msg);
       return false;
     }
   },
@@ -454,7 +533,10 @@ export const useAppLockStore = create((set, get) => ({
         const { activeUserId } = get();
         if (isValidUserId(activeUserId)) {
           saveLocalConfig(activeUserId, null);
-          saveLockoutState(activeUserId, { failedAttempts: 0, lockoutUntil: 0 });
+          saveLockoutState(activeUserId, {
+            failedAttempts: 0,
+            lockoutUntil: 0,
+          });
           clearSessionUnlock(activeUserId);
         }
 

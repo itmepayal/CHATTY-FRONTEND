@@ -55,6 +55,7 @@ import {
 import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
 import { useChatStore } from "../../store/useChatStore";
+import { useChatLockStore } from "../../store/useChatLockStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useContactStore } from "../../store/useContactStore";
 import { useAppearanceStore } from "../../store/useAppearanceStore.js";
@@ -76,6 +77,7 @@ import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
 import AiAssist from "../common/AiAssist.jsx";
 import E2EENotice from "../common/E2EENotice.jsx";
+import ExpandableMessage from "../common/ExpandableMessage.jsx";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoMessage from "./VideoMessage.jsx";
 import {
@@ -2038,15 +2040,17 @@ const MessageRow = memo(function MessageRow({
                       </button>
                     </div>
                   ) : (
-                    <p
-                      className={`whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere] ${
+                    <ExpandableMessage
+                      text={displayText(m)}
+                      messageId={m.id || m._id || m.clientId}
+                      isMine={isMine}
+                      className={
                         largeEmoji && isEmojiOnly(m.text)
                           ? "text-4xl leading-tight"
                           : cs.text
-                      }`}
-                    >
-                      {displayText(m)}
-                    </p>
+                      }
+                      maxLines={8}
+                    />
                   ))}
 
                 {hasPreview && (
@@ -2446,6 +2450,7 @@ const ChatContainer = ({ onToggleInfo }) => {
 
   useEffect(() => {
     if (selectedUser?.id) {
+      if (useChatLockStore.getState().isChatLocked(selectedUser.id)) return;
       getMessage(selectedUser.id);
       if (document.visibilityState === "visible") {
         socket?.emit?.("chat:open", selectedUser.id);

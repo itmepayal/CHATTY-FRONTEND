@@ -65,10 +65,21 @@ const App = () => {
 
   useGroupCallListeners();
 
+  const isAppLocked = useAppLockStore((s) => s.isLocked && s.isConfigured);
   const showNavbar = pathname === "/" || pathname === "/landing";
 
   if (isCheckingAuth && !authUser) {
     return <ChattyLoader />;
+  }
+
+  // Defensive DOM protection: If App Lock is active, render only the lock screen
+  if (authUser && isAppLocked) {
+    return (
+      <div className="min-h-screen bg-base-100 text-base-content">
+        <AppLockScreen />
+        <CustomToastContainer position="top-right" />
+      </div>
+    );
   }
 
   return (

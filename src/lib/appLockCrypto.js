@@ -23,6 +23,40 @@ function hexToBuf(hexString) {
 }
 
 /**
+ * Robust Base64URL to ArrayBuffer decoder.
+ * Supports URL-safe base64 characters (- and _) and missing padding.
+ */
+export function base64UrlToBuf(base64url) {
+  if (!base64url || typeof base64url !== "string") return new ArrayBuffer(0);
+  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+/**
+ * Robust ArrayBuffer to Base64URL encoder.
+ */
+export function bufToBase64Url(buffer) {
+  if (!buffer) return "";
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
  * Derives a PBKDF2-SHA256 verifier for a 4-digit PIN.
  * Output format: `pbkdf2:100000:<salt_hex>:<hash_hex>`
  */
@@ -152,7 +186,10 @@ export async function registerBiometrics(userId, userEmail) {
     },
   });
 
-  return credential?.id || null;
+  const rawId = credential?.rawId
+    ? bufToBase64Url(credential.rawId)
+    : credential?.id || null;
+  return rawId;
 }
 
 /**
@@ -167,7 +204,7 @@ export async function authenticateWithBiometrics(credentialId = null) {
   crypto.getRandomValues(challenge);
 
   const allowCredentials = credentialId
-    ? [{ id: hexToBuf(credentialId), type: "public-key" }]
+    ? [{ id: base64UrlToBuf(credentialId), type: "public-key" }]
     : [];
 
   const assertion = await navigator.credentials.get({

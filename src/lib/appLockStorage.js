@@ -27,22 +27,32 @@ export function getSessionUnlockedKey(userId) {
   return SESSION_UNLOCKED_KEY;
 }
 
-export function isSessionUnlocked(userId) {
+export function isSessionUnlocked(userId, autoLockDuration = null) {
+  if (autoLockDuration === "immediately") return false;
   try {
     if (typeof sessionStorage === "undefined") return false;
     const key = getSessionUnlockedKey(userId);
-    return sessionStorage.getItem(key) === "true";
+    const val = sessionStorage.getItem(key);
+    if (!val) return false;
+    if (val === "true") return true;
+    const exp = Number(val);
+    if (exp && exp > Date.now()) return true;
+    return false;
   } catch {
     return false;
   }
 }
 
-export function setSessionUnlocked(userId, unlocked) {
+export function setSessionUnlocked(userId, unlocked, timeoutMs = null) {
   try {
     if (typeof sessionStorage === "undefined") return;
     const key = getSessionUnlockedKey(userId);
     if (unlocked) {
-      sessionStorage.setItem(key, "true");
+      if (timeoutMs && timeoutMs > 0) {
+        sessionStorage.setItem(key, String(Date.now() + timeoutMs));
+      } else {
+        sessionStorage.setItem(key, "true");
+      }
     } else {
       sessionStorage.removeItem(key);
       sessionStorage.removeItem(SESSION_UNLOCKED_KEY);
@@ -54,6 +64,38 @@ export function setSessionUnlocked(userId, unlocked) {
 
 export function clearSessionUnlock(userId) {
   setSessionUnlocked(userId, false);
+}
+
+export function isAppLockActiveSync(userId) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return false;
+  }
+  try {
+    const uid = String(userId).trim();
+    const flag = localStorage.getItem(`${STORAGE_KEY_PREFIX}:active:${uid}`);
+    if (flag === "true") return true;
+    const cfg = loadLocalConfig(userId);
+    return Boolean(cfg?.enabled);
+  } catch {
+    return false;
+  }
+}
+
+export function setAppLockActiveSync(userId, active) {
+  if (!isValidUserId(userId) || typeof localStorage === "undefined") {
+    return;
+  }
+  try {
+    const uid = String(userId).trim();
+    const key = `${STORAGE_KEY_PREFIX}:active:${uid}`;
+    if (active) {
+      localStorage.setItem(key, "true");
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch (err) {
+    console.error("[appLock] setAppLockActiveSync error:", err);
+  }
 }
 
 export function getStorageKeys(userId) {

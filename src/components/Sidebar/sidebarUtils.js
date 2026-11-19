@@ -105,6 +105,7 @@ export const isFile = (m) =>
   !!(m.file || m.fileUrl || m.type === "file" || m.messageType === "file");
 
 export const getBody = (m) => {
+  if (m.isLocked) return "🔒 Locked conversation";
   if (m.decryptFailed || (m.encrypted && !m.decrypted))
     return "🔒 Encrypted message";
   if (m.text) return m.text;
@@ -118,6 +119,7 @@ export const getBody = (m) => {
 
 export const getPreview = (message, myId) => {
   if (!message) return "No messages yet";
+  if (message.isLocked) return "🔒 Locked conversation";
   if (message.isDeleted) return "This message was deleted";
 
   const base = getBody(message);
@@ -126,6 +128,7 @@ export const getPreview = (message, myId) => {
 
 export const getGroupPreview = (message, myId) => {
   if (!message) return "No messages yet";
+  if (message.isLocked) return "🔒 Locked conversation";
   if (message.isDeleted) return "This message was deleted";
 
   const who = sameId(message.senderId, myId)
@@ -172,7 +175,9 @@ export const normalizeCall = (c, myId, isGroup) => {
     outgoing ||
     c.seen === true ||
     c.isRead === true ||
-    (Array.isArray(c.readBy) && myId && c.readBy.some((id) => sameId(id, myId)));
+    (Array.isArray(c.readBy) &&
+      myId &&
+      c.readBy.some((id) => sameId(id, myId)));
 
   const unseenMissed = Boolean(missed && !outgoing && !isSeen);
 

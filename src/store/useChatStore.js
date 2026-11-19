@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useContactStore } from "../store/useContactStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatLockStore } from "./useChatLockStore.js";
 import notificationService from "../services/notificationService.js";
 import soundService from "../services/soundService.js";
@@ -558,6 +559,11 @@ export const useChatStore = create((set, get) => {
     /* ---------------- MESSAGES ---------------- */
     getMessage: async (id, { silent = false } = {}) => {
       if (!id) return;
+      if (useChatLockStore.getState().isChatLocked(id)) {
+        useChatLockStore.getState().openUnlockModal(id);
+        if (!silent) set({ isMessagesLoading: false });
+        return;
+      }
       const mySeq = (get()._messageFetchSeq || 0) + 1;
       set({
         _messageFetchSeq: mySeq,
@@ -598,6 +604,15 @@ export const useChatStore = create((set, get) => {
 
         if (isTabVisible()) get().markSeen(id);
       } catch (error) {
+        if (
+          error.response?.status === 423 ||
+          error.response?.data?.code === "CHAT_LOCKED" ||
+          error.code === "CHAT_LOCKED"
+        ) {
+          useChatLockStore.getState().openUnlockModal(id);
+          if (!silent) set({ isMessagesLoading: false });
+          return;
+        }
         if (
           get()._messageFetchSeq === mySeq &&
           sameId(get().selectedUser?.id, id)
@@ -830,7 +845,9 @@ export const useChatStore = create((set, get) => {
           sameId(incoming.receiverId, selectedUser.id);
 
         // 1. If currently viewing chat with the sender (incoming direct message)
-        if (isFromSelectedUser) {
+        if (incoming.isLocked) {
+          // Do not append redacted placeholder to messages list
+        } else if (isFromSelectedUser) {
           set((st) => {
             const exists = st.messages.some((m) => sameId(m.id, incoming.id));
             if (exists) return {};
@@ -1505,6 +1522,10 @@ export const useChatStore = create((set, get) => {
       const targetId = selectedUser
         ? (selectedUser.id ?? selectedUser._id)
         : null;
+      if (targetId && useChatLockStore.getState().isChatLocked(targetId)) {
+        useChatLockStore.getState().openUnlockModal(targetId);
+        return;
+      }
       const prev = get().selectedUser;
       const prevId = prev ? (prev.id ?? prev._id) : null;
       const isSwitching = !sameId(prevId, targetId);

@@ -21,6 +21,7 @@ import {
 } from "../lib/e2eeMessages.js";
 import { useAuthStore } from "../store/useAuthStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
+import { usePrivacyStore } from "./usePrivacyStore.js";
 import { useChatLockStore } from "./useChatLockStore.js";
 import notificationService from "../services/notificationService.js";
 import soundService from "../services/soundService.js";
@@ -577,6 +578,14 @@ export const useGroupStore = create((set, get) => ({
 
       set({ groupMessages: [...server, ...keep] });
     } catch (e) {
+      if (
+        e.response?.status === 423 ||
+        e.response?.data?.code === "CHAT_LOCKED" ||
+        e.code === "CHAT_LOCKED"
+      ) {
+        useChatLockStore.getState().openUnlockModal(groupId);
+        return;
+      }
       toast.error(errMsg(e));
     }
   },

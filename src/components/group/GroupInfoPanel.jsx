@@ -282,7 +282,7 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
               status={
                 isSavingLock
                   ? "verifying"
-                  : isLocked && isAppLockConfigured
+                  : isLocked
                     ? "active"
                     : "inactive"
               }

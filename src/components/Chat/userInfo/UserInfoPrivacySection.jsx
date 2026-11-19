@@ -215,7 +215,7 @@ export const UserInfoPrivacySection = ({ selectedId }) => {
 
   const lockStatus = isSaving
     ? "verifying"
-    : isChatLocked && isAppLockConfigured
+    : isChatLocked
       ? "active"
       : "inactive";
 
