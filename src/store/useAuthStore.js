@@ -14,12 +14,19 @@ import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 const baseUrl =
   import.meta?.env?.VITE_API_URL || globalThis.process?.env?.VITE_API_URL || "";
 
-const socketUrl = (() => {
-  if (!baseUrl || baseUrl.startsWith("/")) return undefined;
+const rawSocketUrl =
+  import.meta?.env?.VITE_SOCKET_URL ||
+  (import.meta?.env?.PROD
+    ? "https://chatty-backend-2l2t.onrender.com"
+    : "http://localhost:8080");
+
+const SOCKET_URL = (() => {
   try {
-    return new URL(baseUrl, window.location.origin).origin;
+    return new URL(rawSocketUrl, window.location.origin).origin;
   } catch {
-    return undefined;
+    return String(rawSocketUrl)
+      .replace(/\/api\/v1\/?$/, "")
+      .replace(/\/+$/, "");
   }
 })();
 
@@ -93,7 +100,11 @@ export const useAuthStore = create((set, get) => ({
         withCredentials: true,
       });
       const user = extractUser(res);
-      if (user) set({ authUser: user });
+      if (user) {
+        set((state) => ({
+          authUser: state.authUser ? { ...state.authUser, ...user } : user,
+        }));
+      }
     } catch (error) {
       console.error("Fetch current user error:", error);
       toast.error(error?.response?.data?.message || "Failed to load profile.");
@@ -268,7 +279,14 @@ export const useAuthStore = create((set, get) => ({
       const res = await axiosInstance.patch("/users/profile", data, {
         withCredentials: true,
       });
-      set({ authUser: extractUser(res) });
+      const updated = extractUser(res);
+      if (updated) {
+        set((state) => ({
+          authUser: state.authUser
+            ? { ...state.authUser, ...updated }
+            : updated,
+        }));
+      }
       toast.success("Profile updated successfully.");
     } catch (error) {
       console.error("Update profile error:", error);
@@ -306,7 +324,14 @@ export const useAuthStore = create((set, get) => ({
       const res = await axiosInstance.patch("/users/profile/avatar", formData, {
         withCredentials: true,
       });
-      set({ authUser: extractUser(res) });
+      const updated = extractUser(res);
+      if (updated) {
+        set((state) => ({
+          authUser: state.authUser
+            ? { ...state.authUser, ...updated }
+            : updated,
+        }));
+      }
       toast.success("Avatar updated successfully.");
     } catch (error) {
       console.error("Update avatar error:", error);
@@ -428,7 +453,14 @@ export const useAuthStore = create((set, get) => ({
             {},
             { withCredentials: true },
           );
-      set({ authUser: extractUser(res) });
+      const updated = extractUser(res);
+      if (updated) {
+        set((state) => ({
+          authUser: state.authUser
+            ? { ...state.authUser, ...updated }
+            : updated,
+        }));
+      }
     } catch (error) {
       toast.error(
         error?.response?.data?.message || "Failed to update favorites.",
@@ -481,15 +513,23 @@ export const useAuthStore = create((set, get) => ({
     existing?.removeAllListeners();
     existing?.disconnect();
 
-    const socket = io(socketUrl, {
+    set({ isSocketConnecting: true, isSocketConnected: false });
+
+    const socket = io(SOCKET_URL, {
       withCredentials: true,
+      transports: ["websocket", "polling"],
       auth: (cb) => {
         cb({ token: get().authUser?.token?.accessToken });
       },
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     socket.on("connect", () => {
       console.log("socket connected:", socket.id);
+      set({ isSocketConnected: true, isSocketConnecting: false });
       serverDisconnectRetries = 0;
       import("./useChatStore.js")
         .then(({ useChatStore }) => {
@@ -504,8 +544,17 @@ export const useAuthStore = create((set, get) => ({
         .catch(() => {});
     });
 
+    socket.io?.on("reconnect_attempt", () => {
+      set({ isSocketConnecting: true });
+    });
+
+    socket.io?.on("reconnect", () => {
+      set({ isSocketConnected: true, isSocketConnecting: false });
+    });
+
     socket.on("connect_error", async (err) => {
-      console.error("socket error:", err.message);
+      console.log("socket error:", err.message, err.description, err.context);
+      set({ isSocketConnected: false });
 
       const isSessionRevoked =
         err.message?.includes("Session revoked") ||
@@ -561,10 +610,18 @@ export const useAuthStore = create((set, get) => ({
           useAppearanceStore.getState().reset?.();
           clearE2EECache();
           import("./useChatStore.js").then(({ useChatStore }) => {
-            useChatStore.setState({ messages: [], selectedUser: null, users: [] });
+            useChatStore.setState({
+              messages: [],
+              selectedUser: null,
+              users: [],
+            });
           });
           import("./useGroupStore.js").then(({ useGroupStore }) => {
-            useGroupStore.setState({ groupMessages: [], selectedGroup: null, groups: [] });
+            useGroupStore.setState({
+              groupMessages: [],
+              selectedGroup: null,
+              groups: [],
+            });
           });
         } catch {
           void 0;
@@ -698,10 +755,18 @@ export const useAuthStore = create((set, get) => ({
         useAppearanceStore.getState().reset?.();
         clearE2EECache();
         import("./useChatStore.js").then(({ useChatStore }) => {
-          useChatStore.setState({ messages: [], selectedUser: null, users: [] });
+          useChatStore.setState({
+            messages: [],
+            selectedUser: null,
+            users: [],
+          });
         });
         import("./useGroupStore.js").then(({ useGroupStore }) => {
-          useGroupStore.setState({ groupMessages: [], selectedGroup: null, groups: [] });
+          useGroupStore.setState({
+            groupMessages: [],
+            selectedGroup: null,
+            groups: [],
+          });
         });
       } catch {
         void 0;
@@ -791,6 +856,7 @@ export const useAuthStore = create((set, get) => ({
 
     socket.on("disconnect", async (reason) => {
       console.log("[socket] disconnected:", reason);
+      set({ isSocketConnected: false, isSocketConnecting: false });
 
       if (reason !== "io server disconnect") return;
 
@@ -832,6 +898,8 @@ export const useAuthStore = create((set, get) => ({
     serverDisconnectRetries = 0;
     set({
       socket: null,
+      isSocketConnecting: false,
+      isSocketConnected: false,
       onlineUsers: [],
       hiddenUsers: [],
       blockedUsersList: [],
