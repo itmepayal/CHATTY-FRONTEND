@@ -146,7 +146,7 @@ export const LandingNavbar = ({
                 <>
                   <Link
                     to="/login"
-                    className={`btn btn-ghost btn-sm rounded-full px-4 font-medium ${focusRing}`}
+                    className={`btn btn-ghost btn-sm rounded-full px-4  font-medium ${focusRing}`}
                   >
                     Log in
                   </Link>

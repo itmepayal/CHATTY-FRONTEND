@@ -85,7 +85,7 @@ const App = () => {
   return (
     <CallProvider socket={socket}>
       <div className="min-h-screen bg-base-100 text-base-content">
-        {showNavbar && <Navbar />}
+        {showNavbar  && <Navbar />}
 
         <Routes>
           <Route path="/" element={<LandingPage />} />
