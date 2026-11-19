@@ -12,13 +12,12 @@ import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 
 const baseUrl =
-  import.meta?.env?.VITE_API_URL || globalThis.process?.env?.VITE_API_URL || "";
+  import.meta.env.VITE_API_URL ||
+  "https://chatty-backend-2l2t.onrender.com/api/v1";
 
 const rawSocketUrl =
-  import.meta?.env?.VITE_SOCKET_URL ||
-  (import.meta?.env?.PROD
-    ? "https://chatty-backend-2l2t.onrender.com"
-    : "http://localhost:8080");
+  import.meta.env.VITE_SOCKET_URL ||
+  "https://chatty-backend-2l2t.onrender.com";
 
 const SOCKET_URL = (() => {
   try {
