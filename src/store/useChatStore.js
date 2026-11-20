@@ -429,6 +429,8 @@ export const useChatStore = create((set, get) => {
 
   return {
     messages: [],
+    hasMoreMessages: false,
+    isLoadingMoreMessages: false,
     users: [],
     selectedUser: null,
     syncActiveChat: () => syncActiveChat(),
@@ -600,6 +602,7 @@ export const useChatStore = create((set, get) => {
             hydrated,
             silent ? s.messages : s.messages.filter(isChatMsg),
           ),
+          hasMoreMessages: (res.data?.data || []).length >= 50,
         }));
 
         if (isTabVisible()) get().markSeen(id);
@@ -623,6 +626,54 @@ export const useChatStore = create((set, get) => {
         if (!silent && get()._messageFetchSeq === mySeq) {
           set({ isMessagesLoading: false });
         }
+      }
+    },
+
+    loadMoreMessages: async (id) => {
+      if (!id || get().isLoadingMoreMessages || !get().hasMoreMessages) return;
+      set({ isLoadingMoreMessages: true });
+      try {
+        const isChatMsg = (m) =>
+          sameId(m.receiverId, id) || sameId(m.senderId, id);
+        const chatMsgs = get().messages.filter(isChatMsg);
+        const oldest = chatMsgs[0];
+        const oldestId = oldest?.id || oldest?._id;
+        if (!oldestId) {
+          set({ hasMoreMessages: false, isLoadingMoreMessages: false });
+          return;
+        }
+
+        const res = await axiosInstance.get(`/messages/${id}`, {
+          params: { cursor: oldestId, limit: 50, direction: "before" },
+        });
+        const raw = res.data?.data || [];
+        if (!raw.length) {
+          set({ hasMoreMessages: false, isLoadingMoreMessages: false });
+          return;
+        }
+
+        const server = await decryptDmList(raw, myId(), id);
+        const hydrated = server.map((m) => ({
+          ...m,
+          replyTo: hydrateReply(m.replyTo, server),
+        }));
+
+        set((s) => {
+          const existingIds = new Set(
+            s.messages.map((m) => String(m.id || m._id)),
+          );
+          const filteredNew = hydrated.filter(
+            (m) => !existingIds.has(String(m.id || m._id)),
+          );
+          return {
+            messages: [...filteredNew, ...s.messages],
+            hasMoreMessages: raw.length >= 50,
+          };
+        });
+      } catch (err) {
+        console.warn("[chat] loadMoreMessages error:", err);
+      } finally {
+        set({ isLoadingMoreMessages: false });
       }
     },
 
@@ -2265,3 +2316,9 @@ export const useChatStore = create((set, get) => {
     },
   };
 });
+
+if (typeof window !== "undefined") {
+  window.addEventListener("chatty:e2ee-ready", () => {
+    useChatStore.getState().redecryptFailed?.();
+  });
+}

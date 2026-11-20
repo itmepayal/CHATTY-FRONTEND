@@ -157,10 +157,11 @@ function formatDeviceDate(timestamp) {
  */
 function formatLastActive(dev, isCurrent) {
   if (isCurrent) return "Active now";
-  if (!dev?.lastActiveAt) return "Recently active";
+  const activeDate = dev?.lastActiveAt || dev?.lastActive;
+  if (!activeDate) return "Recently active";
 
   try {
-    const lastActive = new Date(dev.lastActiveAt);
+    const lastActive = new Date(activeDate);
     const now = new Date();
     const isToday = lastActive.toDateString() === now.toDateString();
 

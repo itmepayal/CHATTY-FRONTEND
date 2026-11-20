@@ -769,7 +769,6 @@ export const ScheduledModal = ({
           )}
         </div>
 
-        {/* Footer (safe-area aware) */}
         <div
           className={`${sectionPad} flex shrink-0 items-center justify-between gap-3 border-t border-base-200 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4`}
         >

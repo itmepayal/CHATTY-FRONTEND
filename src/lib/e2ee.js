@@ -96,14 +96,16 @@ export const wipeLocalKeys = () => {
   return e2eeManager.clear();
 };
 
-const importPublic = (jwk) =>
-  subtle.importKey(
+const importPublic = (jwk) => {
+  const obj = typeof jwk === "string" ? JSON.parse(jwk) : jwk;
+  return subtle.importKey(
     "jwk",
-    { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y },
+    { kty: obj.kty, crv: obj.crv, x: obj.x, y: obj.y },
     ECDH,
     true,
     [],
   );
+};
 
 const importPublicRaw = (raw) => subtle.importKey("raw", raw, ECDH, true, []);
 
@@ -317,10 +319,11 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
     );
     if (defaultDevEnv) orderedEnvelopes.push(defaultDevEnv);
 
-    // Only target envelopes addressed to this device (or legacy "default")
-    // Never attempt to decrypt envelopes destined for other devices
-    if (orderedEnvelopes.length === 0) {
-      throw new Error("Sent before this device was added");
+    // Also include any other envelope addressed to this user (e.g. from user's other authorized devices sharing master key)
+    for (const env of myEnvelopes) {
+      if (!orderedEnvelopes.includes(env)) {
+        orderedEnvelopes.push(env);
+      }
     }
 
     for (const env of orderedEnvelopes) {
@@ -401,12 +404,10 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
     try {
       return await runPairwise();
     } catch {
-      // Check if message had envelopes but not for this device
+      // Check if message had envelopes but not for this user
       if (Array.isArray(envelopes) && envelopes.length > 0) {
         const hasMyEnvelope = envelopes.some(
-          (e) =>
-            String(e.userId) === String(me.userId) &&
-            (e.deviceId === myDeviceId || e.deviceId === "default"),
+          (e) => String(e.userId) === String(me.userId),
         );
         if (!hasMyEnvelope) {
           throw new Error("Sent before this device was added");
@@ -472,11 +473,15 @@ export const loadGroupKeys = (groupId, { force = false } = {}) => {
 
     for (const k of keys) {
       const ck = gk(id, k.version);
-      if (groupKeyCache.has(ck) || !k.wrapperPublicKey) continue;
+      if (groupKeyCache.has(ck)) continue;
+      const wrapperPub =
+        k.wrapperPublicKey ||
+        (String(k.wrappedBy) === String(me.userId) ? me.publicJwk : null);
+      if (!wrapperPub) continue;
       try {
         const shared = await deriveShared(
           me.privateKey,
-          await importPublic(k.wrapperPublicKey),
+          await importPublic(wrapperPub),
         );
         const raw = await subtle.decrypt(
           { name: "AES-GCM", iv: unb64(k.iv) },

@@ -12,11 +12,11 @@ import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
 
 const baseUrl =
-  import.meta.env.VITE_API_URL ||
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
   "https://chatty-backend-2l2t.onrender.com/api/v1";
 
 const rawSocketUrl =
-  import.meta.env.VITE_SOCKET_URL ||
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SOCKET_URL) ||
   "https://chatty-backend-2l2t.onrender.com";
 
 const SOCKET_URL = (() => {
