@@ -2,7 +2,7 @@ import axios from "axios";
 
 export const axiosInstance = axios.create({
   baseURL:
-    import.meta.env.VITE_API_URL ||
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) ||
     "https://chatty-backend-2l2t.onrender.com/api/v1",
   withCredentials: true,
 });
@@ -96,4 +96,3 @@ axiosInstance.interceptors.response.use(
     }
   },
 );
-
