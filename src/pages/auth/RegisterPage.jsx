@@ -8,7 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   User,
   Mail,
@@ -451,6 +451,8 @@ const RegisterForm = () => {
 };
 
 const RegisterPage = () => {
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get("redirect");
   const reduceMotion = useReducedMotion();
   const isDesktop = useIsDesktop();
 
@@ -493,7 +495,11 @@ const RegisterPage = () => {
             <p className="text-center text-sm text-base-content/60">
               Already have an account?{" "}
               <Link
-                to="/login"
+                to={
+                  redirect
+                    ? `/login?redirect=${encodeURIComponent(redirect)}`
+                    : "/login"
+                }
                 className="link link-primary font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 Sign in

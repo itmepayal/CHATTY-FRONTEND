@@ -10,24 +10,7 @@ import { useAppearanceStore } from "./useAppearanceStore.js";
 import { useNotificationSettings } from "./useNotificationSettingsStore.js";
 import { initE2EE, clearE2EECache } from "../lib/e2ee.js";
 import { e2eeManager } from "../lib/e2ee/e2eeManager.js";
-
-const baseUrl =
-  import.meta?.env?.VITE_API_URL ||
-  "https://chatty-backend-2l2t.onrender.com/api/v1";
-
-const rawSocketUrl =
-  import.meta?.env?.VITE_SOCKET_URL ||
-  "https://chatty-backend-2l2t.onrender.com";
-
-const SOCKET_URL = (() => {
-  try {
-    return new URL(rawSocketUrl, window.location.origin).origin;
-  } catch {
-    return String(rawSocketUrl)
-      .replace(/\/api\/v1\/?$/, "")
-      .replace(/\/+$/, "");
-  }
-})();
+import { SOCKET_URL } from "../config/env.config.js";
 
 const extractUser = (res) => res?.data?.data?.user ?? res?.data?.data;
 

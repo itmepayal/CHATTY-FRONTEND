@@ -64,6 +64,10 @@ export const useSidebarData = () => {
     contactIds,
     loaded: contactsLoaded,
     fetchContacts,
+    requests,
+    fetchRequests,
+    fetchUnreadNotificationCount,
+    subscribeToSocketEvents,
     reset: resetContacts,
   } = useContactStore();
 
@@ -93,7 +97,15 @@ export const useSidebarData = () => {
     fetchGroups();
     fetchContacts();
     fetchCalls();
-  }, [getUsers, fetchGroups, fetchContacts, fetchCalls]);
+    fetchRequests();
+    fetchUnreadNotificationCount?.();
+  }, [getUsers, fetchGroups, fetchContacts, fetchCalls, fetchRequests, fetchUnreadNotificationCount]);
+
+  useEffect(() => {
+    if (socket && subscribeToSocketEvents) {
+      return subscribeToSocketEvents(socket);
+    }
+  }, [socket, subscribeToSocketEvents]);
 
   useEffect(() => {
     subscribeToCallEvents();
@@ -415,6 +427,8 @@ export const useSidebarData = () => {
     allChatUsers,
     isUsersLoading,
     contactsLoaded,
+    requests,
+    requestsCount: (requests?.incoming || []).length,
   };
 };
 

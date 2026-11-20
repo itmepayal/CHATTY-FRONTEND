@@ -321,6 +321,7 @@ export const PinnedBanner = ({
   previewText,
   onJump,
   onUnpin,
+  onViewAll,
 }) => (
   <CollapseBar
     show={Boolean(pin)}
@@ -362,6 +363,18 @@ export const PinnedBanner = ({
             </AnimatePresence>
           </span>
         </motion.button>
+
+        {onViewAll && total > 1 && (
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="btn btn-ghost btn-xs text-primary font-normal shrink-0"
+            onClick={onViewAll}
+          >
+            All ({total})
+          </motion.button>
+        )}
 
         <motion.button
           type="button"

@@ -6,15 +6,12 @@ import { IconButton } from "./ChatPrimitives";
 
 const SPRING = { type: "spring", stiffness: 450, damping: 36 };
 
-/**
- * ModalLayout
- * Centralized accessible modal container with responsive desktop dialog and mobile bottom sheet.
- */
 export const ModalLayout = ({
   open = false,
   onClose,
   children,
   size = "md",
+  centered = false,
   preventClose = false,
   className = "",
   containerClassName = "",
@@ -23,7 +20,6 @@ export const ModalLayout = ({
 }) => {
   const modalRef = useRef(null);
 
-  // Close on Escape key
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e) => {
@@ -48,7 +44,9 @@ export const ModalLayout = ({
   }, [open]);
 
   const SIZES = {
+    xs: "max-w-xs",
     sm: "sm:max-w-md",
+    qr: "max-w-[360px] sm:max-w-[400px]",
     md: "sm:max-w-lg",
     lg: "sm:max-w-xl",
     xl: "sm:max-w-2xl",
@@ -56,13 +54,25 @@ export const ModalLayout = ({
 
   const maxWidthClass = SIZES[size] || SIZES.md;
 
+  const containerAlignment = centered
+    ? "flex items-center justify-center p-3 sm:p-4"
+    : "flex items-end sm:items-center justify-center p-0 sm:p-4";
+
+  const panelRadius = centered
+    ? "rounded-2xl sm:rounded-3xl"
+    : "rounded-t-2xl sm:rounded-2xl";
+
+  const panelHeight = centered
+    ? "max-h-[calc(100dvh-1.5rem)] sm:max-h-[88vh]"
+    : "max-h-[92dvh] sm:max-h-[85vh]";
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <AnimatePresence>
       {open && (
         <div
-          className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overscroll-contain select-none ${containerClassName}`}
+          className={`fixed inset-0 z-50 ${containerAlignment} overscroll-contain select-none ${containerClassName}`}
           role="dialog"
           aria-modal="true"
           aria-labelledby={ariaLabelledBy}
@@ -84,22 +94,24 @@ export const ModalLayout = ({
           {/* Modal Panel */}
           <motion.div
             ref={modalRef}
-            initial={{ opacity: 0, y: 32, scale: 0.98 }}
+            initial={{ opacity: 0, y: centered ? 16 : 32, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 24, scale: 0.98 }}
+            exit={{ opacity: 0, y: centered ? 12 : 24, scale: 0.98 }}
             transition={SPRING}
             onClick={(e) => e.stopPropagation()}
-            className={`relative w-full ${maxWidthClass} max-h-[92dvh] sm:max-h-[85vh] flex flex-col bg-base-100 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-base-300 overflow-hidden z-10 ${className}`}
+            className={`relative w-full ${maxWidthClass} ${panelHeight} flex flex-col bg-base-100 ${panelRadius} shadow-2xl border border-base-300 overflow-hidden z-10 ${className}`}
           >
-            {/* Mobile swipe affordance pill */}
-            <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-base-300 sm:hidden" />
+            {/* Mobile swipe affordance pill (bottom sheets only) */}
+            {!centered && (
+              <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-base-300 sm:hidden" />
+            )}
 
             {children}
           </motion.div>
         </div>
       )}
     </AnimatePresence>,
-    document.body
+    document.body,
   );
 };
 
@@ -119,23 +131,23 @@ export const ModalHeader = ({
 }) => {
   return (
     <div
-      className={`px-5 py-4 sm:px-6 sm:py-4.5 flex items-center justify-between gap-3 border-b border-base-200/80 shrink-0 ${className}`}
+      className={`px-4 py-3.5 sm:px-6 sm:py-4.5 flex items-center justify-between gap-3 border-b border-base-200/80 shrink-0 ${className}`}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
         {Icon && (
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-semibold shadow-2xs">
-            <Icon className="size-5" aria-hidden="true" />
+          <span className="flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary font-semibold shadow-2xs">
+            <Icon className="size-4.5 sm:size-5" aria-hidden="true" />
           </span>
         )}
         <div className="min-w-0 leading-tight">
           <h2
             id={id}
-            className="truncate text-base sm:text-lg font-bold tracking-tight text-base-content/90"
+            className="truncate text-sm sm:text-base md:text-lg font-bold tracking-tight text-base-content/90"
           >
             {title}
           </h2>
           {subtitle && (
-            <p className="truncate text-xs text-base-content/55 mt-0.5">
+            <p className="text-xs text-base-content/60 mt-0.5 line-clamp-1 sm:line-clamp-none">
               {subtitle}
             </p>
           )}
@@ -262,7 +274,9 @@ export const FormField = ({
               {required && <span className="text-error font-bold">*</span>}
             </label>
           )}
-          {counter && <span className="text-base-content/50 text-[11px]">{counter}</span>}
+          {counter && (
+            <span className="text-base-content/50 text-[11px]">{counter}</span>
+          )}
         </div>
       )}
 

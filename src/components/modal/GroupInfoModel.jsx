@@ -5,6 +5,7 @@ import {
   Crown,
   LogOut,
   Pencil,
+  Pin,
   Shield,
   Trash2,
   UserMinus,
@@ -63,21 +64,24 @@ const GroupInfoModal = ({ open, onClose }) => {
 
   const myId = String(authUser?.id);
   const onlineIds = toIds(onlineUsers);
+  const members = Array.isArray(group?.members) ? group.members : [];
 
   const addable = useMemo(() => {
     if (!group) return [];
-    const inGroup = new Set(group.members.map((m) => String(m.id)));
+    const inGroup = new Set(
+      members.map((m) => String(m.id || m._id || m.userId)),
+    );
     return users.filter(
       (u) =>
         !u.isBlocked &&
         u.canAddToGroup !== false &&
         !inGroup.has(String(u.id)),
     );
-  }, [users, group]);
+  }, [users, group, members]);
 
   if (!group) return null;
 
-  const me = group.members.find((m) => sameId(m.id, myId));
+  const me = members.find((m) => sameId(m.id || m._id || m.userId, myId));
   const isAdmin = me?.role === "admin";
   const isOwner = sameId(group.owner, myId);
 
@@ -156,7 +160,7 @@ const GroupInfoModal = ({ open, onClose }) => {
         id="manage-group-title"
         icon={Users}
         title="Manage group"
-        subtitle={`${group.members.length} members`}
+        subtitle={`${members.length} members`}
         onClose={busy ? undefined : onClose}
       />
 
@@ -233,7 +237,7 @@ const GroupInfoModal = ({ open, onClose }) => {
             </div>
           )}
           <p className="text-xs text-base-content/60">
-            {group.members.length} members
+            {members.length} members
           </p>
         </div>
 
@@ -316,13 +320,42 @@ const GroupInfoModal = ({ open, onClose }) => {
           </div>
         )}
 
+        {/* Group Permissions */}
+        {isAdmin && (
+          <div className="space-y-2 rounded-xl border border-base-200 bg-base-200/40 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Pin className="size-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <h5 className="text-xs font-semibold truncate">Who can pin messages</h5>
+                  <p className="text-[11px] text-base-content/60 truncate">
+                    Control group message pin permissions
+                  </p>
+                </div>
+              </div>
+              <select
+                className="select select-bordered select-xs rounded-lg shrink-0"
+                value={group.whoCanPin || "all"}
+                disabled={busy}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  await run(() => updateGroup(group.id, { whoCanPin: val }));
+                }}
+              >
+                <option value="all">All members</option>
+                <option value="admins">Only admins</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         {/* Member list */}
         <div className="space-y-1">
           <h5 className="text-xs font-bold uppercase tracking-wider text-base-content/60 px-1">
-            Group members ({group.members.length})
+            Group members ({members.length})
           </h5>
           <ul className="space-y-1 max-h-56 overflow-y-auto overscroll-contain pr-1">
-            {group.members.map((m) => {
+            {members.map((m) => {
               const online = onlineIds.includes(String(m.id));
               const isGroupOwner = sameId(m.id, group.owner);
               return (

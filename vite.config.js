@@ -6,7 +6,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const target =
     env.VITE_BACKEND_URL ||
+    env.VITE_SOCKET_URL ||
+    (env.VITE_API_URL ? env.VITE_API_URL.replace(/\/api\/v1\/?$/, "") : null) ||
     process.env.VITE_BACKEND_URL ||
+    process.env.VITE_SOCKET_URL ||
     "http://localhost:8080";
 
   return {

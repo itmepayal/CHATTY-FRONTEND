@@ -101,6 +101,7 @@ const markDeleted = (m) => ({
   localPreview: null,
   reactions: [],
   isPinned: false,
+  isStarred: false,
   pinnedBy: null,
   pinnedAt: null,
   isDeleted: true,
@@ -361,6 +362,7 @@ export const useChatStore = create((set, get) => {
 
       if (msg._isVoice) formData.append("isVoice", "true");
       if (msg._isVideo) formData.append("isVideo", "true");
+      if (msg.isViewOnce || msg._isViewOnce) formData.append("isViewOnce", "true");
       if (msg._isVoice || msg._isVideo) {
         formData.append("duration", String(msg._duration || 0));
       }
@@ -438,6 +440,7 @@ export const useChatStore = create((set, get) => {
 
     replyingTo: null,
     editingMessage: null,
+    activeThread: null,
     scheduled: [],
     disappearAfter: 0,
 
@@ -614,6 +617,20 @@ export const useChatStore = create((set, get) => {
           return;
         }
         if (
+          error.response?.status === 403 &&
+          (error.response?.data?.code === "CONTACT_NOT_ACCEPTED" ||
+            error.response?.data?.message?.includes("contacts"))
+        ) {
+          if (
+            get()._messageFetchSeq === mySeq &&
+            sameId(get().selectedUser?.id, id)
+          ) {
+            set({ messages: [] });
+          }
+          if (!silent) set({ isMessagesLoading: false });
+          return;
+        }
+        if (
           get()._messageFetchSeq === mySeq &&
           sameId(get().selectedUser?.id, id)
         ) {
@@ -724,12 +741,17 @@ export const useChatStore = create((set, get) => {
 
     applyConversationUpdate: (u) =>
       set((s) => {
-        const exists = s.users.some((user) => sameId(user.id, u.userId));
+        const uidStr = String(u.userId?._id || u.userId?.id || u.userId || "");
+        const isValidId =
+          typeof uidStr === "string" && /^[a-f\d]{24}$/i.test(uidStr);
+        if (!isValidId) return {};
+
+        const exists = s.users.some((user) => sameId(user.id, uidStr));
         let updatedUsers;
         const newUnread = typeof u.unreadCount === "number" ? u.unreadCount : 0;
         if (exists) {
           updatedUsers = s.users.map((user) => {
-            if (!sameId(user.id, u.userId)) return user;
+            if (!sameId(user.id, uidStr)) return user;
             if (user.ts && u.ts && u.ts < user.ts) return user;
             return {
               ...user,
@@ -745,10 +767,14 @@ export const useChatStore = create((set, get) => {
         } else {
           const contact = useContactStore
             .getState()
-            .contacts?.find((c) => sameId(c.id, u.userId));
+            .contacts?.find((c) => sameId(c.id, uidStr));
+          // If not in contacts, fetch their profile asynchronously
+          if (!contact) {
+            get().fetchUserProfile(uidStr);
+          }
           const newUser = {
-            id: String(u.userId),
-            fullName: contact?.fullName || "User",
+            id: uidStr,
+            fullName: contact?.fullName || "Contact",
             avatar: contact?.avatar || "",
             unreadCount: newUnread,
             lastMessage: u.lastMessage || null,
@@ -761,11 +787,11 @@ export const useChatStore = create((set, get) => {
 
         const isViewing =
           s.selectedUser &&
-          sameId(s.selectedUser.id, u.userId) &&
+          sameId(s.selectedUser.id, uidStr) &&
           isTabVisible();
 
         const updatedSelectedUser =
-          s.selectedUser && sameId(s.selectedUser.id, u.userId)
+          s.selectedUser && sameId(s.selectedUser.id, uidStr)
             ? {
                 ...s.selectedUser,
                 unreadCount: isViewing ? 0 : newUnread,
@@ -824,8 +850,17 @@ export const useChatStore = create((set, get) => {
         });
 
         const isEncrypted = Boolean(raw.encrypted && raw.iv);
+        const senderIdClean = String(
+          raw.senderId?._id || raw.senderId?.id || raw.senderId || "",
+        );
+        const receiverIdClean = String(
+          raw.receiverId?._id || raw.receiverId?.id || raw.receiverId || "",
+        );
+
         const incoming = {
           ...raw,
+          senderId: senderIdClean,
+          receiverId: receiverIdClean,
           status:
             raw.status && raw.status !== "sending" ? raw.status : "delivered",
           cryptoState: isEncrypted ? "decrypting" : "plaintext",
@@ -907,6 +942,16 @@ export const useChatStore = create((set, get) => {
         const otherUserId = sameId(incoming.senderId, me)
           ? incoming.receiverId
           : incoming.senderId;
+
+        const isValidPeerId =
+          typeof otherUserId === "string" &&
+          /^[a-f\d]{24}$/i.test(otherUserId) &&
+          !sameId(otherUserId, me);
+
+        if (!isValidPeerId) {
+          return;
+        }
+
         const isCurrentOpenChat =
           selectedUser && sameId(otherUserId, selectedUser.id);
         const msgTs = incoming.createdAt
@@ -925,11 +970,23 @@ export const useChatStore = create((set, get) => {
                 : sameId(incoming.senderId, me)
                   ? 0
                   : 1;
+
+            if (!contactUser) {
+              get().fetchUserProfile(otherUserId);
+            }
+
             const newUser = {
               id: String(otherUserId),
               fullName:
-                contactUser?.fullName || incoming.sender?.fullName || "User",
-              avatar: contactUser?.avatar || incoming.sender?.avatar || "",
+                contactUser?.fullName ||
+                incoming.sender?.fullName ||
+                incoming.receiver?.fullName ||
+                "Contact",
+              avatar:
+                contactUser?.avatar ||
+                incoming.sender?.avatar ||
+                incoming.receiver?.avatar ||
+                "",
               unreadCount: newUnread,
               lastMessage: incoming,
               lastMessageAt: incoming.createdAt || new Date().toISOString(),
@@ -1118,26 +1175,199 @@ export const useChatStore = create((set, get) => {
         if (selectedUser && isTabVisible()) get().markSeen(selectedUser.id);
       };
 
-      const onReaction = ({ messageId, reactions }) => {
-        patchById(messageId, { reactions });
+      const onReaction = ({ messageId, reactions, reactionSummary, total }) => {
+        patchById(messageId, { reactions, reactionSummary, total });
+        const { activeThread } = get();
+        if (activeThread) {
+          if (sameId(activeThread.parentMessage?.id, messageId)) {
+            set((s) => ({
+              activeThread: {
+                ...s.activeThread,
+                parentMessage: { ...s.activeThread.parentMessage, reactions },
+              },
+            }));
+          } else {
+            set((s) => ({
+              activeThread: {
+                ...s.activeThread,
+                replies: (s.activeThread.replies || []).map((r) =>
+                  sameId(r.id, messageId) ? { ...r, reactions } : r
+                ),
+              },
+            }));
+          }
+        }
+      };
+
+      const onThreadReply = async ({ parentMessageId, reply }) => {
+        let decReply = reply;
+        try {
+          decReply = await decryptDmMessage(reply);
+        } catch {}
+        const { activeThread } = get();
+        if (
+          activeThread &&
+          sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
+        ) {
+          const replyId = decReply.id || decReply._id;
+          const exists = (activeThread.replies || []).some(
+            (r) =>
+              sameId(r.id || r._id, replyId) ||
+              (decReply.clientId && r.clientId && decReply.clientId === r.clientId)
+          );
+          if (exists) {
+            set((s) => ({
+              activeThread: {
+                ...s.activeThread,
+                replies: (s.activeThread.replies || []).map((r) =>
+                  sameId(r.id || r._id, replyId) ||
+                  (decReply.clientId && r.clientId && decReply.clientId === r.clientId)
+                    ? { ...r, ...decReply }
+                    : r
+                ),
+              },
+            }));
+            return;
+          }
+          set((s) => ({
+            activeThread: {
+              ...s.activeThread,
+              replies: [...(s.activeThread.replies || []), decReply],
+              totalReplies: (s.activeThread.totalReplies || 0) + 1,
+            },
+          }));
+        }
+      };
+
+      const onThreadUpdated = ({ parentMessageId, threadReplyCount, threadLastReplyAt }) => {
+        patchById(parentMessageId, { threadReplyCount, threadLastReplyAt });
+        const { activeThread } = get();
+        if (
+          activeThread &&
+          sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
+        ) {
+          set((s) => ({
+            activeThread: {
+              ...s.activeThread,
+              totalReplies:
+                threadReplyCount !== undefined ? threadReplyCount : s.activeThread.totalReplies,
+              parentMessage: s.activeThread.parentMessage
+                ? {
+                    ...s.activeThread.parentMessage,
+                    threadReplyCount:
+                      threadReplyCount !== undefined
+                        ? threadReplyCount
+                        : s.activeThread.parentMessage.threadReplyCount,
+                    threadLastReplyAt:
+                      threadLastReplyAt || s.activeThread.parentMessage.threadLastReplyAt,
+                  }
+                : s.activeThread.parentMessage,
+            },
+          }));
+        }
+      };
+
+      const onThreadReplyDeleted = ({ parentMessageId, replyId, threadReplyCount }) => {
+        const { activeThread } = get();
+        if (
+          activeThread &&
+          sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
+        ) {
+          set((s) => ({
+            activeThread: {
+              ...s.activeThread,
+              replies: (s.activeThread.replies || []).filter(
+                (r) => !sameId(r.id || r._id, replyId)
+              ),
+              totalReplies:
+                threadReplyCount !== undefined
+                  ? threadReplyCount
+                  : Math.max(0, (s.activeThread.totalReplies || 1) - 1),
+            },
+          }));
+        }
+        patchById(parentMessageId, { threadReplyCount });
+      };
+
+      const onPollUpdated = ({ messageId, poll }) => {
+        if (!messageId || !poll) return;
+        patchById(messageId, { poll });
+        set((s) => ({
+          users: s.users.map((u) => {
+            if (
+              u.lastMessage &&
+              sameId(u.lastMessage.id || u.lastMessage._id, messageId)
+            ) {
+              return {
+                ...u,
+                lastMessage: {
+                  ...u.lastMessage,
+                  poll,
+                },
+              };
+            }
+            return u;
+          }),
+        }));
+      };
+
+      const onViewOnceOpened = ({ messageId }) => {
+        patchById(messageId, {
+          viewOnceExpired: true,
+          image: null,
+          video: null,
+          file: null,
+        });
       };
 
       const onMessageDeleted = ({ messageId }) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            sameId(m.id, messageId) ? markDeleted(m) : m,
-          ),
-          editingMessage: sameId(s.editingMessage?.id, messageId)
-            ? null
-            : s.editingMessage,
-          replyingTo: sameId(s.replyingTo?.id, messageId) ? null : s.replyingTo,
-        }));
+        set((s) => {
+          const next = {
+            messages: s.messages.map((m) =>
+              sameId(m.id || m._id, messageId) ? markDeleted(m) : m,
+            ),
+            editingMessage: sameId(s.editingMessage?.id || s.editingMessage?._id, messageId)
+              ? null
+              : s.editingMessage,
+            replyingTo: sameId(s.replyingTo?.id || s.replyingTo?._id, messageId) ? null : s.replyingTo,
+          };
+          if (s.activeThread) {
+            const isParent = sameId(s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id, messageId);
+            const isReply = (s.activeThread.replies || []).some((r) => sameId(r.id || r._id, messageId));
+            if (isParent) {
+              next.activeThread = {
+                ...s.activeThread,
+                parentMessage: markDeleted(s.activeThread.parentMessage),
+              };
+            } else if (isReply) {
+              next.activeThread = {
+                ...s.activeThread,
+                replies: (s.activeThread.replies || []).map((r) =>
+                  sameId(r.id || r._id, messageId) ? markDeleted(r) : r
+                ),
+              };
+            }
+          }
+          return next;
+        });
       };
 
       const onMessageDeletedForMe = ({ messageId }) => {
-        set((s) => ({
-          messages: s.messages.filter((m) => !sameId(m.id, messageId)),
-        }));
+        set((s) => {
+          const next = {
+            messages: s.messages.filter((m) => !sameId(m.id || m._id, messageId)),
+          };
+          if (s.activeThread) {
+            const isReply = (s.activeThread.replies || []).some((r) => sameId(r.id || r._id, messageId));
+            if (isReply) {
+              next.activeThread = {
+                ...s.activeThread,
+                replies: (s.activeThread.replies || []).filter((r) => !sameId(r.id || r._id, messageId)),
+              };
+            }
+          }
+          return next;
+        });
       };
 
       const onMessagesDelivered = ({ messageIds }) => {
@@ -1245,6 +1475,26 @@ export const useChatStore = create((set, get) => {
         });
       };
 
+      const onStarred = ({ messageId, isStarred }) => {
+        patchById(messageId, { isStarred });
+      };
+
+      const onChatPinned = ({ userId, pinned }) => {
+        set((state) => ({
+          users: state.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isPinned: pinned } : u,
+          ),
+        }));
+      };
+
+      const onChatMuted = ({ userId, muted }) => {
+        set((state) => ({
+          users: state.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isMuted: muted } : u,
+          ),
+        }));
+      };
+
       const onLinkPreview = ({ messageId, linkPreview }) => {
         patchById(messageId, { linkPreview });
       };
@@ -1297,7 +1547,9 @@ export const useChatStore = create((set, get) => {
 
       const onScheduledSent = ({ scheduleId, receiverId }) => {
         set((st) => ({
-          scheduled: st.scheduled.filter((x) => !sameId(x._id || x.id, scheduleId)),
+          scheduled: st.scheduled.filter(
+            (x) => !sameId(x._id || x.id, scheduleId),
+          ),
         }));
         const sel = get().selectedUser;
         if (sel && receiverId && sameId(sel.id, receiverId)) {
@@ -1327,12 +1579,20 @@ export const useChatStore = create((set, get) => {
       socket.on("conversationUpdated", onConversationUpdated);
       socket.on("connect", onReconnect);
       socket.on("messageReaction", onReaction);
+      socket.on("threadReply", onThreadReply);
+      socket.on("threadUpdated", onThreadUpdated);
+      socket.on("threadReplyDeleted", onThreadReplyDeleted);
+      socket.on("pollUpdated", onPollUpdated);
+      socket.on("viewOnceOpened", onViewOnceOpened);
       socket.on("messageDeleted", onMessageDeleted);
       socket.on("messageDeletedForMe", onMessageDeletedForMe);
       socket.on("messagesDelivered", onMessagesDelivered);
       socket.on("messagesSeen", onMessagesSeen);
       socket.on("messageEdited", onEdited);
       socket.on("messagePinned", onPinned);
+      socket.on("messageStarred", onStarred);
+      socket.on("chatPinned", onChatPinned);
+      socket.on("chatMuted", onChatMuted);
       socket.on("messageLinkPreview", onLinkPreview);
       socket.on("disappearingUpdated", onDisappearingUpdated);
       socket.on("typing", onTyping);
@@ -1409,12 +1669,16 @@ export const useChatStore = create((set, get) => {
         _onMessagesSeen: onMessagesSeen,
         _onEdited: onEdited,
         _onPinned: onPinned,
+        _onStarred: onStarred,
+        _onChatPinned: onChatPinned,
+        _onChatMuted: onChatMuted,
         _onLinkPreview: onLinkPreview,
         _onDisappearing: onDisappearingUpdated,
         _onTyping: onTyping,
         _onChatArchived: onChatArchived,
         _onProfileUpdated: onProfileUpdated,
         _onPresenceUpdated: onPresenceUpdated,
+        _onPollUpdated: onPollUpdated,
       });
 
       syncActiveChat();
@@ -1433,6 +1697,11 @@ export const useChatStore = create((set, get) => {
           socket.off("conversationUpdated", s._onConversationUpdated);
         if (s._onReconnect) socket.off("connect", s._onReconnect);
         if (s._onReaction) socket.off("messageReaction", s._onReaction);
+        socket.off("threadReply");
+        socket.off("threadUpdated");
+        socket.off("threadReplyDeleted");
+        if (s._onPollUpdated) socket.off("pollUpdated", s._onPollUpdated);
+        socket.off("pollUpdated");
         if (s._onMessageDeleted)
           socket.off("messageDeleted", s._onMessageDeleted);
         if (s._onMessageDeletedForMe)
@@ -1442,6 +1711,9 @@ export const useChatStore = create((set, get) => {
         if (s._onMessagesSeen) socket.off("messagesSeen", s._onMessagesSeen);
         if (s._onEdited) socket.off("messageEdited", s._onEdited);
         if (s._onPinned) socket.off("messagePinned", s._onPinned);
+        if (s._onStarred) socket.off("messageStarred", s._onStarred);
+        if (s._onChatPinned) socket.off("chatPinned", s._onChatPinned);
+        if (s._onChatMuted) socket.off("chatMuted", s._onChatMuted);
         if (s._onLinkPreview)
           socket.off("messageLinkPreview", s._onLinkPreview);
         if (s._onDisappearing)
@@ -1559,6 +1831,7 @@ export const useChatStore = create((set, get) => {
           editingMessage: null,
           scheduled: [],
           disappearAfter: 0,
+          activeThread: null,
         }));
       } else {
         set((s) => ({
@@ -1572,6 +1845,7 @@ export const useChatStore = create((set, get) => {
             : s.users,
           replyingTo: null,
           editingMessage: null,
+          ...(!targetId ? { activeThread: null } : {}),
         }));
       }
 
@@ -1593,7 +1867,7 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- SEND ---------------- */
     // accepts text, attachment/imageFile, voice, video and (optional) replyTo message
-    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo }) => {
+    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo, isViewOnce }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       if (!selectedUser || !authUser) return;
@@ -1653,6 +1927,8 @@ export const useChatStore = create((set, get) => {
         replyTo: replySnapshot(replyMsg),
         reactions: [],
         isDeleted: false,
+        isViewOnce: Boolean(isViewOnce),
+        _isViewOnce: Boolean(isViewOnce),
         localPreview: isImg ? URL.createObjectURL(picked) : null,
         _file: picked,
         _replyId: replyMsg?.id || null,
@@ -1760,6 +2036,71 @@ export const useChatStore = create((set, get) => {
       } catch (error) {
         toast.error(errMsg(error, "Failed to load pinned messages"));
         return [];
+      }
+    },
+
+    /* ---------------- STAR ---------------- */
+    toggleStar: async (messageId) => {
+      try {
+        const res = await axiosInstance.patch(
+          `/users/star-message/${messageId}`,
+        );
+        const p = res.data.data;
+        patchById(messageId, {
+          isStarred: p.isStarred,
+        });
+        toast.success(p.isStarred ? "Message starred" : "Message unstarred");
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to update star"));
+      }
+    },
+
+    // GET /users/starred-messages/:id or /users/starred-messages (decrypted)
+    getStarred: async (userId) => {
+      try {
+        const url = userId
+          ? `/users/starred-messages/${userId}`
+          : `/users/starred-messages`;
+        const res = await axiosInstance.get(url);
+        return await decryptDmList(res.data.data || [], myId(), userId);
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to load starred messages"));
+        return [];
+      }
+    },
+
+    /* ---------------- PIN CHAT & MUTE CHAT ---------------- */
+    togglePinChat: async (userId, pinned) => {
+      try {
+        const res = await axiosInstance.patch(`/users/${userId}/pin-chat`, {
+          pinned,
+        });
+        const p = res.data.data;
+        set((state) => ({
+          users: state.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isPinned: p.pinned } : u,
+          ),
+        }));
+        toast.success(p.pinned ? "Chat pinned" : "Chat unpinned");
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to update pinned chat"));
+      }
+    },
+
+    toggleMuteChat: async (userId, muted) => {
+      try {
+        const res = await axiosInstance.patch(`/users/${userId}/mute-chat`, {
+          muted,
+        });
+        const p = res.data.data;
+        set((state) => ({
+          users: state.users.map((u) =>
+            sameId(u.id, userId) ? { ...u, isMuted: p.muted } : u,
+          ),
+        }));
+        toast.success(p.muted ? "Chat muted" : "Chat unmuted");
+      } catch (error) {
+        toast.error(errMsg(error, "Failed to update muted chat"));
       }
     },
 
@@ -1914,7 +2255,12 @@ export const useChatStore = create((set, get) => {
       }
     },
 
-    editScheduledMessage: async (scheduleId, receiverId, text, scheduledFor) => {
+    editScheduledMessage: async (
+      scheduleId,
+      receiverId,
+      text,
+      scheduledFor,
+    ) => {
       try {
         const payload = {};
         if (text) {
@@ -1934,7 +2280,8 @@ export const useChatStore = create((set, get) => {
         return true;
       } catch (error) {
         toast.error(
-          e2eeErrMsg(error) || errMsg(error, "Failed to update scheduled message"),
+          e2eeErrMsg(error) ||
+            errMsg(error, "Failed to update scheduled message"),
         );
         return false;
       }
@@ -2189,13 +2536,224 @@ export const useChatStore = create((set, get) => {
       setReactions(applyReaction(prevReactions, me, emoji));
 
       try {
-        const res = await axiosInstance.patch(`/messages/react/${messageId}`, {
+        const res = await axiosInstance.post(`/messages/${messageId}/reactions`, {
           emoji,
         });
-        setReactions(res.data.data.reactions);
+        if (res.data?.data?.reactions) {
+          setReactions(res.data.data.reactions);
+        }
       } catch (error) {
         setReactions(prevReactions);
         toast.error(errMsg(error, "Failed to react"));
+      }
+    },
+
+    /* ---------------- ADVANCED MESSAGING ---------------- */
+    openThread: async (parentMessage) => {
+      const parentId = parentMessage.id || parentMessage._id;
+      set({
+        activeThread: {
+          parentMessage,
+          replies: [],
+          totalReplies: parentMessage.threadReplyCount || 0,
+          loading: true,
+          isGroup: false,
+        },
+      });
+
+      try {
+        const res = await axiosInstance.get(`/messages/${parentId}/thread`);
+        if (res.data?.success && res.data.data) {
+          const rawReplies = res.data.data.replies || [];
+          const decryptedReplies = await Promise.all(
+            rawReplies.map((r) => decryptDmMessage(r))
+          );
+          set((s) => {
+            if (
+              !s.activeThread ||
+              !sameId(
+                s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+                parentId
+              )
+            ) {
+              return s;
+            }
+            return {
+              activeThread: {
+                ...s.activeThread,
+                parentMessage: res.data.data.parentMessage || s.activeThread.parentMessage,
+                replies: decryptedReplies,
+                totalReplies: res.data.data.totalReplies ?? decryptedReplies.length,
+                loading: false,
+              },
+            };
+          });
+        }
+      } catch (err) {
+        console.error("[ChatStore] openThread failed:", err);
+        set((s) => ({
+          activeThread:
+            s.activeThread &&
+            sameId(
+              s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+              parentId
+            )
+              ? { ...s.activeThread, loading: false }
+              : s.activeThread,
+        }));
+      }
+    },
+
+    closeThread: () => set({ activeThread: null }),
+
+    sendThreadReply: async (text) => {
+      const { activeThread } = get();
+      if (!activeThread?.parentMessage) return;
+      const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
+
+      try {
+        const res = await axiosInstance.post(`/messages/${parentId}/thread`, { text });
+        if (res.data?.success && res.data.data) {
+          const reply = res.data.data.reply || res.data.data;
+          set((s) => {
+            if (
+              !s.activeThread ||
+              !sameId(
+                s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+                parentId
+              )
+            ) {
+              return s;
+            }
+            const exists = (s.activeThread.replies || []).some(
+              (r) =>
+                sameId(r.id || r._id, reply.id || reply._id) ||
+                (reply.clientId && r.clientId && reply.clientId === r.clientId)
+            );
+            if (exists) return s;
+            return {
+              activeThread: {
+                ...s.activeThread,
+                replies: [...(s.activeThread.replies || []), reply],
+                totalReplies: (s.activeThread.totalReplies || 0) + 1,
+              },
+            };
+          });
+          const newCount =
+            res.data.data.parentMessage?.threadReplyCount ??
+            (activeThread.parentMessage.threadReplyCount || 0) + 1;
+          patchById(parentId, {
+            threadReplyCount: newCount,
+          });
+        }
+      } catch (err) {
+        console.error("[ChatStore] sendThreadReply failed:", err);
+        toast.error("Failed to send thread reply.");
+        throw err;
+      }
+    },
+
+    createPoll: async ({
+      question,
+      options,
+      isAnonymous = false,
+      allowMultipleAnswers = false,
+      canChangeVote = true,
+      expiresAt = null,
+      targetId = null,
+    }) => {
+      const receiverId =
+        targetId || get().selectedUser?.id || get().selectedUser?._id;
+      if (!receiverId) {
+        toast.error("Please select a recipient first.");
+        throw new Error("No recipient selected.");
+      }
+      try {
+        const payload = {
+          question: String(question || "").trim(),
+          options,
+          isAnonymous: Boolean(isAnonymous),
+          allowMultipleAnswers: Boolean(allowMultipleAnswers),
+          canChangeVote: canChangeVote !== false,
+          expiresAt: expiresAt || null,
+          receiverId,
+        };
+        const res = await axiosInstance.post("/messages/polls", payload);
+        if (res.data?.success && res.data.data?.message) {
+          const formatted = res.data.data.message;
+          set((st) => {
+            const exists = st.messages.some((m) => sameId(m.id, formatted.id));
+            if (exists) return {};
+            return { messages: [...st.messages, formatted] };
+          });
+        }
+        return res.data;
+      } catch (err) {
+        console.error("[ChatStore] createPoll failed:", err);
+        toast.error(err?.response?.data?.message || "Failed to create poll.");
+        throw err;
+      }
+    },
+
+    votePoll: async (messageId, optionIds) => {
+      if (!messageId) return;
+      const normalizedOptionIds = Array.isArray(optionIds)
+        ? optionIds
+        : optionIds !== undefined && optionIds !== null
+          ? [optionIds]
+          : [];
+
+      // Snapshot for optimistic rollback
+      const prevMessage = get().messages.find((m) => sameId(m.id, messageId));
+      const prevPoll = prevMessage?.poll
+        ? JSON.parse(JSON.stringify(prevMessage.poll))
+        : null;
+
+      try {
+        const res = await axiosInstance.post(
+          `/messages/${messageId}/poll/vote`,
+          { optionIds: normalizedOptionIds },
+        );
+        if (res.data?.success && res.data.data?.poll) {
+          patchById(messageId, { poll: res.data.data.poll });
+        }
+      } catch (err) {
+        console.error("[ChatStore] votePoll failed:", err);
+        if (prevPoll) {
+          patchById(messageId, { poll: prevPoll });
+        }
+        toast.error(err?.response?.data?.message || "Failed to submit vote.");
+        throw err;
+      }
+    },
+
+    endPoll: async (messageId) => {
+      return get().closePoll(messageId);
+    },
+
+    closePoll: async (messageId) => {
+      if (!messageId) return;
+      try {
+        const res = await axiosInstance.post(
+          `/messages/${messageId}/poll/close`,
+        );
+        if (res.data?.success && res.data.data?.poll) {
+          patchById(messageId, { poll: res.data.data.poll });
+          toast.success("Poll ended.");
+        }
+      } catch (err) {
+        console.error("[ChatStore] closePoll failed:", err);
+        toast.error(err?.response?.data?.message || "Failed to end poll.");
+        throw err;
+      }
+    },
+
+    markViewOnceOpened: async (messageId) => {
+      try {
+        await axiosInstance.post(`/messages/${messageId}/view-once/open`);
+        patchById(messageId, { viewOnceExpired: true, image: null, video: null, file: null });
+      } catch (err) {
+        console.error("[ChatStore] markViewOnceOpened failed:", err);
       }
     },
 

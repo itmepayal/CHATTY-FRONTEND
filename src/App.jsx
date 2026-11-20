@@ -1,5 +1,11 @@
 import { useEffect } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useSearchParams,
+} from "react-router-dom";
 import { CustomToastContainer } from "./components/toast";
 
 import Navbar from "./components/Navbar";
@@ -11,6 +17,9 @@ import RegisterPage from "./pages/auth/RegisterPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import LandingPage from "./pages/LandingPage";
+import UserProfileRoute from "./pages/UserProfileRoute";
+import SavedMessagesPage from "./pages/SavedMessagesPage";
+import { registerProtocolHandlerIfSupported } from "./utils/deepLink";
 
 import { useAuthStore } from "./store/useAuthStore";
 import { useChatStore } from "./store/useChatStore";
@@ -30,12 +39,42 @@ import AppLockScreen from "./components/settings/privacy/AppLockScreen.jsx";
 import { useAppLockStore } from "./store/useAppLockStore.js";
 import { usePrivacyStore } from "./store/usePrivacyStore.js";
 import { useChatLockStore } from "./store/useChatLockStore.js";
+import { useNotificationStore } from "./store/useNotificationStore.js";
+
+const AuthRedirect = () => {
+  const [searchParams] = useSearchParams();
+  const rawRedirect = searchParams.get("redirect");
+  // Validate safe internal redirect (must start with / and not //) to prevent open redirect vulnerabilities
+  const safeRedirect =
+    rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : "/chat";
+
+  return <Navigate to={safeRedirect} replace />;
+};
 
 const App = () => {
   useApplySettings();
   const { authUser, checkAuth, isCheckingAuth } = useAuthStore();
   const socket = useAuthStore((s) => s.socket);
   const { pathname } = useLocation();
+
+  useEffect(() => {
+    registerProtocolHandlerIfSupported();
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "CHATTY_NOTIFICATION_CLICK") {
+          const data = event.data.data || {};
+          if (data.peerId) {
+            useChatStore.getState().setSelectedUser({ _id: data.peerId });
+          } else if (data.groupId) {
+            useGroupStore.getState().selectGroup({ _id: data.groupId });
+          }
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     checkAuth();
@@ -57,6 +96,8 @@ const App = () => {
     if (!socket || !authUser) return;
     useChatStore.getState().subscribeToMessage();
     useGroupStore.getState().subscribeToGroups();
+    useNotificationStore.getState().bindSocketEvents(socket);
+    useNotificationStore.getState().fetchUnreadCount();
     return () => {
       useChatStore.getState().unSubscribeFromMessage();
       useGroupStore.getState().unsubscribeFromGroups();
@@ -85,7 +126,7 @@ const App = () => {
   return (
     <CallProvider socket={socket}>
       <div className="min-h-screen bg-base-100 text-base-content">
-        {showNavbar  && <Navbar />}
+        {showNavbar && <Navbar />}
 
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -94,17 +135,28 @@ const App = () => {
 
           <Route
             path="/login"
-            element={!authUser ? <LoginPage /> : <Navigate to="/" replace />}
+            element={!authUser ? <LoginPage /> : <AuthRedirect />}
           />
 
           <Route
             path="/register"
-            element={!authUser ? <RegisterPage /> : <Navigate to="/" replace />}
+            element={!authUser ? <RegisterPage /> : <AuthRedirect />}
           />
+
+          <Route path="/user/:username" element={<UserProfileRoute />} />
+
+          <Route path="/u/:username" element={<UserProfileRoute />} />
+
+          <Route path="/profile/:username" element={<UserProfileRoute />} />
 
           <Route
             path="/chat"
             element={authUser ? <HomePage /> : <Navigate to="/login" replace />}
+          />
+
+          <Route
+            path="/saved"
+            element={authUser ? <SavedMessagesPage /> : <Navigate to="/login" replace />}
           />
 
           <Route

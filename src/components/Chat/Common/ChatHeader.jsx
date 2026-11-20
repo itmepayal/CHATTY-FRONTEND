@@ -19,6 +19,7 @@ import {
 import { useChatStore } from "../../../store/useChatStore";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { usePrivacyStore } from "../../../store/usePrivacyStore";
+import { useContactStore } from "../../../store/useContactStore";
 import { useCall } from "../../../context/CallContext";
 import { useLastSeen } from "../../../hooks/useLastSeen.js";
 import ProfileImageViewer from "./ProfileImageViewer.jsx";
@@ -163,8 +164,13 @@ export const ChatHeader = ({
   const showRing = canShowOnline || isTyping;
 
   // Calling helpers
+  const contacts = useContactStore((st) => st.contacts);
+  const isContact = contacts.some(
+    (c) => String(c.id || c._id) === String(selectedUser.id),
+  );
   const callPeer = { id: selectedUser.id, fullName: selectedUser.fullName };
-  const canCall = callStatus === "idle" && !selectedUser.isBlocked;
+  const canCall =
+    callStatus === "idle" && !selectedUser.isBlocked && isContact;
 
   // Has any active policy
   const hasActiveIndicator =
@@ -265,6 +271,14 @@ export const ChatHeader = ({
 
   // Render Subtitle / Status content
   const renderSubtitle = () => {
+    if (!isContact) {
+      return (
+        <span className="inline-flex items-center gap-1 text-base-content/50 font-medium text-[11px] sm:text-xs">
+          <span>Not connected</span>
+        </span>
+      );
+    }
+
     if (isTyping) {
       return (
         <span className="inline-flex items-center gap-1.5 text-primary font-medium text-[11px] sm:text-xs">

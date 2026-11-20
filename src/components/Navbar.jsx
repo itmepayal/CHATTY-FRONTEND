@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
-import { LogOut, Settings, User } from "lucide-react";
+import { LogOut, Settings, User, Bookmark } from "lucide-react";
 import { ChattyLogo } from "./common/ChattyLogo";
+import { NotificationBell } from "./notifications/NotificationBell.jsx";
+import NotificationCenterModal from "./contact/NotificationCenterModal.jsx";
 
 const Navbar = () => {
   const { logout, authUser } = useAuthStore();
   const { pathname } = useLocation();
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
 
   const navBtn = (path) =>
     `btn btn-sm btn-ghost gap-2 rounded-full px-3 transition-colors min-h-[44px] sm:min-h-[2rem] ${
@@ -39,6 +43,22 @@ const Navbar = () => {
 
           {/* Actions */}
           <nav className="flex items-center gap-1.5 sm:gap-2">
+            {authUser && (
+              <NotificationBell onOpenCenter={() => setShowNotifCenter(true)} />
+            )}
+
+            {authUser && (
+              <Link
+                to="/saved"
+                className={navBtn("/saved")}
+                aria-label="Saved Messages"
+                title="Saved Messages"
+              >
+                <Bookmark className="size-4" />
+                <span className="hidden sm:inline">Saved</span>
+              </Link>
+            )}
+
             <Link
               to="/settings"
               className={navBtn("/settings")}
@@ -85,6 +105,13 @@ const Navbar = () => {
           </nav>
         </div>
       </div>
+
+      {showNotifCenter && (
+        <NotificationCenterModal
+          open={showNotifCenter}
+          onClose={() => setShowNotifCenter(false)}
+        />
+      )}
     </header>
   );
 };

@@ -1,7 +1,9 @@
+import { useState } from "react";
 import {
   MessageCircle,
   Phone,
   Search,
+  UserPlus,
   UsersRound,
   X,
 } from "lucide-react";
@@ -21,12 +23,17 @@ import { SidebarFilterBar } from "./Sidebar/SidebarFilterBar.jsx";
 import { SidebarChatsTab } from "./Sidebar/SidebarChatsTab.jsx";
 import { SidebarGroupsTab } from "./Sidebar/SidebarGroupsTab.jsx";
 import { SidebarCallsTab } from "./Sidebar/SidebarCallsTab.jsx";
+import { ContactRequestsTab } from "./contact/ContactRequestsTab.jsx";
 import { useSidebarData } from "./Sidebar/useSidebarData.js";
 import { paneVariants } from "./Sidebar/sidebarUtils.js";
 import ChatUnlockModal from "./settings/privacy/ChatUnlockModal.jsx";
+import NotificationCenterModal from "./contact/NotificationCenterModal.jsx";
+import BlockedUsersModal from "./contact/BlockedUsersModal.jsx";
 
 const Sidebar = () => {
   const data = useSidebarData();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showBlockedUsers, setShowBlockedUsers] = useState(false);
 
   if (data.isUsersLoading || !data.contactsLoaded) {
     return <SidebarSkeleton />;
@@ -144,12 +151,19 @@ const Sidebar = () => {
       badge: true,
       tone: "danger",
     },
+    {
+      key: "requests",
+      label: "Requests",
+      icon: UserPlus,
+      count: data.requestsCount || null,
+      badge: true,
+    },
   ];
 
   return (
     <MotionConfig reducedMotion="user">
       <aside
-        className={`h-full w-full min-w-0 shrink-0 flex-col border-r border-base-300/80 bg-base-100 lg:w-[320px] xl:w-[340px] ${
+        className={`h-full w-full min-w-0 shrink-0 flex-col border-r border-base-300/80 bg-base-100 md:w-[290px] lg:w-[310px] xl:w-[320px] ${
           hasOpenChat ? "hidden lg:flex" : "flex"
         }`}
       >
@@ -159,6 +173,8 @@ const Sidebar = () => {
           headerSub={headerSub}
           openAddContact={openAddContact}
           openCreateGroup={openCreateGroup}
+          openNotifications={() => setShowNotifications(true)}
+          openBlockedUsers={() => setShowBlockedUsers(true)}
           setShowAddContact={setShowAddContact}
           setShowCreate={setShowCreate}
           changeMode={changeMode}
@@ -348,6 +364,8 @@ const Sidebar = () => {
                   setShowAddContact={setShowAddContact}
                 />
               )}
+
+              {mode === "requests" && <ContactRequestsTab />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -371,6 +389,20 @@ const Sidebar = () => {
           open={showAddContact && !showCreate}
           onClose={closeAddContact}
         />
+
+        {showNotifications && (
+          <NotificationCenterModal
+            open={showNotifications}
+            onClose={() => setShowNotifications(false)}
+          />
+        )}
+
+        {showBlockedUsers && (
+          <BlockedUsersModal
+            open={showBlockedUsers}
+            onClose={() => setShowBlockedUsers(false)}
+          />
+        )}
 
         <LogoutConfirm
           open={confirmLogout}

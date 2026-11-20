@@ -1,5 +1,7 @@
-import { MessageSquare, Phone, Plus, UserPlus, UsersRound } from "lucide-react";
+import { MessageSquare, Phone, Plus, ShieldAlert, UserPlus, UsersRound, Bookmark } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { HeaderButton } from "./SidebarComponents.jsx";
+import { NotificationBell } from "../notifications/NotificationBell.jsx";
 
 export const SidebarHeader = ({
   mode,
@@ -7,6 +9,8 @@ export const SidebarHeader = ({
   headerSub,
   openAddContact,
   openCreateGroup,
+  openNotifications,
+  openBlockedUsers,
   setShowAddContact,
   setShowCreate,
   changeMode,
@@ -14,6 +18,7 @@ export const SidebarHeader = ({
   const onAddContact = openAddContact || (() => setShowAddContact?.(true));
   const onCreateGroup = openCreateGroup || (() => setShowCreate?.(true));
   const isOnlineSub = Boolean(headerSub && headerSub.includes("online"));
+  const navigate = useNavigate();
 
   return (
     <div className="h-13 sm:h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b border-base-300/80 bg-base-100/90 backdrop-blur-xl">
@@ -23,6 +28,8 @@ export const SidebarHeader = ({
             <UsersRound className="size-4.5 sm:size-5" />
           ) : mode === "calls" ? (
             <Phone className="size-4.5 sm:size-5" />
+          ) : mode === "requests" ? (
+            <UserPlus className="size-4.5 sm:size-5" />
           ) : (
             <MessageSquare className="size-4.5 sm:size-5" />
           )}
@@ -43,6 +50,16 @@ export const SidebarHeader = ({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        {/* Saved messages link */}
+        <HeaderButton
+          icon={Bookmark}
+          label="Saved messages"
+          onClick={() => navigate("/saved")}
+        />
+
+        {/* Modern interactive notification bell with dropdown & center modal toggle */}
+        <NotificationBell onOpenCenter={openNotifications} />
+
         {mode === "calls" ? (
           <>
             <HeaderButton
@@ -74,5 +91,3 @@ export const SidebarHeader = ({
     </div>
   );
 };
-
-export default SidebarHeader;

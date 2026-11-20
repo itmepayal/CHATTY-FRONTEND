@@ -28,7 +28,7 @@ export const CALL_FILTERS = [
   { key: "missed", label: "Missed" },
 ];
 
-export const MODE_ORDER = ["chats", "groups", "calls"];
+export const MODE_ORDER = ["chats", "groups", "calls", "requests"];
 
 export const SPRING = { type: "spring", stiffness: 500, damping: 40 };
 
@@ -105,9 +105,11 @@ export const isFile = (m) =>
   !!(m.file || m.fileUrl || m.type === "file" || m.messageType === "file");
 
 export const getBody = (m) => {
+  if (!m) return "No messages yet";
   if (m.isLocked) return "🔒 Locked conversation";
   if (m.decryptFailed || (m.encrypted && !m.decrypted))
     return "🔒 Encrypted message";
+  if (m.poll?.question) return `📊 Poll: ${m.poll.question}`;
   if (m.text) return m.text;
   if (isLocation(m)) return "📍 Location";
   if (isVideo(m)) return "🎥 Video";

@@ -2,8 +2,11 @@ import { AnimatePresence } from "framer-motion";
 import {
   Archive,
   ArchiveRestore,
+  BellOff,
   CheckCircle2,
   MessageCircle,
+  Pin,
+  PinOff,
   Search,
   Star,
   UserPlus,
@@ -79,7 +82,17 @@ export const SidebarChatsTab = ({
             selected={isSelected}
           />
         }
-        title={user.fullName}
+        title={
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate">{user.fullName}</span>
+            {user.isPinned && (
+              <Pin className="size-3 text-primary shrink-0 fill-primary/30" />
+            )}
+            {user.isMuted && (
+              <BellOff className="size-3 text-base-content/40 shrink-0" />
+            )}
+          </span>
+        }
         subtitle={
           isLocked
             ? "🔒 Locked conversation"
@@ -91,6 +104,21 @@ export const SidebarChatsTab = ({
         actions={
           unread === 0 && (
             <>
+              <RowAction
+                onClick={() =>
+                  useChatStore
+                    .getState()
+                    .togglePinChat(String(user.id), !user.isPinned)
+                }
+                label={user.isPinned ? "Unpin chat" : "Pin chat"}
+                className="hidden opacity-0 group-hover:opacity-100 lg:grid"
+              >
+                {user.isPinned ? (
+                  <PinOff className="size-4" />
+                ) : (
+                  <Pin className="size-4" />
+                )}
+              </RowAction>
               <RowAction
                 onClick={() => setArchive(String(user.id), !user.isArchived)}
                 label={user.isArchived ? "Unarchive chat" : "Archive chat"}
