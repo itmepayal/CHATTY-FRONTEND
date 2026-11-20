@@ -158,8 +158,6 @@ export const useGroupStore = create((set, get) => ({
   scheduled: [],
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
-  hasMoreMessages: false,
-  isLoadingMoreMessages: false,
 
   /* =====================================================
    *                    E2EE GROUP KEYS
@@ -250,22 +248,12 @@ export const useGroupStore = create((set, get) => ({
       try {
         if (!(await e2eeReady())) return;
         const latest = await loadGroupKeys(gid, { force: true });
-        const group = get().groups.find((g) => sameId(g.id, gid));
         if (!latest) {
+          const group = get().groups.find((g) => sameId(g.id, gid));
           if (group) {
             await get().provisionGroupKey(gid, memberIdsOf(group), 1);
           }
         } else {
-          const me = myId();
-          const isAdmin =
-            group &&
-            (sameId(group.owner, me) ||
-              group.members?.some(
-                (m) => sameId(m.userId, me) && m.role === "admin",
-              ));
-          if (group?.keyRotationPending && isAdmin) {
-            await get().rotateGroupKey(gid);
-          }
           get().syncPendingGroupKeys(gid);
         }
       } catch {
@@ -288,33 +276,6 @@ export const useGroupStore = create((set, get) => ({
       ),
     );
     set({ groupMessages: next });
-  },
-
-  redecryptGroupFailed: async () => {
-    const { selectedGroup, groupMessages, groups } = get();
-    if (selectedGroup) {
-      await loadGroupKeys(selectedGroup.id, { force: true }).catch(() => {});
-      const next = await Promise.all(
-        groupMessages.map((m) =>
-          m.decryptFailed || !m.decrypted ? decryptGroupMessage(m) : m,
-        ),
-      );
-      set({ groupMessages: next });
-    }
-    if (groups.length) {
-      const refreshed = await Promise.all(
-        groups.map(async (g) => {
-          if (g.lastMessage?.decryptFailed || g.lastMessage?.encrypted) {
-            return {
-              ...g,
-              lastMessage: await decryptGroupPreview(g.lastMessage, g.id),
-            };
-          }
-          return g;
-        }),
-      );
-      set({ groups: refreshed });
-    }
   },
 
   /* =====================================================
@@ -566,8 +527,6 @@ export const useGroupStore = create((set, get) => ({
       groupMessages: [],
       scheduled: [],
       isGroupMessagesLoading: true,
-      hasMoreMessages: false,
-      isLoadingMoreMessages: false,
     });
     await Promise.all([
       get().fetchMessages(gid),
@@ -617,11 +576,7 @@ export const useGroupStore = create((set, get) => ({
         .filter((m) => (m.pending || m.failed) && isKnownByServer(m))
         .forEach(revokeMsgBlobs);
 
-      set({
-        groupMessages: [...server, ...keep],
-        hasMoreMessages: (unwrap(res) || []).length >= 50,
-        isLoadingMoreMessages: false,
-      });
+      set({ groupMessages: [...server, ...keep] });
     } catch (e) {
       if (
         e.response?.status === 423 ||
@@ -632,40 +587,6 @@ export const useGroupStore = create((set, get) => ({
         return;
       }
       toast.error(errMsg(e));
-    }
-  },
-
-  loadMoreMessages: async (groupId) => {
-    const { groupMessages, isLoadingMoreMessages, hasMoreMessages } = get();
-    if (
-      !groupId ||
-      isLoadingMoreMessages ||
-      !hasMoreMessages ||
-      !groupMessages.length
-    ) {
-      return;
-    }
-    set({ isLoadingMoreMessages: true });
-    try {
-      const oldest =
-        groupMessages.find((m) => m.createdAt) || groupMessages[0];
-      const before = oldest?.createdAt;
-      const res = await axiosInstance.get(`/groups/${groupId}/messages`, {
-        params: { before, limit: 50 },
-      });
-      const raw = unwrap(res) || [];
-      const older = await decryptGroupList(raw.map(normalizeMsg), groupId);
-      const isKnown = (id) =>
-        get().groupMessages.some((m) => sameId(m.id || m._id, id));
-      const fresh = older.filter((m) => !isKnown(m.id || m._id));
-      set((s) => ({
-        groupMessages: [...fresh, ...s.groupMessages],
-        hasMoreMessages: raw.length >= 50,
-        isLoadingMoreMessages: false,
-      }));
-    } catch (e) {
-      console.error("loadMoreMessages failed:", e);
-      set({ isLoadingMoreMessages: false });
     }
   },
 
@@ -1590,9 +1511,3 @@ export const useGroupStore = create((set, get) => ({
     subscribedGroupSocket = null;
   },
 }));
-
-if (typeof window !== "undefined") {
-  window.addEventListener("chatty:e2ee-ready", () => {
-    useGroupStore.getState().redecryptGroupFailed?.();
-  });
-}

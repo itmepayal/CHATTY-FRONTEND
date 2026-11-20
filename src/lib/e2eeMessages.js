@@ -72,31 +72,26 @@ export const FAILED_TEXT = "🔒 Encrypted message";
 export const displayText = (m, fallback = FAILED_TEXT) => {
   if (!m) return "";
   if (m.decryptFailed || (m.encrypted && !m.decrypted)) {
-    if (m.decryptError === "Sent before this device was added") {
-      return "🔒 Sent before this device was added";
+    switch (m.decryptError) {
+      case "Sent before this device was added":
+        return "🔒 Sent before this device was added";
+      case "HISTORY_RESTORATION_REQUIRED":
+        return "🔒 History restoration required";
+      case "DEVICE_VERIFICATION_REQUIRED":
+        return "🔒 Device verification required";
+      case "KEY_TRANSFER_PENDING":
+        return "🔒 Key transfer pending";
+      case "RECOVERY_REQUIRED":
+        return "🔒 Recovery required to view message";
+      case "DECRYPTION_KEY_UNAVAILABLE":
+        return "🔒 Decryption key unavailable";
+      case "MESSAGE_DECRYPTION_FAILED":
+        return "🔒 Message decryption failed";
+      case "DEVICE_REVOKED":
+        return "🔒 Device revoked";
+      default:
+        return fallback;
     }
-    if (m.decryptError === "History restoration required") {
-      return "🔒 History restoration required";
-    }
-    if (m.decryptError === "Device verification required") {
-      return "🔒 Device verification required";
-    }
-    if (m.decryptError === "Waiting for approval") {
-      return "🔒 Waiting for approval";
-    }
-    if (m.decryptError === "Key synchronization pending") {
-      return "🔒 Key synchronization pending";
-    }
-    if (m.decryptError === "Recovery required") {
-      return "🔒 Recovery required";
-    }
-    if (m.decryptError === "Decryption key unavailable") {
-      return "🔒 Decryption key unavailable";
-    }
-    if (m.decryptError === "Device revoked") {
-      return "🔒 Device revoked";
-    }
-    return fallback;
   }
   return m.text ?? "";
 };
