@@ -65,7 +65,9 @@ export const useAuthStore = create((set, get) => ({
           );
       }
     } catch (error) {
-      console.log(error);
+      if (error?.response?.status !== 401) {
+        console.error("[Auth] checkAuth error:", error);
+      }
       set({ authUser: null });
       useAppLockStore.getState().reset?.();
       useChatLockStore.getState().reset?.();

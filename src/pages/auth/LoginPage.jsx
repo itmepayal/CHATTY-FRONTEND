@@ -235,6 +235,8 @@ const LoginForm = () => {
 };
 
 const LoginPage = () => {
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get("redirect");
   const reduceMotion = useReducedMotion();
   const isDesktop = useIsDesktop();
 
