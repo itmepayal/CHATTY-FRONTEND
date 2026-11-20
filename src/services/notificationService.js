@@ -39,7 +39,6 @@ export class MessageDeduplicator {
 
 export const messageDeduplicator = new MessageDeduplicator(200);
 
-// In-memory cache of recently handled action keys
 const handledActionKeys = new Map();
 const NOTIFICATION_DEDUP_WINDOW_MS = 15000;
 const SOUND_THROTTLE_MS = 1000;

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useSyncExternalStore } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Mail,
   Lock,
@@ -63,6 +63,9 @@ const TwoFactorGate = () => {
 };
 
 const LoginForm = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = searchParams.get("redirect");
   const login = useAuthStore((s) => s.login);
   const isLoggingIn = useAuthStore((s) => s.isLoggingIn);
 
@@ -119,6 +122,11 @@ const LoginForm = () => {
         email: formData.email.trim(),
         password: formData.password,
       });
+      const safeRedirect =
+        redirect && redirect.startsWith("/") && !redirect.startsWith("//")
+          ? redirect
+          : "/chat";
+      navigate(safeRedirect, { replace: true });
     } catch (error) {
       console.error(error);
       shakeForm();
@@ -271,7 +279,11 @@ const LoginPage = () => {
             <p className="text-center text-sm text-base-content/60">
               Don&apos;t have an account?{" "}
               <Link
-                to="/register"
+                to={
+                  redirect
+                    ? `/register?redirect=${encodeURIComponent(redirect)}`
+                    : "/register"
+                }
                 className={`link link-primary rounded-sm font-medium ${FOCUS}`}
               >
                 Sign Up

@@ -15,6 +15,7 @@ export const DEBOUNCE_MS = 350;
 export const TABS = [
   { key: "find", label: "Find people" },
   { key: "contacts", label: "My contacts" },
+  { key: "qr", label: "My QR & Scan" },
 ];
 
 export const useAddContactLogic = (open, onClose) => {
@@ -30,6 +31,8 @@ export const useAddContactLogic = (open, onClose) => {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [settledTerm, setSettledTerm] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [contactFilter, setContactFilter] = useState("all"); // "all" | "online" | "recent"
+  const [contactSort, setContactSort] = useState("name"); // "name" | "online" | "recent"
 
   const {
     contacts,
@@ -39,6 +42,9 @@ export const useAddContactLogic = (open, onClose) => {
     clearResults,
     addContact,
     removeContact,
+    sendContactRequest,
+    acceptContactRequest,
+    cancelContactRequest,
   } = useContactStore();
 
   const onlineUsers = useAuthStore((s) => s.onlineUsers);
@@ -58,17 +64,34 @@ export const useAddContactLogic = (open, onClose) => {
 
   const contactItems = useMemo(() => {
     const needle = term.toLowerCase();
-    return [...contacts]
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
-      .filter(
-        (c) =>
-          !needle ||
-          [c.fullName, c.username].some((v) =>
-            v?.toLowerCase().includes(needle),
-          ),
-      )
-      .map((c) => ({ ...c, isContact: true }));
-  }, [contacts, term]);
+    let list = [...contacts].filter(
+      (c) =>
+        !needle ||
+        [c.fullName, c.username, c.phone, c.email].some((v) =>
+          v?.toLowerCase().includes(needle),
+        ),
+    );
+
+    // Apply Filter
+    if (contactFilter === "online") {
+      list = list.filter((c) => isUserOnline(c.id));
+    }
+
+    // Apply Sort
+    if (contactSort === "name") {
+      list.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+    } else if (contactSort === "online") {
+      list.sort((a, b) => {
+        const aOn = isUserOnline(a.id) ? 1 : 0;
+        const bOn = isUserOnline(b.id) ? 1 : 0;
+        return bOn - aOn || (a.fullName || "").localeCompare(b.fullName || "");
+      });
+    } else if (contactSort === "recent") {
+      list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+
+    return list.map((c) => ({ ...c, isContact: true, relationship: "connected" }));
+  }, [contacts, term, contactFilter, contactSort, isUserOnline]);
 
   const items = tab === "find" ? (canSearch ? results : []) : contactItems;
 
@@ -93,6 +116,8 @@ export const useAddContactLogic = (open, onClose) => {
     setTab("find");
     setActiveIndex(-1);
     setSettledTerm("");
+    setContactFilter("all");
+    setContactSort("name");
     clearResults();
   }, [open, clearResults]);
 
@@ -133,7 +158,15 @@ export const useAddContactLogic = (open, onClose) => {
       if (busyIds.has(id)) return;
       setBusyIds((prev) => new Set(prev).add(id));
       try {
-        await (u.isContact ? removeContact(id) : addContact(u));
+        if (u.relationship === "incoming_request" && (u.requestId || u.id || u._id)) {
+          await acceptContactRequest(u.requestId || u.id || u._id);
+        } else if (u.isContact || u.relationship === "connected") {
+          await removeContact(id);
+        } else if (u.relationship === "request_sent") {
+          await cancelContactRequest(u.requestId || u.id || u._id || id);
+        } else {
+          await sendContactRequest(id);
+        }
       } finally {
         setBusyIds((prev) => {
           const next = new Set(prev);
@@ -142,7 +175,7 @@ export const useAddContactLogic = (open, onClose) => {
         });
       }
     },
-    [busyIds, addContact, removeContact],
+    [busyIds, acceptContactRequest, cancelContactRequest, removeContact, sendContactRequest],
   );
 
   const onInputKeyDown = (e) => {
@@ -193,5 +226,9 @@ export const useAddContactLogic = (open, onClose) => {
     onInputKeyDown,
     statusText,
     isUserOnline,
+    contactFilter,
+    setContactFilter,
+    contactSort,
+    setContactSort,
   };
 };

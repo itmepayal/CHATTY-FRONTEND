@@ -70,6 +70,17 @@ const normalizeMsg = (m) => ({
   groupId: idOf(m.groupId),
   senderId: idOf(m.senderId ?? m.sender),
   readBy: (m.readBy || []).map(idOf),
+  isPinned: Boolean(m.isPinned),
+  pinnedBy: m.pinnedBy ? idOf(m.pinnedBy) : null,
+  pinnedAt: m.pinnedAt || null,
+  isStarred: Boolean(m.isStarred),
+  starredBy: Array.isArray(m.starredBy) ? m.starredBy.map(idOf) : [],
+  isDeleted: Boolean(m.isDeleted),
+  deletedAt: m.deletedAt || null,
+  isEdited: Boolean(m.isEdited),
+  editedAt: m.editedAt || null,
+  isForwarded: Boolean(m.isForwarded),
+  replyTo: m.replyTo || null,
   location: m.location
     ? {
         ...m.location,
@@ -152,12 +163,22 @@ export const useGroupStore = create((set, get) => ({
   groups: [],
   selectedGroup: null,
   groupMessages: [],
+  pinnedMessages: [],
+  isPinnedMessagesLoading: false,
   typing: {},
   // { [groupId]: { [shareId]: share } }
   liveShares: {},
   scheduled: [],
   isGroupsLoading: false,
   isGroupMessagesLoading: false,
+  replyingTo: null,
+  editingMessage: null,
+  activeThread: null,
+  jumpToMessageId: null,
+
+  setJumpToMessageId: (id) => set({ jumpToMessageId: id }),
+  setReplyingTo: (message) => set({ replyingTo: message || null, editingMessage: null }),
+  setEditingMessage: (message) => set({ editingMessage: message || null, replyingTo: null }),
 
   /* =====================================================
    *                    E2EE GROUP KEYS
@@ -357,11 +378,12 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  updateGroup: async (groupId, { name, avatarFile }) => {
+  updateGroup: async (groupId, { name, avatarFile, whoCanPin }) => {
     try {
       const fd = new FormData();
       if (name !== undefined) fd.append("name", name);
       if (avatarFile) fd.append("avatar", avatarFile);
+      if (whoCanPin !== undefined) fd.append("whoCanPin", whoCanPin);
       const res = await axiosInstance.patch(`/groups/${groupId}`, fd);
       get().applyGroupUpdate(unwrap(res));
       return true;
@@ -525,11 +547,14 @@ export const useGroupStore = create((set, get) => ({
     set({
       selectedGroup: group,
       groupMessages: [],
+      pinnedMessages: [],
       scheduled: [],
+      activeThread: null,
       isGroupMessagesLoading: true,
     });
     await Promise.all([
       get().fetchMessages(gid),
+      get().fetchPinnedMessages(gid),
       get().fetchActiveShares(gid),
       get().getScheduled(gid),
     ]);
@@ -550,7 +575,29 @@ export const useGroupStore = create((set, get) => ({
       }
     } catch {}
     get().emitTyping(false);
-    set({ selectedGroup: null, groupMessages: [], scheduled: [] });
+    set({
+      selectedGroup: null,
+      groupMessages: [],
+      pinnedMessages: [],
+      scheduled: [],
+      activeThread: null,
+    });
+  },
+
+  fetchPinnedMessages: async (groupId) => {
+    if (!groupId) return;
+    set({ isPinnedMessagesLoading: true });
+    try {
+      const res = await axiosInstance.get(`/groups/${groupId}/messages/pinned`);
+      const raw = unwrap(res) || [];
+      const decrypted = await decryptGroupList(raw.map(normalizeMsg), groupId);
+      if (!sameId(get().selectedGroup?.id, groupId)) return;
+      set({ pinnedMessages: decrypted });
+    } catch (err) {
+      console.error("[useGroupStore] fetchPinnedMessages error:", err);
+    } finally {
+      set({ isPinnedMessagesLoading: false });
+    }
   },
 
   fetchMessages: async (groupId) => {
@@ -590,8 +637,8 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Accepts: text, imageFile, attachment, voice, video
-  sendMessage: async ({ text, imageFile, attachment, voice, video }) => {
+  // Accepts: text, mentions, imageFile, attachment, voice, video, replyTo, isForwarded, isViewOnce
+  sendMessage: async ({ text, mentions = [], imageFile, attachment, voice, video, replyTo: explicitReplyTo, isForwarded, isViewOnce }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
     const meId = myId();
@@ -617,6 +664,9 @@ export const useGroupStore = create((set, get) => ({
 
     const file = voiceFile || videoFile || imageFile || attachment || null;
     if (!selectedGroup || !me || !meId || (!trimmed && !file)) return;
+
+    const replyMsg = explicitReplyTo ?? get().replyingTo;
+    const replyToId = replyMsg ? idOf(replyMsg.id || replyMsg._id) : null;
 
     const clientId = newClientId();
     const localUrl =
@@ -651,6 +701,30 @@ export const useGroupStore = create((set, get) => ({
           }
         : null,
       location: null,
+      replyTo: replyMsg
+        ? {
+            id: replyToId,
+            senderId: idOf(replyMsg.senderId),
+            text: replyMsg.text || "",
+            type: replyMsg.image?.url
+              ? "image"
+              : replyMsg.audio?.url
+                ? "audio"
+                : replyMsg.video?.url
+                  ? "video"
+                  : replyMsg.file?.name
+                    ? "file"
+                    : replyMsg.location?.lat
+                      ? "location"
+                      : "text",
+            isDeleted: false,
+          }
+        : null,
+      isForwarded: Boolean(isForwarded),
+      isViewOnce: Boolean(isViewOnce),
+      _isViewOnce: Boolean(isViewOnce),
+      mentions: mentions || [],
+      _mentions: mentions || [],
       readBy: [meId],
       createdAt: new Date().toISOString(),
       pending: true,
@@ -658,9 +732,11 @@ export const useGroupStore = create((set, get) => ({
       _isVoice: Boolean(voiceFile),
       _isVideo: Boolean(videoFile),
       _duration: voice?.duration || video?.duration || 0,
+      _replyToId: replyToId,
+      _isForwarded: Boolean(isForwarded),
     };
 
-    set((s) => ({ groupMessages: [...s.groupMessages, optimistic] }));
+    set((s) => ({ groupMessages: [...s.groupMessages, optimistic], replyingTo: null }));
     return get().transmit(clientId);
   },
 
@@ -675,6 +751,7 @@ export const useGroupStore = create((set, get) => ({
     }));
     try {
       const fd = new FormData();
+      if (msg.isViewOnce || msg._isViewOnce) fd.append("isViewOnce", "true");
 
       if (msg.text) {
         if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
@@ -709,6 +786,11 @@ export const useGroupStore = create((set, get) => ({
         fd.append("isVideo", "true");
         fd.append("duration", String(msg._duration));
       }
+      if (msg._replyToId) fd.append("replyTo", msg._replyToId);
+      if (msg._isForwarded) fd.append("isForwarded", "true");
+      if (Array.isArray(msg._mentions) && msg._mentions.length > 0) {
+        fd.append("mentions", JSON.stringify(msg._mentions));
+      }
       fd.append("clientId", clientId);
 
       const res = await axiosInstance.post(
@@ -738,6 +820,523 @@ export const useGroupStore = create((set, get) => ({
         ),
       }));
       toast.error(e2eeErrMsg(e) || errMsg(e));
+    }
+  },
+
+  editGroupMessage: async (groupId, messageId, text, mentions) => {
+    try {
+      const target = get().groupMessages.find((m) => sameId(m.id, messageId));
+      if (!target) return false;
+
+      let payload = { text, encrypted: false };
+      if (Array.isArray(mentions)) {
+        payload.mentions = JSON.stringify(mentions);
+      }
+      const isTargetEncrypted = Boolean(target.encrypted || target.e2ee);
+
+      if (isTargetEncrypted) {
+        if (!(await e2eeReady())) throw new Error("e2ee-not-ready");
+        let enc;
+        try {
+          enc = await encryptGroupText(groupId, text);
+        } catch (e) {
+          if (
+            e?.message === "group-not-encrypted" ||
+            e?.message === "no-group-key"
+          ) {
+            await get().prepareGroupKeys(groupId);
+            enc = await encryptGroupText(groupId, text);
+          } else {
+            throw e;
+          }
+        }
+        payload = {
+          text: enc.text,
+          iv: enc.iv,
+          keyVersion: enc.keyVersion,
+          encrypted: true,
+          ...(Array.isArray(mentions) ? { mentions: JSON.stringify(mentions) } : {}),
+        };
+      }
+
+      const res = await axiosInstance.patch(
+        `/groups/${groupId}/messages/${messageId}`,
+        payload,
+      );
+      const p = unwrap(res);
+
+      set((s) => ({
+        groupMessages: s.groupMessages.map((m) =>
+          sameId(m.id, messageId)
+            ? {
+                ...m,
+                text,
+                ...(mentions ? { mentions } : {}),
+                decrypted: true,
+                decryptFailed: false,
+                isEdited: true,
+                editedAt: p?.editedAt || new Date().toISOString(),
+              }
+            : m,
+        ),
+        editingMessage: null,
+      }));
+      toast.success("Message edited");
+      return true;
+    } catch (e) {
+      toast.error(e2eeErrMsg(e) || errMsg(e, "Failed to edit message"));
+      return false;
+    }
+  },
+
+  deleteForMe: async (groupId, messageId) => {
+    const previous = get().groupMessages;
+    const previousPinned = get().pinnedMessages;
+    set((s) => ({
+      groupMessages: s.groupMessages.filter((m) => !sameId(m.id, messageId)),
+      pinnedMessages: (s.pinnedMessages || []).filter(
+        (m) => !sameId(m.id, messageId),
+      ),
+    }));
+
+    try {
+      await axiosInstance.delete(`/groups/${groupId}/messages/${messageId}/me`);
+      toast.success("Message deleted for you");
+    } catch (error) {
+      set({ groupMessages: previous, pinnedMessages: previousPinned });
+      toast.error(errMsg(error, "Failed to delete"));
+    }
+  },
+
+  deleteForEveryone: async (groupId, messageId) => {
+    const previous = get().groupMessages;
+    const previousPinned = get().pinnedMessages;
+    set((s) => ({
+      groupMessages: s.groupMessages.map((m) =>
+        sameId(m.id, messageId)
+          ? {
+              ...m,
+              text: "",
+              image: null,
+              file: null,
+              audio: null,
+              video: null,
+              location: null,
+              isDeleted: true,
+              deletedAt: new Date().toISOString(),
+            }
+          : m,
+      ),
+      pinnedMessages: (s.pinnedMessages || []).filter(
+        (m) => !sameId(m.id, messageId),
+      ),
+    }));
+
+    try {
+      await axiosInstance.delete(`/groups/${groupId}/messages/${messageId}`);
+      toast.success("Message deleted for everyone");
+    } catch (error) {
+      set({ groupMessages: previous, pinnedMessages: previousPinned });
+      toast.error(errMsg(error, "Failed to delete"));
+    }
+  },
+
+  togglePin: async (groupId, messageId) => {
+    const previous = get().groupMessages;
+    const previousPinned = get().pinnedMessages;
+
+    // Optimistic update
+    const targetMsg = previous.find((m) => sameId(m.id, messageId));
+    const isCurrentlyPinned = targetMsg ? Boolean(targetMsg.isPinned) : false;
+    const nextPinnedState = !isCurrentlyPinned;
+
+    set((s) => {
+      const updatedMessages = s.groupMessages.map((m) =>
+        sameId(m.id, messageId)
+          ? {
+              ...m,
+              isPinned: nextPinnedState,
+              pinnedBy: nextPinnedState ? myId() : null,
+              pinnedAt: nextPinnedState ? new Date().toISOString() : null,
+            }
+          : m,
+      );
+
+      let updatedPinned = s.pinnedMessages || [];
+      if (nextPinnedState) {
+        const itemToAdd = updatedMessages.find((m) => sameId(m.id, messageId)) || targetMsg;
+        if (itemToAdd) {
+          updatedPinned = [
+            { ...itemToAdd, isPinned: true, pinnedBy: myId(), pinnedAt: new Date().toISOString() },
+            ...updatedPinned.filter((m) => !sameId(m.id, messageId)),
+          ].slice(0, 5);
+        }
+      } else {
+        updatedPinned = updatedPinned.filter((m) => !sameId(m.id, messageId));
+      }
+
+      return {
+        groupMessages: updatedMessages,
+        pinnedMessages: updatedPinned,
+      };
+    });
+
+    try {
+      const res = await axiosInstance.patch(
+        `/groups/${groupId}/messages/${messageId}/pin`,
+      );
+      const p = unwrap(res);
+      set((s) => {
+        const updatedMessages = s.groupMessages.map((m) =>
+          sameId(m.id, messageId)
+            ? {
+                ...m,
+                isPinned: p.isPinned,
+                pinnedBy: p.pinnedBy,
+                pinnedByUser: p.pinnedByUser,
+                pinnedAt: p.pinnedAt,
+              }
+            : m,
+        );
+        let updatedPinned = s.pinnedMessages || [];
+        if (p.isPinned) {
+          const item = updatedMessages.find((m) => sameId(m.id, messageId)) ||
+            (p.message ? normalizeMsg(p.message) : null);
+          if (item) {
+            updatedPinned = [
+              { ...item, isPinned: true, pinnedBy: p.pinnedBy, pinnedByUser: p.pinnedByUser, pinnedAt: p.pinnedAt },
+              ...updatedPinned.filter((m) => !sameId(m.id, messageId)),
+            ].slice(0, 5);
+          }
+        } else {
+          updatedPinned = updatedPinned.filter((m) => !sameId(m.id, messageId));
+        }
+        return {
+          groupMessages: updatedMessages,
+          pinnedMessages: updatedPinned,
+        };
+      });
+      toast.success(p.isPinned ? "Message pinned" : "Message unpinned");
+      return true;
+    } catch (error) {
+      set({ groupMessages: previous, pinnedMessages: previousPinned });
+      toast.error(errMsg(error, "Failed to update pin"));
+      return false;
+    }
+  },
+
+  toggleStar: async (groupId, messageId) => {
+    try {
+      const res = await axiosInstance.patch(
+        `/groups/${groupId}/messages/${messageId}/star`,
+      );
+      const p = unwrap(res);
+      set((s) => ({
+        groupMessages: s.groupMessages.map((m) =>
+          sameId(m.id, messageId)
+            ? {
+                ...m,
+                isStarred: p.isStarred,
+              }
+            : m,
+        ),
+      }));
+      toast.success(p.isStarred ? "Message starred" : "Message unstarred");
+    } catch (error) {
+      toast.error(errMsg(error, "Failed to update star"));
+    }
+  },
+
+  /* =====================================================
+   *             ADVANCED 6 MESSAGING FEATURES
+   * ===================================================== */
+  reactToGroupMessage: async (groupId, messageId, emoji) => {
+    try {
+      const res = await axiosInstance.post(
+        `/groups/${groupId}/messages/${messageId}/reactions`,
+        { emoji },
+      );
+      if (res.data?.success && res.data.data) {
+        const { reactions, reactionSummary, total } = res.data.data;
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, reactions, reactionSummary, total } : m
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("[useGroupStore] reactToGroupMessage failed:", err);
+      toast.error(errMsg(err, "Failed to react"));
+    }
+  },
+
+  openThread: async (parentMessage, groupId) => {
+    const gid = groupId || get().selectedGroup?.id;
+    const parentId = parentMessage.id || parentMessage._id;
+    set({
+      activeThread: {
+        parentMessage,
+        replies: [],
+        totalReplies: parentMessage.threadReplyCount || 0,
+        loading: true,
+        isGroup: true,
+        groupId: gid,
+      },
+    });
+
+    try {
+      const res = await axiosInstance.get(
+        `/groups/${gid}/messages/${parentId}/thread`
+      );
+      if (res.data?.success && res.data.data) {
+        const rawReplies = res.data.data.replies || [];
+        set((s) => {
+          if (
+            !s.activeThread ||
+            !sameId(
+              s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+              parentId
+            )
+          ) {
+            return s;
+          }
+          return {
+            activeThread: {
+              ...s.activeThread,
+              parentMessage: res.data.data.parentMessage || s.activeThread.parentMessage,
+              replies: rawReplies,
+              totalReplies: res.data.data.totalReplies ?? rawReplies.length,
+              loading: false,
+            },
+          };
+        });
+      }
+    } catch (err) {
+      console.error("[useGroupStore] openThread failed:", err);
+      set((s) => ({
+        activeThread:
+          s.activeThread &&
+          sameId(
+            s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+            parentId
+          )
+            ? { ...s.activeThread, loading: false }
+            : s.activeThread,
+      }));
+    }
+  },
+
+  closeThread: () => set({ activeThread: null }),
+
+  sendThreadReply: async (text) => {
+    const { activeThread } = get();
+    if (!activeThread?.parentMessage || !activeThread?.groupId) return;
+    const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
+    const gid = activeThread.groupId;
+
+    try {
+      const res = await axiosInstance.post(
+        `/groups/${gid}/messages/${parentId}/thread`,
+        { text }
+      );
+      if (res.data?.success && res.data.data) {
+        const reply = res.data.data.reply || res.data.data;
+        const newCount =
+          res.data.data.parentMessage?.threadReplyCount ??
+          (activeThread.parentMessage.threadReplyCount || 0) + 1;
+        set((s) => {
+          if (
+            !s.activeThread ||
+            !sameId(
+              s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id,
+              parentId
+            )
+          ) {
+            return s;
+          }
+          const exists = (s.activeThread.replies || []).some(
+            (r) =>
+              sameId(r.id || r._id, reply.id || reply._id) ||
+              (reply.clientId && r.clientId && reply.clientId === r.clientId)
+          );
+          if (exists) return s;
+          return {
+            activeThread: {
+              ...s.activeThread,
+              replies: [...(s.activeThread.replies || []), reply],
+              totalReplies: (s.activeThread.totalReplies || 0) + 1,
+            },
+            groupMessages: s.groupMessages.map((m) =>
+              sameId(m.id || m._id, parentId)
+                ? { ...m, threadReplyCount: newCount }
+                : m
+            ),
+          };
+        });
+      }
+    } catch (err) {
+      console.error("[useGroupStore] sendThreadReply failed:", err);
+      toast.error("Failed to send thread reply.");
+      throw err;
+    }
+  },
+
+  votePoll: async (messageId, optionIds, groupId) => {
+    const gid = groupId || get().selectedGroup?.id;
+    try {
+      const res = await axiosInstance.post(
+        `/groups/${gid}/messages/${messageId}/poll/vote`,
+        { optionIds }
+      );
+      if (res.data?.success && res.data.data) {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, poll: res.data.data.poll } : m
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error("[useGroupStore] votePoll failed:", err);
+      toast.error(errMsg(err, "Failed to submit vote"));
+      throw err;
+    }
+  },
+
+  closePoll: async (messageId, groupId) => {
+    const gid = groupId || get().selectedGroup?.id;
+    try {
+      const res = await axiosInstance.post(
+        `/groups/${gid}/messages/${messageId}/poll/close`
+      );
+      if (res.data?.success && res.data.data) {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, poll: res.data.data.poll } : m
+          ),
+        }));
+        toast.success("Poll closed.");
+      }
+    } catch (err) {
+      console.error("[useGroupStore] closePoll failed:", err);
+      toast.error(errMsg(err, "Failed to close poll"));
+    }
+  },
+
+  markViewOnceOpened: async (messageId, groupId) => {
+    const gid = groupId || get().selectedGroup?.id;
+    try {
+      await axiosInstance.post(
+        `/groups/${gid}/messages/${messageId}/view-once/open`
+      );
+      set((s) => ({
+        groupMessages: s.groupMessages.map((m) =>
+          sameId(m.id, messageId)
+            ? { ...m, viewOnceExpired: true, image: null, video: null, file: null }
+            : m
+        ),
+      }));
+    } catch (err) {
+      console.error("[useGroupStore] markViewOnceOpened failed:", err);
+    }
+  },
+
+  setGroupDisappearing: async (groupId, seconds) => {
+    try {
+      const res = await axiosInstance.patch(`/groups/${groupId}/disappearing`, {
+        seconds,
+      });
+      if (res.data?.success) {
+        set((s) => ({
+          selectedGroup:
+            s.selectedGroup && sameId(s.selectedGroup.id, groupId)
+              ? { ...s.selectedGroup, disappearAfter: seconds }
+              : s.selectedGroup,
+          groups: s.groups.map((g) =>
+            sameId(g.id, groupId) ? { ...g, disappearAfter: seconds } : g
+          ),
+        }));
+        toast.success("Disappearing messages updated.");
+      }
+    } catch (err) {
+      console.error("[useGroupStore] setGroupDisappearing failed:", err);
+      toast.error(errMsg(err, "Failed to set disappearing messages"));
+    }
+  },
+
+  forwardGroupMessage: async (message, targetUserIds = [], targetGroupIds = []) => {
+    try {
+      if (!message || message.isDeleted) return false;
+      const text = message.text || "";
+      let anySent = false;
+
+      // 1. Send to groups
+      for (const gid of targetGroupIds) {
+        let encPayload = {};
+        if (text) {
+          try {
+            const enc = await encryptGroupText(gid, text);
+            encPayload = {
+              text: enc.text,
+              iv: enc.iv,
+              keyVersion: String(enc.keyVersion),
+              encrypted: "true",
+            };
+          } catch {
+            await get().prepareGroupKeys(gid).catch(() => 0);
+            const enc = await encryptGroupText(gid, text).catch(() => null);
+            if (enc) {
+              encPayload = {
+                text: enc.text,
+                iv: enc.iv,
+                keyVersion: String(enc.keyVersion),
+                encrypted: "true",
+              };
+            }
+          }
+        }
+        const fd = new FormData();
+        if (encPayload.text) {
+          fd.append("text", encPayload.text);
+          fd.append("iv", encPayload.iv);
+          fd.append("keyVersion", encPayload.keyVersion);
+          fd.append("encrypted", "true");
+        } else if (text) {
+          fd.append("text", text);
+        }
+        fd.append("isForwarded", "true");
+        fd.append("clientId", newClientId());
+
+        await axiosInstance.post(`/groups/${gid}/messages`, fd);
+        anySent = true;
+      }
+
+      // 2. Send to 1:1 user targets
+      for (const uid of targetUserIds) {
+        let payload = { isForwarded: true, clientId: newClientId() };
+        if (text) {
+          try {
+            const enc = await encryptFor(uid, text);
+            payload.text = enc.text;
+            payload.iv = enc.iv;
+            payload.keyEnvelopes = enc.keyEnvelopes;
+            payload.encrypted = true;
+          } catch {
+            payload.text = text;
+            payload.encrypted = false;
+          }
+        }
+        await axiosInstance.post(`/messages/send/${uid}`, payload);
+        anySent = true;
+      }
+
+      if (anySent) {
+        toast.success("Message forwarded");
+        return true;
+      }
+      return false;
+    } catch (e) {
+      toast.error(errMsg(e, "Failed to forward message"));
+      return false;
     }
   },
 
@@ -1360,6 +1959,367 @@ export const useGroupStore = create((set, get) => ({
               },
         ),
 
+      "group:messageEdited": async (payload) => {
+        const msg = normalizeMsg(payload);
+        if (!sameId(get().selectedGroup?.id, msg.groupId)) return;
+        const s = get();
+        const existing = s.groupMessages.find((m) => sameId(m.id, msg.id));
+        if (!existing) return;
+
+        let decryptedText = msg.text;
+        let isDecrypted = !msg.encrypted;
+        let isFailed = false;
+
+        if (msg.encrypted && msg.iv) {
+          try {
+            decryptedText = await decryptGroupText(
+              msg.groupId,
+              msg.text,
+              msg.iv,
+              msg.keyVersion,
+            );
+            isDecrypted = true;
+          } catch {
+            isFailed = true;
+            isDecrypted = false;
+          }
+        }
+
+        set((st) => ({
+          groupMessages: st.groupMessages.map((m) =>
+            sameId(m.id, msg.id)
+              ? {
+                  ...m,
+                  text: isDecrypted ? decryptedText : m.text,
+                  isEdited: true,
+                  editedAt: msg.editedAt || new Date().toISOString(),
+                  decrypted: isDecrypted,
+                  decryptFailed: isFailed,
+                  cryptoState: isDecrypted
+                    ? "decrypted"
+                    : isFailed
+                      ? "decryption_failed"
+                      : m.cryptoState,
+                }
+              : m,
+          ),
+        }));
+      },
+
+      groupMessageReaction: ({ messageId, reactions, reactionSummary, total }) => {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, reactions, reactionSummary, total } : m
+          ),
+          activeThread: s.activeThread
+            ? sameId(s.activeThread.parentMessage?.id, messageId)
+              ? { ...s.activeThread, parentMessage: { ...s.activeThread.parentMessage, reactions } }
+              : {
+                  ...s.activeThread,
+                  replies: (s.activeThread.replies || []).map((r) =>
+                    sameId(r.id, messageId) ? { ...r, reactions } : r
+                  ),
+                }
+            : null,
+        }));
+      },
+
+      groupThreadReply: ({ parentMessageId, reply }) => {
+        const { activeThread } = get();
+        if (
+          activeThread &&
+          sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
+        ) {
+          const replyId = reply.id || reply._id;
+          const exists = (activeThread.replies || []).some(
+            (r) =>
+              sameId(r.id || r._id, replyId) ||
+              (reply.clientId && r.clientId && reply.clientId === r.clientId)
+          );
+          if (exists) {
+            set((s) => ({
+              activeThread: {
+                ...s.activeThread,
+                replies: (s.activeThread.replies || []).map((r) =>
+                  sameId(r.id || r._id, replyId) ||
+                  (reply.clientId && r.clientId && reply.clientId === r.clientId)
+                    ? { ...r, ...reply }
+                    : r
+                ),
+              },
+            }));
+            return;
+          }
+          set((s) => ({
+            activeThread: {
+              ...s.activeThread,
+              replies: [...(s.activeThread.replies || []), reply],
+              totalReplies: (s.activeThread.totalReplies || 0) + 1,
+            },
+          }));
+        }
+      },
+
+      threadUpdated: ({ parentMessageId, threadReplyCount, threadLastReplyAt }) => {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id || m._id, parentMessageId)
+              ? { ...m, threadReplyCount, threadLastReplyAt }
+              : m
+          ),
+          activeThread:
+            s.activeThread &&
+            sameId(s.activeThread.parentMessage?.id || s.activeThread.parentMessage?._id, parentMessageId)
+              ? {
+                  ...s.activeThread,
+                  totalReplies:
+                    threadReplyCount !== undefined ? threadReplyCount : s.activeThread.totalReplies,
+                  parentMessage: s.activeThread.parentMessage
+                    ? {
+                        ...s.activeThread.parentMessage,
+                        threadReplyCount:
+                          threadReplyCount !== undefined
+                            ? threadReplyCount
+                            : s.activeThread.parentMessage.threadReplyCount,
+                        threadLastReplyAt:
+                          threadLastReplyAt || s.activeThread.parentMessage.threadLastReplyAt,
+                      }
+                    : s.activeThread.parentMessage,
+                }
+              : s.activeThread,
+        }));
+      },
+
+      groupThreadReplyDeleted: ({ groupId, parentMessageId, replyId, threadReplyCount }) => {
+        const { activeThread } = get();
+        if (
+          activeThread &&
+          sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
+        ) {
+          set((st) => ({
+            activeThread: {
+              ...st.activeThread,
+              replies: (st.activeThread.replies || []).filter(
+                (r) => !sameId(r.id || r._id, replyId)
+              ),
+              totalReplies:
+                threadReplyCount !== undefined
+                  ? threadReplyCount
+                  : Math.max(0, (st.activeThread.totalReplies || 1) - 1),
+            },
+          }));
+        }
+        set((st) => ({
+          groupMessages: st.groupMessages.map((m) =>
+            sameId(m.id || m._id, parentMessageId)
+              ? { ...m, threadReplyCount }
+              : m
+          ),
+        }));
+      },
+
+      pollUpdated: ({ messageId, poll }) => {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, poll } : m
+          ),
+        }));
+      },
+
+      viewOnceOpened: ({ messageId }) => {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId)
+              ? { ...m, viewOnceExpired: true, image: null, video: null, file: null }
+              : m
+          ),
+        }));
+      },
+
+      groupDisappearingUpdated: ({ groupId, disappearAfter }) => {
+        set((s) => ({
+          selectedGroup:
+            s.selectedGroup && sameId(s.selectedGroup.id, groupId)
+              ? { ...s.selectedGroup, disappearAfter }
+              : s.selectedGroup,
+          groups: s.groups.map((g) =>
+            sameId(g.id, groupId) ? { ...g, disappearAfter } : g
+          ),
+        }));
+      },
+
+      "group:messageDeleted": ({ groupId, messageId }) => {
+        if (!sameId(get().selectedGroup?.id, groupId)) return;
+        set((st) => {
+          const next = {
+            groupMessages: st.groupMessages.map((m) =>
+              sameId(m.id || m._id, messageId)
+                ? {
+                    ...m,
+                    text: "",
+                    image: null,
+                    file: null,
+                    audio: null,
+                    video: null,
+                    location: null,
+                    isDeleted: true,
+                    deletedAt: new Date().toISOString(),
+                  }
+                : m,
+            ),
+            pinnedMessages: (st.pinnedMessages || []).filter(
+              (m) => !sameId(m.id || m._id, messageId),
+            ),
+          };
+          if (st.activeThread) {
+            const isParent = sameId(st.activeThread.parentMessage?.id || st.activeThread.parentMessage?._id, messageId);
+            const isReply = (st.activeThread.replies || []).some((r) => sameId(r.id || r._id, messageId));
+            if (isParent) {
+              next.activeThread = {
+                ...st.activeThread,
+                parentMessage: {
+                  ...st.activeThread.parentMessage,
+                  isDeleted: true,
+                  text: "",
+                  image: null,
+                  file: null,
+                },
+              };
+            } else if (isReply) {
+              next.activeThread = {
+                ...st.activeThread,
+                replies: (st.activeThread.replies || []).map((r) =>
+                  sameId(r.id || r._id, messageId)
+                    ? {
+                        ...r,
+                        isDeleted: true,
+                        text: "",
+                        image: null,
+                        file: null,
+                      }
+                    : r
+                ),
+              };
+            }
+          }
+          return next;
+        });
+      },
+
+      "group:messageDeletedForMe": ({ groupId, messageId }) => {
+        if (!sameId(get().selectedGroup?.id, groupId)) return;
+        set((st) => {
+          const next = {
+            groupMessages: st.groupMessages.filter(
+              (m) => !sameId(m.id || m._id, messageId),
+            ),
+            pinnedMessages: (st.pinnedMessages || []).filter(
+              (m) => !sameId(m.id || m._id, messageId),
+            ),
+          };
+          if (st.activeThread) {
+            const isReply = (st.activeThread.replies || []).some((r) => sameId(r.id || r._id, messageId));
+            if (isReply) {
+              next.activeThread = {
+                ...st.activeThread,
+                replies: (st.activeThread.replies || []).filter((r) => !sameId(r.id || r._id, messageId)),
+              };
+            }
+          }
+          return next;
+        });
+      },
+
+      "group:messagePinned": async ({
+        groupId,
+        messageId,
+        isPinned,
+        pinnedBy,
+        pinnedByUser,
+        pinnedAt,
+        message,
+      }) => {
+        if (!sameId(get().selectedGroup?.id, groupId)) return;
+        const isPin = Boolean(isPinned);
+        set((st) => ({
+          groupMessages: st.groupMessages.map((m) =>
+            sameId(m.id, messageId)
+              ? {
+                  ...m,
+                  isPinned: isPin,
+                  pinnedBy: isPin ? (pinnedBy || myId()) : null,
+                  pinnedByUser: isPin ? pinnedByUser : null,
+                  pinnedAt: isPin ? (pinnedAt || new Date().toISOString()) : null,
+                }
+              : m,
+          ),
+        }));
+
+        if (isPin) {
+          if (message) {
+            const [decrypted] = await decryptGroupList(
+              [normalizeMsg(message)],
+              groupId,
+            );
+            set((st) => {
+              const without = (st.pinnedMessages || []).filter(
+                (m) => !sameId(m.id, messageId),
+              );
+              return {
+                pinnedMessages: [decrypted, ...without].slice(0, 5),
+              };
+            });
+          } else {
+            const existingMsg = get().groupMessages.find((m) =>
+              sameId(m.id, messageId),
+            );
+            if (existingMsg) {
+              set((st) => {
+                const without = (st.pinnedMessages || []).filter(
+                  (m) => !sameId(m.id, messageId),
+                );
+                return {
+                  pinnedMessages: [
+                    {
+                      ...existingMsg,
+                      isPinned: true,
+                      pinnedBy,
+                      pinnedByUser,
+                      pinnedAt,
+                    },
+                    ...without,
+                  ].slice(0, 5),
+                };
+              });
+            } else {
+              get().fetchPinnedMessages(groupId);
+            }
+          }
+        } else {
+          set((st) => ({
+            pinnedMessages: (st.pinnedMessages || []).filter(
+              (m) => !sameId(m.id, messageId),
+            ),
+          }));
+        }
+      },
+
+      
+      "group:messageStarred": ({ groupId, messageId, isStarred }) => {
+        if (!sameId(get().selectedGroup?.id, groupId)) return;
+        set((st) => ({
+          groupMessages: st.groupMessages.map((m) =>
+            sameId(m.id, messageId)
+              ? {
+                  ...m,
+                  isStarred: Boolean(isStarred),
+                }
+              : m,
+          ),
+        }));
+      },
+
+      
       "group:typing": ({ groupId, userId, fullName, isTyping }) => {
         const key = `${groupId}:${userId}`;
         if (groupTypingTimers.has(key)) {
@@ -1411,6 +2371,7 @@ export const useGroupStore = create((set, get) => ({
         }));
       },
 
+      
       "group:location:ended": ({ groupId, shareId }) =>
         get().endShareLocal(String(groupId), String(shareId)),
 
@@ -1429,7 +2390,8 @@ export const useGroupStore = create((set, get) => ({
           scheduled: st.scheduled.filter((x) => !sameId(x._id || x.id, id)),
         }));
       },
-      "scheduled:created": ({ groupId }) => {
+
+            "scheduled:created": ({ groupId }) => {
         if (groupId && sameId(get().selectedGroup?.id, groupId)) {
           get().getScheduled(groupId);
         }

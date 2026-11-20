@@ -163,9 +163,11 @@ export const getSidebarHeaderTexts = ({
         ? showArchivedGroups
           ? "Archived groups"
           : "Groups"
-        : showArchived
-          ? "Archived chats"
-          : "Messages";
+        : mode === "requests"
+          ? "Requests"
+          : showArchived
+            ? "Archived chats"
+            : "Messages";
 
   const headerSub =
     mode === "calls"
@@ -176,8 +178,10 @@ export const getSidebarHeaderTexts = ({
         ? showArchivedGroups
           ? plural(archivedGroupsCount, "group")
           : plural(groupsCount - archivedGroupsCount, "group")
-        : showArchived
-          ? plural(archivedUsersCount, "chat")
+        : mode === "requests"
+          ? "Contact & message requests"
+          : showArchived
+            ? plural(archivedUsersCount, "chat")
           : `${onlineCount} online`;
 
   return { headerTitle, headerSub };

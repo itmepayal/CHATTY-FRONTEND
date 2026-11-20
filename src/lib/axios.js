@@ -1,9 +1,8 @@
 import axios from "axios";
+import { API_URL } from "../config/env.config.js";
 
 export const axiosInstance = axios.create({
-  baseURL:
-    import.meta?.env?.VITE_API_URL ||
-    "https://chatty-backend-2l2t.onrender.com/api/v1",
+  baseURL: API_URL,
   withCredentials: true,
 });
 
@@ -96,4 +95,3 @@ axiosInstance.interceptors.response.use(
     }
   },
 );
-

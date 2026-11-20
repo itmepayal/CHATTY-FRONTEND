@@ -3,7 +3,7 @@ import { MessageSquare } from "lucide-react";
 const SidebarSkeleton = () => {
   const skeletonContacts = Array(8).fill(null);
   return (
-    <aside className="h-full w-full lg:w-[320px] xl:w-[340px] border-r border-base-300/80 flex flex-col transition-all duration-200 bg-base-100">
+    <aside className="h-full w-full md:w-[290px] lg:w-[310px] xl:w-[320px] border-r border-base-300/80 flex flex-col transition-all duration-200 bg-base-100">
       <div className="h-13 sm:h-14 shrink-0 border-b border-base-300/80 w-full px-3 sm:px-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5 sm:gap-3">
           <div className="skeleton size-8.5 sm:size-9 rounded-xl" />

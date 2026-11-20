@@ -11,12 +11,25 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
+  Moon,
+  MoonStar,
+  MessageSquare,
+  UsersRound,
+  Phone,
+  UserPlus,
+  Shield,
+  Info,
+  AtSign,
+  Smile,
+  Paperclip,
+  Clock,
+  Volume1,
 } from "lucide-react";
 import { customToast } from "../../toast";
 import SettingsCard from "../common/SettingsCard";
 import SettingsRow from "../common/SettingsRow";
 import SettingsToggle from "../common/SettingsToggle";
-import { useNotificationSettings } from "../../../store/useNotificationSettingsStore";
+import { useNotificationSettingsStore } from "../../../store/useNotificationSettingsStore";
 import {
   getPermissionState,
   requestPermission,
@@ -25,8 +38,16 @@ import {
 } from "../../../services/notificationService";
 
 export default function NotificationsSection() {
-  const { settings, loading, saving, updateSetting, loadSettings } =
-    useNotificationSettings();
+  const {
+    settings,
+    preferences,
+    loading,
+    saving,
+    updateSetting,
+    updatePreference,
+    loadSettings,
+    unmuteChat,
+  } = useNotificationSettingsStore();
 
   const [permissionState, setPermissionState] = useState(getPermissionState());
   const [showSavedFeedback, setShowSavedFeedback] = useState(false);
@@ -149,14 +170,37 @@ export default function NotificationsSection() {
     setTimeout(() => setIsTesting(false), 600);
   };
 
+  const handleDndDurationChange = async (durationHours) => {
+    if (durationHours === 0) {
+      await updatePreference("dndEnabled", false);
+      await updatePreference("dndUntil", null);
+      customToast.info("Do Not Disturb disabled");
+      return;
+    }
+
+    const untilDate =
+      durationHours === -1
+        ? null
+        : new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
+
+    await updatePreference("dndEnabled", true);
+    await updatePreference("dndUntil", untilDate);
+    customToast.success(
+      durationHours === -1
+        ? "Do Not Disturb enabled indefinitely"
+        : `Do Not Disturb enabled for ${durationHours} hour${durationHours > 1 ? "s" : ""}`,
+    );
+  };
+
   const isPermissionRevoked =
     settings.desktopNotifications && permissionState === "denied";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* 1. Sounds & Alerts */}
       <SettingsCard
-        title="Sounds & Notifications"
-        subtitle="Manage sound alerts, desktop notifications, and message preview snippets."
+        title="Sounds & Alerts"
+        subtitle="Manage sound chimes, desktop banners, and message preview snippets."
         headerAction={
           saving ? (
             <span className="flex items-center gap-1.5 text-xs text-primary font-medium">
@@ -316,6 +360,279 @@ export default function NotificationsSection() {
           </button>
         </SettingsRow>
       </SettingsCard>
+
+      {/* 2. Do Not Disturb (DND) */}
+      <SettingsCard
+        title="Do Not Disturb (DND)"
+        subtitle="Mute non-urgent notifications for a specified duration. Security alerts will always be delivered."
+      >
+        <SettingsRow
+          title="Do Not Disturb"
+          desc="Silence all personal message and group alerts while active"
+          icon={preferences.dndEnabled ? MoonStar : Moon}
+          toggle={
+            <SettingsToggle
+              checked={preferences.dndEnabled}
+              onChange={(val) => handleDndDurationChange(val ? -1 : 0)}
+              disabled={loading || saving}
+              label="Do Not Disturb"
+            />
+          }
+        />
+
+        {preferences.dndEnabled && (
+          <div className="p-3 bg-base-200/50 rounded-xl border border-base-300 space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-base-content/80">
+              <span className="flex items-center gap-1.5">
+                <Clock className="size-3.5 text-primary" />
+                <span>Mute duration</span>
+              </span>
+              {preferences.dndUntil && (
+                <span className="text-[11px] text-primary font-mono">
+                  Until {new Date(preferences.dndUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { label: "1 hour", hours: 1 },
+                { label: "8 hours", hours: 8 },
+                { label: "24 hours", hours: 24 },
+                { label: "Until turned off", hours: -1 },
+              ].map(({ label, hours }) => {
+                const isSelected =
+                  hours === -1
+                    ? !preferences.dndUntil
+                    : preferences.dndUntil &&
+                      Math.abs(
+                        new Date(preferences.dndUntil).getTime() -
+                          Date.now() -
+                          hours * 3600 * 1000,
+                      ) < 180000;
+
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => handleDndDurationChange(hours)}
+                    className={`btn btn-xs rounded-lg border-0 h-8 text-[11px] font-semibold transition-all ${
+                      isSelected
+                        ? "bg-primary text-primary-content"
+                        : "bg-base-200 text-base-content/70 hover:bg-base-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-[11px] text-base-content/50 leading-relaxed pt-1">
+              Important: Critical security alerts (new logins, password changes, 2FA alerts) will bypass DND for your protection.
+            </p>
+          </div>
+        )}
+      </SettingsCard>
+
+      {/* 3. Granular Category Controls */}
+      <SettingsCard
+        title="Category Notification Toggles"
+        subtitle="Fine-tune notifications for specific features across Chatty."
+      >
+        <SettingsRow
+          title="Direct messages"
+          desc="Alerts for one-on-one personal chat messages"
+          icon={MessageSquare}
+          toggle={
+            <SettingsToggle
+              checked={preferences.messagesPersonal !== false}
+              onChange={(val) => updatePreference("messagesPersonal", val)}
+              disabled={loading || saving}
+              label="Direct messages"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Message replies"
+          desc="Alerts when someone quotes or replies to your messages"
+          icon={MessageSquare}
+          toggle={
+            <SettingsToggle
+              checked={preferences.messageReplies !== false}
+              onChange={(val) => updatePreference("messageReplies", val)}
+              disabled={loading || saving}
+              label="Message replies"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Mentions"
+          desc="Alerts when you are mentioned in group chats or with @everyone"
+          icon={AtSign}
+          toggle={
+            <SettingsToggle
+              checked={preferences.messageMentions !== false}
+              onChange={(val) => updatePreference("messageMentions", val)}
+              disabled={loading || saving}
+              label="Mentions"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Reactions"
+          desc="Alerts when a user reacts with an emoji to your message"
+          icon={Smile}
+          toggle={
+            <SettingsToggle
+              checked={preferences.messageReactions !== false}
+              onChange={(val) => updatePreference("messageReactions", val)}
+              disabled={loading || saving}
+              label="Reactions"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Group conversations"
+          desc="General message alerts for joined groups"
+          icon={UsersRound}
+          toggle={
+            <SettingsToggle
+              checked={preferences.messagesGroup !== false}
+              onChange={(val) => updatePreference("messagesGroup", val)}
+              disabled={loading || saving}
+              label="Group conversations"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Group invites & membership events"
+          desc="Alerts when you are invited, added, removed, or promoted in groups"
+          icon={UsersRound}
+          toggle={
+            <SettingsToggle
+              checked={preferences.groupMembershipEvents !== false}
+              onChange={(val) => updatePreference("groupMembershipEvents", val)}
+              disabled={loading || saving}
+              label="Group invites & membership events"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Voice & video calls"
+          desc="Alerts for incoming and missed calls"
+          icon={Phone}
+          toggle={
+            <SettingsToggle
+              checked={preferences.callsVoice !== false}
+              onChange={(val) => updatePreference("callsVoice", val)}
+              disabled={loading || saving}
+              label="Voice & video calls"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Contact requests"
+          desc="Alerts when someone sends or accepts your contact connection"
+          icon={UserPlus}
+          toggle={
+            <SettingsToggle
+              checked={preferences.contactRequests !== false}
+              onChange={(val) => updatePreference("contactRequests", val)}
+              disabled={loading || saving}
+              label="Contact requests"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Security & device alerts"
+          desc="Alerts when a new device logs in or linked devices are modified"
+          icon={Shield}
+          toggle={
+            <SettingsToggle
+              checked={preferences.securityNewDevice !== false}
+              onChange={(val) => updatePreference("securityNewDevice", val)}
+              disabled={loading || saving}
+              label="Security & device alerts"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="System announcements"
+          desc="Platform updates, maintenance windows, and system alerts"
+          icon={Info}
+          toggle={
+            <SettingsToggle
+              checked={preferences.systemAnnouncements !== false}
+              onChange={(val) => updatePreference("systemAnnouncements", val)}
+              disabled={loading || saving}
+              label="System announcements"
+            />
+          }
+        />
+      </SettingsCard>
+
+      {/* 4. Muted Conversations */}
+      {(preferences.mutedConversations?.length > 0 ||
+        preferences.mutedGroups?.length > 0) && (
+        <SettingsCard
+          title="Muted Chats & Groups"
+          subtitle="Conversations you have temporarily or permanently silenced."
+        >
+          <div className="space-y-2">
+            {preferences.mutedConversations?.map((id) => (
+              <div
+                key={id}
+                className="flex items-center justify-between p-3 rounded-xl bg-base-200/40 border border-base-300 text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="size-4 text-base-content/50" />
+                  <span className="font-semibold text-base-content">
+                    Direct Chat ({id.slice(-6)})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => unmuteChat(id, "user")}
+                  className="btn btn-xs btn-ghost text-primary text-[11px]"
+                >
+                  Unmute
+                </button>
+              </div>
+            ))}
+
+            {preferences.mutedGroups?.map((id) => (
+              <div
+                key={id}
+                className="flex items-center justify-between p-3 rounded-xl bg-base-200/40 border border-base-300 text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <UsersRound className="size-4 text-base-content/50" />
+                  <span className="font-semibold text-base-content">
+                    Group Chat ({id.slice(-6)})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => unmuteChat(id, "group")}
+                  className="btn btn-xs btn-ghost text-primary text-[11px]"
+                >
+                  Unmute
+                </button>
+              </div>
+            ))}
+          </div>
+        </SettingsCard>
+      )}
     </div>
   );
 }

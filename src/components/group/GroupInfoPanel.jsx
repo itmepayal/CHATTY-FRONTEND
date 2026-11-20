@@ -9,6 +9,7 @@ import {
   Lock,
   MessageSquareText,
   PanelRightOpen,
+  Pin,
   Settings2,
   Users,
   X,
@@ -33,8 +34,13 @@ import { Section, Stat } from "../Chat/userInfo/UserInfoUI.jsx";
 const URL_RE = /https?:\/\/[^\s<>"')]+/gi;
 const getAvatar = (a) => (typeof a === "string" ? a : a?.url) || "/avatar.png";
 
-const GroupInfoPanel = ({ open, onToggle, onManage }) => {
-  const { selectedGroup: group, groupMessages } = useGroupStore();
+const GroupInfoPanel = ({
+  open,
+  onToggle,
+  onManage,
+  hasActiveThread = false,
+}) => {
+  const { selectedGroup: group, groupMessages, pinnedMessages = [] } = useGroupStore();
   const { authUser, onlineUsers, hiddenUsers } = useAuthStore();
 
   const myId = String(authUser?.id);
@@ -72,26 +78,13 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
   if (!group) return null;
 
-  // Collapsed strip on desktop
-  if (!open) {
-    return (
-      <div className="hidden xl:flex shrink-0 w-12 border-l border-base-300 bg-base-100 justify-center pt-3.5 z-10">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="btn btn-ghost btn-sm btn-circle hover:bg-primary/10 hover:text-primary"
-          aria-label="Open group info"
-          title="Open group info"
-        >
-          <PanelRightOpen className="size-5" />
-        </button>
-      </div>
-    );
-  }
+  if (!open) return null;
 
   const messages = (Array.isArray(groupMessages) ? groupMessages : []).filter(
     (m) => !m.isDeleted && !m.failed,
   );
+  const pinnedCount =
+    (pinnedMessages || []).length || messages.filter((m) => m.isPinned).length;
   const photos = messages.filter((m) => m.image?.url);
   const recentPhotos = photos.slice(-6).reverse();
 
@@ -152,18 +145,18 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
 
   return (
     <>
-      {/* Mobile Backdrop */}
+      {/* Backdrop for mobile & tablet */}
       <div
-        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs xl:hidden"
+        className="fixed inset-0 z-40 bg-black/20 xl:hidden"
         onClick={onToggle}
         aria-hidden="true"
       />
 
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto lg:w-[320px] xl:w-[340px] xl:max-w-none xl:shadow-none transition-all duration-200"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-all duration-200 xl:relative xl:z-auto lg:w-[300px] xl:w-[320px] xl:max-w-none xl:shadow-none"
       >
-        <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
+        <div className="flex h-13 sm:h-14 shrink-0 items-center justify-between px-4 sm:px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
           <div className="flex items-center gap-2.5 font-bold tracking-tight text-base text-base-content/90">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-200/80 text-base-content/60">
               <Info className="size-4.5" />
@@ -245,7 +238,7 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
           )}
 
           {/* Stats */}
-          <div className="flex gap-2 px-5 pb-4 select-none">
+          <div className="grid grid-cols-4 gap-2 px-5 pb-4 select-none">
             <Stat
               icon={MessageSquareText}
               value={messages.length}
@@ -253,6 +246,7 @@ const GroupInfoPanel = ({ open, onToggle, onManage }) => {
             />
             <Stat icon={ImageIcon} value={photos.length} label="Photos" />
             <Stat icon={Users} value={members.length} label="Members" />
+            <Stat icon={Pin} value={pinnedCount} label="Pinned" />
           </div>
 
           {createdAt && (

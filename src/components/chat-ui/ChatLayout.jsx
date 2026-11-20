@@ -1,8 +1,9 @@
 /**
  * ChatLayout
- * Centralized responsive 3-column layout container for the Chat experience.
- * Ensures consistent symmetrical borders, viewport containment, and no unwanted page scrollbars.
- * Container max-width, margins, and gutters exactly match Settings and Profile pages (max-w-7xl, mx-auto, px-0 sm:px-6 lg:px-8).
+ * Centralized responsive layout container for the Chat experience.
+ * Centered container with balanced responsive max-width and outer whitespace,
+ * preventing full-width stretching on large screens while maintaining edge-to-edge
+ * usability on mobile devices.
  */
 export const ChatLayout = ({
   banner,
@@ -14,9 +15,9 @@ export const ChatLayout = ({
 }) => {
   return (
     <div
-      className={`h-screen h-[100dvh] bg-base-200/90 flex flex-col justify-center overscroll-none overflow-hidden relative ${className}`}
+      className={`h-screen w-full bg-base-200/90 text-base-content flex flex-col items-center justify-center overscroll-none overflow-hidden relative ${className}`}
     >
-      {/* Ambient Glow Blobs matching Settings and Profile Pages */}
+      {/* Ambient Glow Blobs matching Profile & Settings pages */}
       <div
         className="pointer-events-none fixed inset-0 overflow-hidden"
         aria-hidden="true"
@@ -25,8 +26,8 @@ export const ChatLayout = ({
         <div className="absolute -right-32 bottom-20 size-96 rounded-full bg-accent/10 blur-3xl" />
       </div>
 
-      <div className="w-full h-full max-w-7xl mx-auto flex flex-col px-0 sm:px-6 lg:px-8 py-0 sm:py-5 lg:py-7 relative z-10">
-        <div className="bg-base-100 sm:rounded-2xl shadow-xl sm:border border-base-300 w-full h-full flex flex-col overflow-hidden relative">
+      <div className="w-full h-full max-w-7xl mx-auto flex flex-col px-0 sm:px-6 lg:px-8 py-0 sm:py-4 lg:py-6 relative z-10 min-w-0">
+        <div className="bg-base-100 sm:rounded-2xl shadow-xl sm:border border-base-300/80 w-full h-full flex flex-col overflow-hidden relative">
           {banner}
 
           <div className="flex flex-1 min-h-0 w-full overflow-hidden relative">

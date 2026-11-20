@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Info, PanelRightOpen, X } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Info, PanelRightOpen, X, Bell, BellOff, Search } from "lucide-react";
 import { useChatStore } from "../../store/useChatStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { usePrivacyStore } from "../../store/usePrivacyStore";
@@ -29,7 +29,7 @@ import { UserInfoSharedSection } from "./userInfo/UserInfoSharedSection.jsx";
 
 const URL_RE = /https?:\/\/[^\s<>"')]+/gi;
 
-const UserInfoPanel = ({ open, onToggle }) => {
+const UserInfoPanel = ({ open, onToggle, hasActiveThread = false }) => {
   const { selectedUser, users, messages } = useChatStore();
   const selectedId = selectedUser
     ? String(selectedUser.id ?? selectedUser._id)
@@ -107,28 +107,16 @@ const UserInfoPanel = ({ open, onToggle }) => {
 
   if (!selectedUser) return null;
 
-  // Collapsed desktop strip
-  if (!open) {
-    return (
-      <div className="hidden xl:flex shrink-0 w-12 border-l border-base-300 bg-base-100 justify-center pt-4">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="btn btn-ghost btn-sm btn-circle text-base-content/60 hover:text-base-content"
-          title="Open contact info"
-          aria-label="Open contact info"
-        >
-          <PanelRightOpen className="size-4.5" />
-        </button>
-      </div>
-    );
-  }
+  if (!open) return null;
 
   /* ----- derived data & privacy computations ----- */
   const list = Array.isArray(messages) ? messages : [];
   const visible = list.filter((m) => !m.isDeleted);
   const photos = visible.filter((m) => m.image?.url);
   const recentPhotos = photos.slice(-6).reverse();
+
+  const docs = visible.filter((m) => m.file?.url);
+  const recentDocs = docs.slice(-6).reverse();
 
   const allLinks = [];
   for (const m of visible) {
@@ -262,18 +250,18 @@ const UserInfoPanel = ({ open, onToggle }) => {
 
   return (
     <>
-      {/* Mobile Backdrop */}
+      {/* Mobile & Tablet Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/40 xl:hidden"
+        className="fixed inset-0 z-40 bg-black/20 xl:hidden"
         onClick={onToggle}
         aria-hidden="true"
       />
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl xl:relative xl:z-auto lg:w-[320px] xl:w-[340px] xl:max-w-none xl:shadow-none transition-all duration-200"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-all duration-200 xl:relative xl:z-auto lg:w-[300px] xl:w-[320px] xl:max-w-none xl:shadow-none"
       >
         {/* Header */}
-        <div className="flex h-16 shrink-0 items-center justify-between px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
+        <div className="flex h-13 sm:h-14 shrink-0 items-center justify-between px-4 sm:px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
           <div className="flex items-center gap-2.5 font-bold tracking-tight text-base text-base-content/90">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-base-200/80 text-base-content/60">
               <Info className="size-4.5" />
@@ -345,10 +333,58 @@ const UserInfoPanel = ({ open, onToggle }) => {
           {/* Privacy & Security Section with Lock Conversation */}
           <UserInfoPrivacySection selectedId={selectedId} />
 
+          {/* Notifications & Search Controls */}
+          <div className="border-t border-base-300" />
+          <div className="px-5 py-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <BellOff className="size-4 text-base-content/60" />
+                <div>
+                  <p className="text-xs font-semibold text-base-content">
+                    Mute notifications
+                  </p>
+                  <p className="text-[10px] text-base-content/50">
+                    Silence alerts for this chat
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(targetUser.isMuted)}
+                onChange={() =>
+                  useChatStore
+                    .getState()
+                    .toggleMuteChat(selectedId, !targetUser.isMuted)
+                }
+                className="toggle toggle-primary toggle-sm"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSearchMessages}
+              className="flex items-center justify-between w-full py-1 text-left group cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <Search className="size-4 text-base-content/60 group-hover:text-primary transition-colors" />
+                <div>
+                  <p className="text-xs font-semibold text-base-content group-hover:text-primary transition-colors">
+                    Search in conversation
+                  </p>
+                  <p className="text-[10px] text-base-content/50">
+                    Find messages, media and links
+                  </p>
+                </div>
+              </div>
+            </button>
+          </div>
+
           {/* SECTION E: SHARED MEDIA & LINKS */}
           <UserInfoSharedSection
             recentPhotos={recentPhotos}
             photosCount={photos.length}
+            recentDocs={recentDocs}
+            docsCount={docs.length}
             recentLinks={recentLinks}
             uniqueLinksCount={uniqueLinks.length}
           />

@@ -9,22 +9,52 @@ export const NOTIFICATION_SETTINGS_DEFAULTS = {
   showPreview: true,
 };
 
+export const NOTIFICATION_PREFERENCES_DEFAULTS = {
+  messagesPersonal: true,
+  messagesGroup: true,
+  messageReplies: true,
+  messageMentions: true,
+  messageReactions: true,
+  mediaNotifications: true,
+  callsVoice: true,
+  callsVideo: true,
+  callsMissed: true,
+  callsGroup: true,
+  contactRequests: true,
+  contactAcceptance: true,
+  groupInvitations: true,
+  groupMembershipEvents: true,
+  securityNewDevice: true,
+  securityDeviceLinking: true,
+  securityCredentialChanges: true,
+  securityE2EEAlerts: true,
+  systemAnnouncements: true,
+  systemMaintenance: true,
+  systemAlerts: true,
+  dndEnabled: false,
+  dndUntil: null,
+  mutedConversations: [],
+  mutedGroups: [],
+};
+
 let debounceTimer = null;
 let pendingVolumeValue = null;
 let inFlightUpdateCount = 0;
 
 export const useNotificationSettingsStore = create((set, get) => ({
   settings: { ...NOTIFICATION_SETTINGS_DEFAULTS },
+  preferences: { ...NOTIFICATION_PREFERENCES_DEFAULTS },
   loading: false,
   saving: false,
   error: null,
   isLoaded: false,
 
   /**
-   * Initializes settings from authenticated user object.
+   * Initializes settings and preferences from authenticated user object.
    */
   initFromUser: (userData) => {
-    const ns = userData?.notificationSettings || userData || {};
+    const ns = userData?.notificationSettings || {};
+    const np = userData?.notificationPreferences || {};
     set((state) => ({
       settings: {
         soundEnabled:
@@ -44,18 +74,24 @@ export const useNotificationSettingsStore = create((set, get) => ({
             ? Boolean(ns.showPreview)
             : state.settings.showPreview,
       },
+      preferences: {
+        ...state.preferences,
+        ...np,
+      },
       isLoaded: true,
     }));
   },
 
   /**
-   * Loads settings from backend API.
+   * Loads settings and preferences from backend API.
    */
   loadSettings: async () => {
     set({ loading: true, error: null });
     try {
       const res = await axiosInstance.get("/settings/notifications");
       const data = res?.data?.settings || res?.data?.data || {};
+      const prefs = res?.data?.preferences || {};
+
       set({
         settings: {
           soundEnabled:
@@ -75,6 +111,10 @@ export const useNotificationSettingsStore = create((set, get) => ({
               ? Boolean(data.showPreview)
               : NOTIFICATION_SETTINGS_DEFAULTS.showPreview,
         },
+        preferences: {
+          ...NOTIFICATION_PREFERENCES_DEFAULTS,
+          ...prefs,
+        },
         loading: false,
         isLoaded: true,
       });
@@ -92,10 +132,8 @@ export const useNotificationSettingsStore = create((set, get) => ({
     const current = get().settings;
     if (current[key] === value) return;
 
-    // Handle debounced volume slider
     if (key === "soundVolume") {
       pendingVolumeValue = value;
-      // Optimistic update immediately
       set((state) => ({
         settings: { ...state.settings, soundVolume: value },
       }));
@@ -115,7 +153,6 @@ export const useNotificationSettingsStore = create((set, get) => ({
       return;
     }
 
-    // Direct optimistic update for booleans
     const previous = { ...current };
     set((state) => ({
       settings: { ...state.settings, [key]: value },
@@ -152,7 +189,6 @@ export const useNotificationSettingsStore = create((set, get) => ({
       }));
     } catch (err) {
       console.error("[notificationSettings] update failed:", err?.message);
-      // Rollback to previous state
       set((state) => ({
         settings: { ...state.settings, ...rollbackState },
         error: err?.response?.data?.message || err?.message || "Failed to save setting",
@@ -163,6 +199,76 @@ export const useNotificationSettingsStore = create((set, get) => ({
       if (inFlightUpdateCount === 0) {
         set({ saving: false });
       }
+    }
+  },
+
+  /**
+   * Updates granular notification category preferences or DND.
+   */
+  updatePreference: async (key, value) => {
+    const current = get().preferences;
+    if (current[key] === value) return;
+
+    const previous = { ...current };
+    set((state) => ({
+      preferences: { ...state.preferences, [key]: value },
+      saving: true,
+    }));
+
+    try {
+      const res = await axiosInstance.patch("/settings/notifications/preferences", {
+        [key]: value,
+      });
+      const updated = res?.data?.preferences || { [key]: value };
+      set((state) => ({
+        preferences: { ...state.preferences, ...updated },
+        saving: false,
+      }));
+    } catch (err) {
+      console.error("[notificationSettings] preference update failed:", err?.message);
+      set({
+        preferences: previous,
+        saving: false,
+        error: err?.response?.data?.message || "Failed to update preference",
+      });
+      toast.error("Failed to update notification preference");
+    }
+  },
+
+  /**
+   * Mutes a user or group conversation.
+   */
+  muteChat: async (targetId, type = "user") => {
+    try {
+      const res = await axiosInstance.post("/settings/notifications/mute", {
+        targetId,
+        type,
+      });
+      const updated = res?.data?.preferences;
+      if (updated) {
+        set((state) => ({ preferences: { ...state.preferences, ...updated } }));
+      }
+      toast.success(`${type === "group" ? "Group" : "Chat"} notifications muted`);
+    } catch (err) {
+      toast.error("Failed to mute notifications");
+    }
+  },
+
+  /**
+   * Unmutes a user or group conversation.
+   */
+  unmuteChat: async (targetId, type = "user") => {
+    try {
+      const res = await axiosInstance.delete("/settings/notifications/mute", {
+        data: { targetId, type },
+      });
+      const updated = res?.data?.preferences;
+      if (updated) {
+        set((state) => ({ preferences: { ...state.preferences, ...updated } }));
+      }
+      toast.success(`${type === "group" ? "Group" : "Chat"} notifications unmuted`);
+    } catch (err) {
+      toast.error("Failed to unmute notifications");
     }
   },
 
@@ -195,6 +301,15 @@ export const useNotificationSettingsStore = create((set, get) => ({
     }));
   },
 
+  handleSocketPreferencesUpdate: (payload) => {
+    const prefs = payload?.preferences;
+    if (prefs && typeof prefs === "object") {
+      set((state) => ({
+        preferences: { ...state.preferences, ...prefs },
+      }));
+    }
+  },
+
   /**
    * Resets settings to defaults and cancels any pending debounced timers.
    */
@@ -208,6 +323,7 @@ export const useNotificationSettingsStore = create((set, get) => ({
 
     set({
       settings: { ...NOTIFICATION_SETTINGS_DEFAULTS },
+      preferences: { ...NOTIFICATION_PREFERENCES_DEFAULTS },
       loading: false,
       saving: false,
       error: null,
@@ -216,7 +332,5 @@ export const useNotificationSettingsStore = create((set, get) => ({
   },
 }));
 
-// Preferred interface requested by prompt
 export const useNotificationSettings = useNotificationSettingsStore;
-
 export default useNotificationSettingsStore;

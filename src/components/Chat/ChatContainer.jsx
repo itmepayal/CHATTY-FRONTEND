@@ -43,18 +43,26 @@ import {
   RotateCw,
   Send,
   ShieldCheck,
+  ShieldAlert,
   Smile,
+  Star,
   Timer,
   Trash2,
   User,
+  UserCheck,
+  UserPlus,
+  UserX,
   X,
   MessageSquareText,
   SmilePlus,
   Video,
+  Bookmark,
+  BarChart2,
 } from "lucide-react";
 import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
 import { useChatStore } from "../../store/useChatStore";
+import { useGroupStore } from "../../store/useGroupStore";
 import { useChatLockStore } from "../../store/useChatLockStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useContactStore } from "../../store/useContactStore";
@@ -105,6 +113,12 @@ import { ScheduleModal, ScheduledModal } from "./Common/ScheduleModals.jsx";
 
 import LocationMessage from "../Location/LocationMessage.jsx";
 import ShareLocationModal from "../Location/ShareLocationModel.jsx";
+import ReactionChips from "./reactions/ReactionChips.jsx";
+import ThreadPanel from "./thread/ThreadPanel.jsx";
+import PollCard from "./poll/PollCard.jsx";
+import CreatePollModal from "./poll/CreatePollModal.jsx";
+import SaveMessageModal from "./saved/SaveMessageModal.jsx";
+import ViewOnceMediaModal from "./viewOnce/ViewOnceMediaModal.jsx";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -744,6 +758,9 @@ const renderStatus = (message, mine, s, showSeen = true) => {
 
   const label = (
     <>
+      {message.isStarred && (
+        <Star className="size-3 text-warning fill-warning" />
+      )}
       {edited && <span className="italic">edited</span>}
       {edited && time && <span>·</span>}
       {time}
@@ -773,7 +790,7 @@ const ForwardModal = ({ users, myId, onClose, onConfirm }) => {
     (u) =>
       !u.isBlocked &&
       !sameId(u.id, myId) &&
-      u.fullName.toLowerCase().includes(query.trim().toLowerCase()),
+      (u.fullName || u.name || "").toLowerCase().includes(query.trim().toLowerCase()),
   );
 
   const toggle = (id) =>
@@ -803,14 +820,14 @@ const ForwardModal = ({ users, myId, onClose, onConfirm }) => {
       <input
         autoFocus
         className="input input-bordered input-sm mt-3 w-full text-base sm:text-sm"
-        placeholder="Search people"
+        placeholder="Search people or groups"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
         {candidates.length === 0 && (
           <p className="py-6 text-center text-sm text-base-content/60">
-            No one found.
+            No chats found.
           </p>
         )}
         {candidates.map((u, i) => {
@@ -831,10 +848,15 @@ const ForwardModal = ({ users, myId, onClose, onConfirm }) => {
               <img
                 src={avatarSrc(u.avatar)}
                 alt=""
-                className="size-8 rounded-full object-cover"
+                className="size-8 rounded-full object-cover border border-base-300"
               />
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {u.fullName}
+              <span className="min-w-0 flex-1 truncate text-sm flex items-center gap-1.5">
+                <span className="truncate">{u.fullName}</span>
+                {u.isGroup && (
+                  <span className="badge badge-xs badge-neutral shrink-0">
+                    Group
+                  </span>
+                )}
               </span>
               <span
                 className={`grid size-5 place-items-center rounded-full border transition-colors ${
@@ -1084,6 +1106,8 @@ const ChatInput = () => {
   const [showTools, setShowTools] = useState(false); // mobile: "+" attach row
   const [isDragging, setIsDragging] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [isViewOnce, setIsViewOnce] = useState(false);
+  const [showCreatePoll, setShowCreatePoll] = useState(false);
 
   const fileRef = useRef(null);
   const imageRef = useRef(null);
@@ -1214,6 +1238,7 @@ const ChatInput = () => {
 
   const clearFile = () => {
     setFile(null);
+    setIsViewOnce(false);
     if (fileRef.current) fileRef.current.value = "";
     if (imageRef.current) imageRef.current.value = "";
   };
@@ -1282,7 +1307,8 @@ const ChatInput = () => {
 
     // The store encrypts the text (per-peer key) before upload and never falls
     // back to plaintext. Reply (if any) is picked up from the store.
-    sendMessage({ text, attachment: file });
+    sendMessage({ text, attachment: file, isViewOnce });
+    setIsViewOnce(false);
 
     setText("");
     clearFile();
@@ -1375,7 +1401,7 @@ const ChatInput = () => {
   const canSchedule = !isEditing && !file;
 
   return (
-    <div className="relative border-t border-base-300 bg-base-100 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3 sm:pb-3">
+    <div className="relative border-t border-base-300 bg-base-100 px-3 pt-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom))] sm:px-5 md:px-6 lg:px-8 sm:py-3.5">
       {/* Reply bar */}
       <CollapseBar show={Boolean(replyingTo) && !isEditing}>
         <div className="mb-2 flex items-center gap-2 rounded-xl border-l-4 border-primary bg-base-200 px-3 py-1.5">
@@ -1466,6 +1492,22 @@ const ChatInput = () => {
               aria-label="Remove attachment"
             >
               <X className="size-3" />
+            </motion.button>
+
+            {/* View-Once Media Toggle */}
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setIsViewOnce((v) => !v)}
+              className={`mt-1.5 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border transition-colors ${
+                isViewOnce
+                  ? "bg-primary text-primary-content border-primary"
+                  : "bg-base-200/80 text-base-content/70 border-base-300 hover:bg-base-300"
+              }`}
+              title={isViewOnce ? "View once is ON (will be deleted after viewed)" : "Turn on View Once"}
+            >
+              <span className="flex size-4 items-center justify-center rounded-full border border-current text-[10px] font-bold">1</span>
+              <span>{isViewOnce ? "View Once Active" : "View Once"}</span>
             </motion.button>
           </motion.div>
         )}
@@ -1684,6 +1726,18 @@ const ChatInput = () => {
               <Smile className="size-5" />
             </motion.button>
 
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-ghost btn-sm btn-circle"
+              onClick={() => setShowCreatePoll(true)}
+              disabled={isEditing}
+              aria-label="Create poll"
+              title="Create poll"
+            >
+              <BarChart2 className="size-5" />
+            </motion.button>
+
             <AiAssist
               text={text}
               resetKey={selectedUser?.id}
@@ -1799,6 +1853,14 @@ const ChatInput = () => {
           />
         )}
       </AnimatePresence>
+
+      {showCreatePoll && (
+        <CreatePollModal
+          isGroup={false}
+          targetId={selectedUser?.id || selectedUser?._id}
+          onClose={() => setShowCreatePoll(false)}
+        />
+      )}
     </div>
   );
 };
@@ -1906,7 +1968,7 @@ const MessageRow = memo(function MessageRow({
         </div>
 
         <div
-          className={`flex min-w-0 max-w-[85%] flex-col sm:max-w-[65%] ${
+          className={`flex min-w-0 max-w-[88%] sm:max-w-[82%] md:max-w-[75%] lg:max-w-[70%] xl:max-w-[560px] flex-col ${
             isMine ? "items-end" : "items-start"
           }`}
         >
@@ -1965,53 +2027,110 @@ const MessageRow = memo(function MessageRow({
                   />
                 )}
 
-                {imageSrc && (
-                  <motion.button
-                    type="button"
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => h.current.setPreviewSrc(imageSrc)}
-                    className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2"
-                    aria-label="Open image"
-                  >
-                    <img
-                      src={imageSrc}
-                      alt="Attachment"
-                      decoding="async"
-                      loading="lazy"
-                      onLoad={() => h.current.onImageLoad()}
-                      className={`max-h-56 w-auto max-w-full rounded-xl object-cover sm:max-h-64 ${
-                        hasText ? "mb-2" : ""
-                      } ${pending ? "opacity-60" : ""}`}
-                    />
-                  </motion.button>
-                )}
-                {hasFile && (
-                  <div className={hasText ? "mb-2" : ""}>
-                    <FileAttachment
-                      file={m.file}
-                      isMine={isMine}
-                      uploading={m.status === "sending"}
-                      progress={m.uploadProgress}
+                {/* Poll Card */}
+                {m.poll?.question && (
+                  <div className="mb-2">
+                    <PollCard
+                      message={m}
+                      currentUserId={myId}
+                      onVote={(...args) => {
+                        const optIds = args.length > 1 ? args[1] : args[0];
+                        h.current.votePoll(m.id, optIds);
+                      }}
+                      onClosePoll={() => h.current.closePoll(m.id)}
+                      isGroup={false}
                     />
                   </div>
                 )}
-                {hasAudio && (
-                  <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
-                    <VoiceMessage
-                      audio={m.audio}
-                      isMine={isMine}
-                      uploading={m.status === "sending"}
-                    />
+
+                {/* View Once Media pill */}
+                {m.isViewOnce ? (
+                  <div className="mb-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!m.viewOnceExpired) {
+                          h.current.openViewOnce(m);
+                        }
+                      }}
+                      disabled={m.viewOnceExpired}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                        m.viewOnceExpired
+                          ? "bg-base-200/50 text-base-content/40 cursor-not-allowed"
+                          : isMine
+                          ? "bg-primary-content/20 text-primary-content hover:bg-primary-content/30"
+                          : "bg-primary/10 text-primary hover:bg-primary/20"
+                      }`}
+                    >
+                      <div
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center font-bold text-[10px] ${
+                          m.viewOnceExpired
+                            ? "border-base-content/30 text-base-content/40"
+                            : "border-current"
+                        }`}
+                      >
+                        1
+                      </div>
+                      <span>
+                        {m.viewOnceExpired
+                          ? "Opened"
+                          : m.video?.url
+                          ? "View Once Video"
+                          : "View Once Photo"}
+                      </span>
+                    </button>
                   </div>
-                )}
-                {hasVideo && (
-                  <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
-                    <VideoMessage
-                      video={m.video}
-                      uploading={m.status === "sending"}
-                      progress={m.uploadProgress}
-                    />
-                  </div>
+                ) : (
+                  <>
+                    {imageSrc && (
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => h.current.setPreviewSrc(imageSrc)}
+                        className="block rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2"
+                        aria-label="Open image"
+                      >
+                        <img
+                          src={imageSrc}
+                          alt="Attachment"
+                          decoding="async"
+                          loading="lazy"
+                          onLoad={() => h.current.onImageLoad()}
+                          className={`max-h-56 w-auto max-w-full rounded-xl object-cover sm:max-h-64 ${
+                            hasText ? "mb-2" : ""
+                          } ${pending ? "opacity-60" : ""}`}
+                        />
+                      </motion.button>
+                    )}
+                    {hasFile && (
+                      <div className={hasText ? "mb-2" : ""}>
+                        <FileAttachment
+                          file={m.file}
+                          isMine={isMine}
+                          uploading={m.status === "sending"}
+                          progress={m.uploadProgress}
+                        />
+                      </div>
+                    )}
+                    {hasAudio && (
+                      <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
+                        <VoiceMessage
+                          audio={m.audio}
+                          isMine={isMine}
+                          uploading={m.status === "sending"}
+                        />
+                      </div>
+                    )}
+                    {hasVideo && (
+                      <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
+                        <VideoMessage
+                          video={m.video}
+                          uploading={m.status === "sending"}
+                          progress={m.uploadProgress}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
                 {hasLocation && (
                   <div className={`max-w-full ${hasText ? "mb-2" : ""}`}>
@@ -2097,28 +2216,39 @@ const MessageRow = memo(function MessageRow({
             )}
           </div>
 
-          {grouped.length > 0 && (
+          {/* Multi-Reactions breakdown chips */}
+          {m.reactions?.length > 0 && (
             <div
               className={`relative z-[1] -mt-1.5 flex flex-wrap gap-1 px-2 ${
                 isMine ? "justify-end" : ""
               }`}
             >
-              {grouped.map((r) => (
-                <button
-                  key={r.emoji}
-                  type="button"
-                  onClick={() => h.current.reactToMessage(m.id, r.emoji)}
-                  className={`flex items-center gap-1 rounded-full border bg-base-100 px-1.5 py-0.5 text-xs shadow-sm transition-colors active:scale-90 ${
-                    r.mine
-                      ? "border-primary bg-primary/10"
-                      : "border-base-300 hover:bg-base-200"
-                  }`}
-                >
-                  <span>{r.emoji}</span>
-                  {r.count > 1 && <span>{r.count}</span>}
-                </button>
-              ))}
+              <ReactionChips
+                message={m}
+                currentUserId={myId}
+                onToggleReaction={(msgId, emoji) => h.current.reactToMessage(msgId, emoji)}
+                isGroup={false}
+              />
             </div>
+          )}
+
+          {/* Thread reply counter badge */}
+          {m.threadReplyCount > 0 && (
+            <button
+              type="button"
+              onClick={() => h.current.openThread(m)}
+              className="mt-1 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline px-1 cursor-pointer"
+            >
+              <MessageSquareText className="size-3.5" />
+              <span>
+                {m.threadReplyCount} {m.threadReplyCount === 1 ? "reply" : "replies"}
+              </span>
+              {m.threadLastReplyAt && (
+                <span className="text-[10px] opacity-60">
+                  · {formatTime(m.threadLastReplyAt)}
+                </span>
+              )}
+            </button>
           )}
 
           {(endsGroup || pending) && (
@@ -2153,7 +2283,138 @@ const MessageRow = memo(function MessageRow({
   );
 });
 
-const ChatContainer = ({ onToggleInfo }) => {
+const ConnectionRequiredBanner = ({
+  user,
+  incomingReq,
+  outgoingReq,
+  onAccept,
+  onDecline,
+  onCancel,
+  onAdd,
+}) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleAction = async (fn, arg) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await fn(arg);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const reqId = incomingReq?.id || incomingReq?._id || incomingReq?.requestId;
+  const outId = outgoingReq?.id || outgoingReq?._id || outgoingReq?.requestId;
+
+  if (incomingReq) {
+    return (
+      <div className="shrink-0 border-t border-base-300 bg-base-100/95 backdrop-blur-md px-4 py-3 sm:py-4 shadow-lg transition-all">
+        <div className="max-w-xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <UserPlus className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-base-content truncate">
+                Incoming Contact Request
+              </p>
+              <p className="text-xs text-base-content/60 truncate">
+                {user?.fullName || "This user"} wants to connect with you.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => handleAction(onAccept, reqId)}
+              className="btn btn-sm btn-primary rounded-xl px-4 gap-1.5 shadow-sm"
+            >
+              <UserCheck className="size-3.5" />
+              <span>Accept</span>
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => handleAction(onDecline, reqId)}
+              className="btn btn-sm btn-ghost hover:bg-base-200 text-base-content/70 rounded-xl px-3 gap-1.5"
+            >
+              <UserX className="size-3.5" />
+              <span>Decline</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (outgoingReq) {
+    return (
+      <div className="shrink-0 border-t border-base-300 bg-base-100/95 backdrop-blur-md px-4 py-3 sm:py-4 shadow-lg transition-all">
+        <div className="max-w-xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-full bg-warning/10 text-warning flex items-center justify-center shrink-0">
+              <Clock className="size-5 animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-base-content truncate">
+                Contact Request Sent
+              </p>
+              <p className="text-xs text-base-content/60 truncate">
+                Waiting for {user?.fullName || "this user"} to accept your request.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => handleAction(onCancel, outId)}
+              className="btn btn-sm btn-ghost hover:bg-error/10 text-error rounded-xl px-3 gap-1.5"
+            >
+              <X className="size-3.5" />
+              <span>Cancel Request</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0 border-t border-base-300 bg-base-100/95 backdrop-blur-md px-4 py-3 sm:py-4 shadow-lg transition-all">
+      <div className="max-w-xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="size-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <ShieldAlert className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-base-content truncate">
+              Contact Connection Required
+            </p>
+            <p className="text-xs text-base-content/60 truncate">
+              Connect with {user?.fullName || "this user"} to start messaging and calling.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => handleAction(onAdd, user?.id)}
+            className="btn btn-sm btn-primary rounded-xl px-4 gap-1.5 shadow-sm"
+          >
+            <UserPlus className="size-3.5" />
+            <span>Add Contact</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
   const {
     messages,
     users,
@@ -2185,19 +2446,72 @@ const ChatContainer = ({ onToggleInfo }) => {
     liveShares,
     stopLiveShare,
     redecryptFailed,
+    activeThread,
+    openThread,
+    closeThread,
+    sendThreadReply,
+    votePoll,
+    closePoll,
+    markViewOnceOpened,
   } = useChatStore();
   const { authUser, socket } = useAuthStore();
-  const { contacts } = useContactStore();
+  const {
+    contacts,
+    requests,
+    sendContactRequest,
+    acceptContactRequest,
+    rejectContactRequest,
+    cancelContactRequest,
+    fetchRequests,
+  } = useContactStore();
 
+  useEffect(() => {
+    if (selectedUser?.id) {
+      fetchRequests();
+    }
+  }, [selectedUser?.id, fetchRequests]);
+
+  const isContact = useMemo(() => {
+    if (!selectedUser?.id) return false;
+    return (contacts || []).some((c) => sameId(c.id || c._id, selectedUser.id));
+  }, [contacts, selectedUser?.id]);
+
+  const incomingReq = useMemo(() => {
+    if (!selectedUser?.id || isContact) return null;
+    return (requests.incoming || []).find((r) =>
+      sameId(
+        r.sender?._id || r.sender?.id || r.senderId || r.sender,
+        selectedUser.id,
+      ),
+    );
+  }, [requests.incoming, selectedUser?.id, isContact]);
+
+  const outgoingReq = useMemo(() => {
+    if (!selectedUser?.id || isContact) return null;
+    return (requests.outgoing || []).find((r) =>
+      sameId(
+        r.recipient?._id || r.recipient?.id || r.recipientId || r.recipient,
+        selectedUser.id,
+      ),
+    );
+  }, [requests.outgoing, selectedUser?.id, isContact]);
+
+  const groups = useGroupStore((st) => st.groups) || [];
   const forwardCandidates = useMemo(() => {
     const map = new Map();
-    (users || []).forEach((u) => map.set(String(u.id), u));
+    (users || []).forEach((u) => map.set(String(u.id), { ...u, isGroup: false }));
     (contacts || []).forEach((c) => {
       const id = String(c.id);
-      if (!map.has(id)) map.set(id, c);
+      if (!map.has(id)) map.set(id, { ...c, isGroup: false });
+    });
+    (groups || []).forEach((g) => {
+      const id = String(g.id);
+      if (!map.has(id)) {
+        map.set(id, { id: g.id, fullName: g.name, avatar: g.avatar, isGroup: true });
+      }
     });
     return Array.from(map.values());
-  }, [users, contacts]);
+  }, [users, contacts, groups]);
 
   const s = useAppearanceStore((st) => st.appearance);
   const cs = useMemo(() => chatStyle(s), [s]);
@@ -2255,6 +2569,8 @@ const ChatContainer = ({ onToggleInfo }) => {
   const [showShareLocation, setShowShareLocation] = useState(false);
   const [retryingKeys, setRetryingKeys] = useState(false);
   const [e2eeInfoOpen, setE2eeInfoOpen] = useState(false);
+  const [savingMessage, setSavingMessage] = useState(null);
+  const [viewOnceMessage, setViewOnceMessage] = useState(null);
 
   // my active live share in this chat (if any)
   const myLiveShare = Object.values(liveShares || {}).find(
@@ -2686,6 +3002,11 @@ const ChatContainer = ({ onToggleInfo }) => {
     retryMessage,
     discardMessage,
     scrollToMessage,
+    openThread: (m) => openThread(m),
+    votePoll: (mId, optId) => votePoll(mId, optId),
+    closePoll: (mId) => closePoll(mId),
+    openViewOnce: (m) => setViewOnceMessage(m),
+    openSaveModal: (m) => setSavingMessage(m),
     retryDecryptMessage: (id) =>
       useChatStore.getState().retryDecryptMessage?.(id),
     resolveReply: (m) => resolveReply(m, list),
@@ -2724,6 +3045,16 @@ const ChatContainer = ({ onToggleInfo }) => {
 
   const inputArea = isBlocked ? (
     <BlockedBanner name={selectedUser?.fullName} />
+  ) : !isContact ? (
+    <ConnectionRequiredBanner
+      user={selectedUser}
+      incomingReq={incomingReq}
+      outgoingReq={outgoingReq}
+      onAccept={acceptContactRequest}
+      onDecline={rejectContactRequest}
+      onCancel={cancelContactRequest}
+      onAdd={sendContactRequest}
+    />
   ) : (
     <ChatInput key={selectedUser?.id} />
   );
@@ -2770,12 +3101,45 @@ const ChatContainer = ({ onToggleInfo }) => {
           onClick={() => handleReply(msg)}
         />
       )}
+      {!f.isDeleted && (
+        <MenuItem
+          large={large}
+          icon={MessageSquareText}
+          label="Reply in Thread"
+          onClick={() => {
+            openThread(msg);
+            closePopover();
+          }}
+        />
+      )}
+      {!f.isDeleted && (
+        <MenuItem
+          large={large}
+          icon={Bookmark}
+          label="Save Message"
+          onClick={() => {
+            setSavingMessage(msg);
+            closePopover();
+          }}
+        />
+      )}
       {f.canForward && (
         <MenuItem
           large={large}
           icon={Forward}
           label="Forward"
           onClick={() => handleForward(msg)}
+        />
+      )}
+      {!f.isDeleted && (
+        <MenuItem
+          large={large}
+          icon={Star}
+          label={msg.isStarred ? "Unstar" : "Star"}
+          onClick={() => {
+            useChatStore.getState().toggleStar(msg.id);
+            closePopover();
+          }}
         />
       )}
       {f.canPin && (
@@ -2882,7 +3246,8 @@ const ChatContainer = ({ onToggleInfo }) => {
 
   return (
     <MotionConfig reducedMotion={motionMode}>
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100 lg:min-w-[360px]">
         {/* Single merged header with integrated inline search & more options */}
         <ChatHeader
           onToggleInfo={onToggleInfo}
@@ -3030,27 +3395,46 @@ const ChatContainer = ({ onToggleInfo }) => {
           <div
             ref={listRef}
             onScroll={handleListScroll}
-            className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-base-200/40 px-2 py-4 sm:px-6 sm:py-5 [scrollbar-gutter:stable]"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-base-200/40 px-3 py-3.5 sm:px-5 md:px-6 lg:px-8 sm:py-5 [scrollbar-gutter:stable]"
           >
             {/* ---- WhatsApp-style E2EE notice (top of the chat) ---- */}
             <E2EENotice onOpen={() => setE2eeInfoOpen(true)} isGroup={false} />
 
             {timeline.length === 0 && (
-              <motion.div
-                {...fade}
-                className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center"
-              >
-                <div className="flex size-14 items-center justify-center rounded-2xl border border-base-300 bg-base-100">
-                  <MessageSquareText className="size-6 text-base-content/50" />
-                </div>
-                <div>
-                  <p className="font-medium">No messages yet</p>
-                  <p className="text-sm text-base-content/60">
-                    Say hi to {selectedUser?.fullName} to start the
-                    conversation.
-                  </p>
-                </div>
-              </motion.div>
+              !isContact ? (
+                <motion.div
+                  {...fade}
+                  className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center max-w-sm mx-auto"
+                >
+                  <div className="flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-sm">
+                    <UserPlus className="size-8" />
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-base-content">
+                      Connect with {selectedUser?.fullName}
+                    </p>
+                    <p className="text-xs text-base-content/60 mt-1.5 leading-relaxed">
+                      To protect your privacy and security, messaging and calling are only permitted between accepted mutual contacts.
+                    </p>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  {...fade}
+                  className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+                >
+                  <div className="flex size-14 items-center justify-center rounded-2xl border border-base-300 bg-base-100">
+                    <MessageSquareText className="size-6 text-base-content/50" />
+                  </div>
+                  <div>
+                    <p className="font-medium">No messages yet</p>
+                    <p className="text-sm text-base-content/60">
+                      Say hi to {selectedUser?.fullName} to start the
+                      conversation.
+                    </p>
+                  </div>
+                </motion.div>
+              )
             )}
 
             {timeline.map((item, i) =>
@@ -3306,7 +3690,26 @@ const ChatContainer = ({ onToggleInfo }) => {
               users={forwardCandidates}
               myId={authUser?.id}
               onClose={() => setForwardMsg(null)}
-              onConfirm={(ids) => forwardMessages(forwardMsg.id, ids)}
+              onConfirm={async (ids) => {
+                const targetGroupIds = [];
+                const targetUserIds = [];
+                ids.forEach((id) => {
+                  const isGrp = (groups || []).some((g) => sameId(g.id, id));
+                  if (isGrp) targetGroupIds.push(id);
+                  else targetUserIds.push(id);
+                });
+                let ok1 = true;
+                let ok2 = true;
+                if (targetUserIds.length) {
+                  ok1 = await forwardMessages(forwardMsg.id, targetUserIds);
+                }
+                if (targetGroupIds.length) {
+                  ok2 = await useGroupStore
+                    .getState()
+                    .forwardGroupMessage(forwardMsg, [], targetGroupIds);
+                }
+                return ok1 && ok2;
+              }}
             />
           )}
         </AnimatePresence>
@@ -3395,9 +3798,41 @@ const ChatContainer = ({ onToggleInfo }) => {
         </AnimatePresence>
 
         <ImageViewer src={previewSrc} onClose={() => setPreviewSrc(null)} />
+
+        {/* Save message modal */}
+        {savingMessage && (
+          <SaveMessageModal
+            message={savingMessage}
+            isGroup={false}
+            onClose={() => setSavingMessage(null)}
+          />
+        )}
+
+        {/* View once media modal */}
+        {viewOnceMessage && (
+          <ViewOnceMediaModal
+            message={viewOnceMessage}
+            isGroup={false}
+            onClose={() => setViewOnceMessage(null)}
+          />
+        )}
       </div>
-    </MotionConfig>
-  );
+
+      {/* Dedicated Message Thread Panel */}
+      {activeThread && !isInfoOpen && (
+        <ThreadPanel
+          parentMessage={activeThread.parentMessage}
+          replies={activeThread.replies}
+          loading={activeThread.loading}
+          isGroup={false}
+          onClose={closeThread}
+          onSendReply={sendThreadReply}
+          onToggleReaction={(msgId, emoji) => reactToMessage(msgId, emoji)}
+        />
+      )}
+    </div>
+  </MotionConfig>
+);
 };
 
 export default ChatContainer;

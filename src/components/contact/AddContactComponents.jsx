@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Loader2, UserMinus, UserPlus } from "lucide-react";
+import {
+  Check,
+  Clock,
+  Loader2,
+  MessageCircle,
+  ShieldAlert,
+  UserCheck,
+  UserMinus,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 export const FALLBACK_AVATAR = "/avatar.png";
 export const SPRING = { type: "spring", stiffness: 500, damping: 38 };
@@ -111,8 +121,13 @@ export const ContactRow = ({
   removeMode,
   onToggle,
   onHover,
+  onSelectUser,
+  onMessage,
 }) => {
-  const isContact = Boolean(user.isContact);
+  const isContact = Boolean(user.isContact || user.relationship === "connected");
+  const isBlocked = Boolean(user.isBlocked || user.relationship === "blocked");
+  const isSent = user.relationship === "request_sent";
+  const isIncoming = user.relationship === "incoming_request";
 
   return (
     <motion.li
@@ -125,9 +140,10 @@ export const ContactRow = ({
       exit={{ opacity: 0, x: -12, transition: { duration: 0.12 } }}
       transition={SPRING}
       onMouseMove={onHover}
-      className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors ${
-        active ? "bg-base-200" : ""
+      className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors cursor-pointer ${
+        active ? "bg-base-200" : "hover:bg-base-200/50"
       }`}
+      onClick={() => onSelectUser?.(user)}
     >
       {active && (
         <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
@@ -140,55 +156,95 @@ export const ContactRow = ({
       />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-medium leading-tight">
-          <Highlight text={user.fullName} term={term} />
-        </p>
-        {user.username && (
-          <p className="mt-0.5 truncate text-xs text-base-content/50">
-            @<Highlight text={user.username} term={term} />
+        <div className="flex items-center gap-2">
+          <p className="truncate text-[15px] font-medium leading-tight">
+            <Highlight text={user.fullName} term={term} />
           </p>
-        )}
+          {user.mutualCount > 0 && (
+            <span className="badge badge-xs bg-primary/10 text-primary border-0 gap-1 text-[10px]">
+              <Users className="size-2.5" /> {user.mutualCount} mutual
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5 truncate text-xs text-base-content/50">
+          {user.username && (
+            <span>
+              @<Highlight text={user.username} term={term} />
+            </span>
+          )}
+          {user.phone && user.phone.includes(term) && (
+            <span className="font-mono text-primary">
+              · <Highlight text={user.phone} term={term} />
+            </span>
+          )}
+          {user.email &&
+            user.email.toLowerCase().includes(term.toLowerCase()) && (
+              <span>
+                · <Highlight text={user.email} term={term} />
+              </span>
+            )}
+        </div>
       </div>
 
-      <button
-        type="button"
-        tabIndex={-1}
-        disabled={busy}
-        onClick={() => onToggle(user)}
-        aria-label={
-          isContact
-            ? `Remove ${user.fullName} from contacts`
-            : `Add ${user.fullName} to contacts`
-        }
-        className={`group/btn btn btn-sm h-9 min-h-9 min-w-[5.5rem] shrink-0 gap-1.5 rounded-lg border-0 transition-colors ${
-          removeMode
-            ? "bg-error/10 text-error hover:bg-error hover:text-error-content"
-            : isContact
-              ? "bg-success/10 text-success hover:bg-error/10 hover:text-error"
-              : "btn-primary"
-        }`}
-      >
+      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
         {busy ? (
-          <Loader2 className="size-4 animate-spin" />
+          <button type="button" disabled className="btn btn-sm h-9 min-h-9 min-w-[5.5rem] rounded-lg">
+            <Loader2 className="size-4 animate-spin" />
+          </button>
+        ) : isBlocked ? (
+          <span className="badge badge-error badge-outline gap-1 text-xs py-2 px-2.5">
+            <ShieldAlert className="size-3" /> Blocked
+          </span>
+        ) : isSent ? (
+          <span className="badge badge-ghost gap-1 text-xs py-2 px-2.5 text-base-content/60">
+            <Clock className="size-3" /> Sent
+          </span>
+        ) : isIncoming ? (
+          <button
+            type="button"
+            onClick={() => onToggle(user)}
+            className="btn btn-sm btn-primary h-9 min-h-9 gap-1 rounded-lg"
+          >
+            <UserCheck className="size-4" /> Accept
+          </button>
         ) : removeMode ? (
-          <>
+          <button
+            type="button"
+            onClick={() => onToggle(user)}
+            className="btn btn-sm bg-error/10 text-error hover:bg-error hover:text-error-content h-9 min-h-9 rounded-lg border-0 gap-1"
+          >
             <UserMinus className="size-4" /> Remove
-          </>
+          </button>
         ) : isContact ? (
-          <>
-            <span className="inline-flex items-center gap-1.5 group-hover/btn:hidden">
-              <Check className="size-4" /> Added
-            </span>
-            <span className="hidden items-center gap-1.5 group-hover/btn:inline-flex">
-              <UserMinus className="size-4" /> Remove
-            </span>
-          </>
+          <div className="flex items-center gap-1">
+            {onMessage && (
+              <button
+                type="button"
+                onClick={() => onMessage(user)}
+                className="btn btn-sm btn-primary h-9 min-h-9 gap-1 rounded-lg"
+              >
+                <MessageCircle className="size-4" /> Message
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onToggle(user)}
+              title="Remove contact"
+              className="btn btn-sm btn-ghost btn-square h-9 w-9 text-base-content/40 hover:text-error"
+            >
+              <UserMinus className="size-4" />
+            </button>
+          </div>
         ) : (
-          <>
+          <button
+            type="button"
+            onClick={() => onToggle(user)}
+            className="btn btn-sm btn-primary h-9 min-h-9 gap-1.5 rounded-lg"
+          >
             <UserPlus className="size-4" /> Add
-          </>
+          </button>
         )}
-      </button>
+      </div>
     </motion.li>
   );
 };

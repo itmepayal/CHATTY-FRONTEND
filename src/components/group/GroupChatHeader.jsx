@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPin,
   Phone,
+  Pin,
   Search,
   Settings2,
   Video,
@@ -65,6 +66,9 @@ export const GroupChatHeader = ({
   // Scheduled props
   scheduledCount = 0,
   onOpenScheduled,
+  // Pinned props
+  pinnedCount = 0,
+  onOpenPinned,
   // Location props
   isSharingLive = false,
   onOpenLocation,
@@ -72,6 +76,7 @@ export const GroupChatHeader = ({
   isArchived = false,
   onArchive,
   onLeaveGroup,
+  onOpenDisappearing,
 }) => {
   const [viewAvatar, setViewAvatar] = useState(false);
   const searchInputRef = useRef(null);
@@ -149,6 +154,12 @@ export const GroupChatHeader = ({
           badge: "Ctrl K",
           onClick: () => setSearchOpen(true),
         },
+        onOpenPinned && {
+          id: "group-pinned",
+          label: `Pinned messages${pinnedCount > 0 ? ` (${pinnedCount})` : ""}`,
+          icon: Pin,
+          onClick: onOpenPinned,
+        },
         onManage && {
           id: "group-manage",
           label: "Manage group",
@@ -192,6 +203,13 @@ export const GroupChatHeader = ({
           icon: Clock,
           count: scheduledCount > 0 ? scheduledCount : null,
           onClick: onOpenScheduled,
+        },
+        onOpenDisappearing && {
+          id: "group-disappearing",
+          label: "Disappearing messages",
+          icon: Clock,
+          badge: group?.disappearAfter ? `${Math.round(group.disappearAfter / 86400)}d` : null,
+          onClick: onOpenDisappearing,
         },
       ].filter(Boolean),
     },
