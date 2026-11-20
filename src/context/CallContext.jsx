@@ -10,11 +10,11 @@ import {
 import soundService from "../services/soundService";
 
 const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
-if (import.meta.env.VITE_TURN_URL) {
+if (import.meta?.env?.VITE_TURN_URL) {
   iceServers.push({
-    urls: import.meta.env.VITE_TURN_URL,
-    username: import.meta.env.VITE_TURN_USER,
-    credential: import.meta.env.VITE_TURN_PASS,
+    urls: import.meta?.env?.VITE_TURN_URL,
+    username: import.meta?.env?.VITE_TURN_USER,
+    credential: import.meta?.env?.VITE_TURN_PASS,
   });
 }
 

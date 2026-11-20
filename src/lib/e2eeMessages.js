@@ -72,10 +72,26 @@ export const FAILED_TEXT = "🔒 Encrypted message";
 export const displayText = (m, fallback = FAILED_TEXT) => {
   if (!m) return "";
   if (m.decryptFailed || (m.encrypted && !m.decrypted)) {
-    if (m.decryptError === "Sent before this device was added") {
-      return "🔒 Sent before this device was added";
+    switch (m.decryptError) {
+      case "Sent before this device was added":
+        return "🔒 Sent before this device was added";
+      case "HISTORY_RESTORATION_REQUIRED":
+        return "🔒 History restoration required";
+      case "DEVICE_VERIFICATION_REQUIRED":
+        return "🔒 Device verification required";
+      case "KEY_TRANSFER_PENDING":
+        return "🔒 Key transfer pending";
+      case "RECOVERY_REQUIRED":
+        return "🔒 Recovery required to view message";
+      case "DECRYPTION_KEY_UNAVAILABLE":
+        return "🔒 Decryption key unavailable";
+      case "MESSAGE_DECRYPTION_FAILED":
+        return "🔒 Message decryption failed";
+      case "DEVICE_REVOKED":
+        return "🔒 Device revoked";
+      default:
+        return fallback;
     }
-    return fallback;
   }
   return m.text ?? "";
 };

@@ -317,10 +317,11 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
     );
     if (defaultDevEnv) orderedEnvelopes.push(defaultDevEnv);
 
-    // Only target envelopes addressed to this device (or legacy "default")
-    // Never attempt to decrypt envelopes destined for other devices
-    if (orderedEnvelopes.length === 0) {
-      throw new Error("Sent before this device was added");
+    // Also include any other envelope belonging to me.userId so newly linked/restored devices can decrypt historical messages
+    for (const env of myEnvelopes) {
+      if (!orderedEnvelopes.includes(env)) {
+        orderedEnvelopes.push(env);
+      }
     }
 
     for (const env of orderedEnvelopes) {
@@ -401,18 +402,16 @@ export const decryptFrom = async (peerId, cipherB64, ivB64, message = null) => {
     try {
       return await runPairwise();
     } catch {
-      // Check if message had envelopes but not for this device
+      // Check if message had envelopes but not for this user/device
       if (Array.isArray(envelopes) && envelopes.length > 0) {
         const hasMyEnvelope = envelopes.some(
-          (e) =>
-            String(e.userId) === String(me.userId) &&
-            (e.deviceId === myDeviceId || e.deviceId === "default"),
+          (e) => String(e.userId) === String(me.userId),
         );
         if (!hasMyEnvelope) {
-          throw new Error("Sent before this device was added");
+          throw new Error("DECRYPTION_KEY_UNAVAILABLE");
         }
       }
-      throw new Error("Decryption failed");
+      throw new Error("MESSAGE_DECRYPTION_FAILED");
     }
   }
 };

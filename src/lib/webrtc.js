@@ -1,4 +1,4 @@
-const turnUrls = (import.meta.env.VITE_TURN_URL || "")
+const turnUrls = (import.meta?.env?.VITE_TURN_URL || "")
   .split(",")
   .map((u) => u.trim())
   .filter(Boolean);
@@ -10,8 +10,8 @@ export const ICE_SERVERS = [
     ? [
         {
           urls: turnUrls,
-          username: import.meta.env.VITE_TURN_USERNAME,
-          credential: import.meta.env.VITE_TURN_CREDENTIAL,
+          username: import.meta?.env?.VITE_TURN_USERNAME,
+          credential: import.meta?.env?.VITE_TURN_CREDENTIAL,
         },
       ]
     : []),
