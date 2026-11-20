@@ -97,16 +97,6 @@ class E2EEManager {
       console.log(`[E2EE Manager] State: ${this.status} -> ${newStatus}`);
       this.status = newStatus;
       this.notify();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("chatty:e2ee-status", {
-            detail: { status: newStatus },
-          }),
-        );
-        if (newStatus === E2EE_STATUS.READY) {
-          window.dispatchEvent(new CustomEvent("chatty:e2ee-ready"));
-        }
-      }
     }
     return newStatus;
   }

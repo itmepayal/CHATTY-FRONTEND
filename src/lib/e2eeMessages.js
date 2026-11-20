@@ -75,27 +75,6 @@ export const displayText = (m, fallback = FAILED_TEXT) => {
     if (m.decryptError === "Sent before this device was added") {
       return "🔒 Sent before this device was added";
     }
-    if (m.decryptError === "History restoration required") {
-      return "🔒 History restoration required";
-    }
-    if (m.decryptError === "Device verification required") {
-      return "🔒 Device verification required";
-    }
-    if (m.decryptError === "Waiting for approval") {
-      return "🔒 Waiting for approval";
-    }
-    if (m.decryptError === "Key synchronization pending") {
-      return "🔒 Key synchronization pending";
-    }
-    if (m.decryptError === "Recovery required") {
-      return "🔒 Recovery required";
-    }
-    if (m.decryptError === "Decryption key unavailable") {
-      return "🔒 Decryption key unavailable";
-    }
-    if (m.decryptError === "Device revoked") {
-      return "🔒 Device revoked";
-    }
     return fallback;
   }
   return m.text ?? "";
