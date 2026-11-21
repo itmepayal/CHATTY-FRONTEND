@@ -43,6 +43,10 @@ import { useNotificationStore } from "./store/useNotificationStore.js";
 import { useSlidingSidebarStore } from "./store/useSlidingSidebarStore.js";
 import SlidingSidebar from "./components/Sidebar/SlidingSidebar.jsx";
 import GiftAnimationOverlay from "./components/Chat/gift/GiftAnimationOverlay.jsx";
+import StoryViewerModal from "./components/stories/StoryViewerModal.jsx";
+import StoryCreatorModal from "./components/stories/StoryCreatorModal.jsx";
+import StoryViewersModal from "./components/stories/StoryViewersModal.jsx";
+import MyStoriesModal from "./components/stories/MyStoriesModal.jsx";
 
 const AuthRedirect = () => {
   const [searchParams] = useSearchParams();
@@ -224,6 +228,10 @@ const App = () => {
             <GroupCallModal />
             <IncomingGroupCall />
             <AppLockScreen />
+            <StoryViewerModal />
+            <StoryCreatorModal />
+            <StoryViewersModal />
+            <MyStoriesModal />
           </>
         )}
       </div>

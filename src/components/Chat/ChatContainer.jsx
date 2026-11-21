@@ -122,6 +122,7 @@ import SaveMessageModal from "./saved/SaveMessageModal.jsx";
 import ViewOnceMediaModal from "./viewOnce/ViewOnceMediaModal.jsx";
 import GiftPickerModal from "./gift/GiftPickerModal.jsx";
 import GiftMessageBubble from "./gift/GiftMessageBubble.jsx";
+import StoryReplyCard from "./StoryReplyCard.jsx";
 
 const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "🎉", "👏"];
 
@@ -2053,6 +2054,11 @@ const MessageRow = memo(function MessageRow({
                     peerName={peerName}
                     onClick={() => h.current.scrollToMessage(reply.id)}
                   />
+                )}
+
+                {/* Story Reply Preview Card */}
+                {m.storyReply && (
+                  <StoryReplyCard storyReply={m.storyReply} isMine={isMine} />
                 )}
 
                 {/* Gift Card */}
