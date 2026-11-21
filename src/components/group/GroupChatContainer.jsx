@@ -106,6 +106,7 @@ import DisappearingSettingsModal from "../Chat/disappearing/DisappearingSettings
 import { MentionDropdown } from "./mentions/MentionDropdown.jsx";
 import GiftPickerModal from "../Chat/gift/GiftPickerModal.jsx";
 import GiftMessageBubble from "../Chat/gift/GiftMessageBubble.jsx";
+import StoryReplyCard from "../Chat/StoryReplyCard.jsx";
 
 const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "🎉", "👏"];
 
@@ -1420,6 +1421,11 @@ const MessageRow = memo(function MessageRow({
                     peerName={replyPeerName}
                     onClick={() => h.current.scrollToMessage?.(reply.id)}
                   />
+                )}
+
+                {/* Story Reply Preview Card */}
+                {m.storyReply && (
+                  <StoryReplyCard storyReply={m.storyReply} isMine={mine} />
                 )}
 
                 {/* Gift Card */}

@@ -29,6 +29,7 @@ import { useContactStore } from "../../store/useContactStore";
 import { useCallHistoryStore } from "../../store/useCallHistoryStore";
 import { useNotificationStore } from "../../store/useNotificationStore";
 import { useSlidingSidebarStore } from "../../store/useSlidingSidebarStore";
+import { useStoryStore } from "../../store/useStoryStore";
 import { ChattyLogo } from "../common/ChattyLogo";
 import { avatarSrc } from "./sidebarUtils";
 import { LogoutConfirm } from "./LogoutConfirmModal";
@@ -76,6 +77,11 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   const missedCallsCount = useMemo(
     () => calls.filter((c) => c.unseenMissed || (c.missed && !c.seen)).length,
     [calls]
+  );
+  const storyFeed = useStoryStore((s) => s.feed) || [];
+  const unreadStoriesCount = useMemo(
+    () => storyFeed.filter((g) => !g.isSelf && g.hasUnseen).length,
+    [storyFeed]
   );
 
   const meOnline = useMemo(() => {
@@ -159,6 +165,18 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
       badge: chatUnread,
       active: isChatPage && !isArchived && currentTab === "chats",
       onClick: () => handleNav("/chat?tab=chats"),
+    },
+    {
+      id: "stories",
+      label: "Stories & Status",
+      icon: Sparkles,
+      badge: unreadStoriesCount,
+      badgeTone: "primary",
+      active: false,
+      onClick: () => {
+        useStoryStore.getState().setCreatorOpen(true);
+        closeMobile();
+      },
     },
     {
       id: "groups",
