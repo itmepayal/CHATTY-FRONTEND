@@ -1,7 +1,8 @@
-import { MessageSquare, Phone, Plus, ShieldAlert, UserPlus, UsersRound, Bookmark } from "lucide-react";
+import { MessageSquare, Phone, Plus, ShieldAlert, UserPlus, UsersRound, Bookmark, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { HeaderButton } from "./SidebarComponents.jsx";
 import { NotificationBell } from "../notifications/NotificationBell.jsx";
+import { useSlidingSidebarStore } from "../../store/useSlidingSidebarStore.js";
 
 export const SidebarHeader = ({
   mode,
@@ -23,17 +24,21 @@ export const SidebarHeader = ({
   return (
     <div className="h-13 sm:h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b border-base-300/80 bg-base-100/90 backdrop-blur-xl">
       <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-        <span className="flex size-8.5 sm:size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-xs">
-          {mode === "groups" ? (
-            <UsersRound className="size-4.5 sm:size-5" />
-          ) : mode === "calls" ? (
-            <Phone className="size-4.5 sm:size-5" />
-          ) : mode === "requests" ? (
-            <UserPlus className="size-4.5 sm:size-5" />
-          ) : (
-            <MessageSquare className="size-4.5 sm:size-5" />
-          )}
-        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== "undefined" && window.innerWidth < 768) {
+              useSlidingSidebarStore.getState().openMobile();
+            } else {
+              useSlidingSidebarStore.getState().toggleCollapse();
+            }
+          }}
+          aria-label="Toggle navigation menu"
+          title="Toggle sidebar navigation (Cmd+B)"
+          className="flex size-8.5 sm:size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-xs hover:bg-primary/20 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+        >
+          <Menu className="size-4.5 sm:size-5" />
+        </button>
         <div className="min-w-0 leading-tight">
           <h2 className="truncate text-sm sm:text-base font-bold text-base-content">
             {headerTitle}

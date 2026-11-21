@@ -1,3 +1,5 @@
+import SlidingSidebar from "../Sidebar/SlidingSidebar";
+
 /**
  * ChatLayout
  * Centralized responsive layout container for the Chat experience.
@@ -31,6 +33,7 @@ export const ChatLayout = ({
           {banner}
 
           <div className="flex flex-1 min-h-0 w-full overflow-hidden relative">
+            <SlidingSidebar />
             {sidebar}
             {content}
             {infoPanel}

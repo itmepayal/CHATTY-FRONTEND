@@ -263,7 +263,7 @@ export const useChatStore = create((set, get) => {
   const patchById = (messageId, patch) =>
     set((s) => ({
       messages: s.messages.map((m) =>
-        sameId(m.id, messageId) ? { ...m, ...patch } : m,
+        sameId(m.id || m._id, messageId) ? { ...m, ...patch } : m,
       ),
     }));
 
@@ -358,6 +358,10 @@ export const useChatStore = create((set, get) => {
       // reply (only a real server id, never a temp one)
       if (msg._replyId && !String(msg._replyId).startsWith("temp-")) {
         formData.append("replyTo", String(msg._replyId));
+      }
+
+      if (msg._gift || msg.gift) {
+        formData.append("gift", JSON.stringify(msg._gift || msg.gift));
       }
 
       if (msg._isVoice) formData.append("isVoice", "true");
@@ -1202,8 +1206,12 @@ export const useChatStore = create((set, get) => {
       const onThreadReply = async ({ parentMessageId, reply }) => {
         let decReply = reply;
         try {
-          decReply = await decryptDmMessage(reply);
-        } catch {}
+          const authUser = useAuthStore.getState().authUser;
+          const authUserId = authUser?._id || authUser?.id;
+          decReply = await decryptDmMessage(reply, authUserId);
+        } catch (err) {
+          console.error("[ChatStore] onThreadReply decrypt failed:", err);
+        }
         const { activeThread } = get();
         if (
           activeThread &&
@@ -1579,6 +1587,7 @@ export const useChatStore = create((set, get) => {
       socket.on("conversationUpdated", onConversationUpdated);
       socket.on("connect", onReconnect);
       socket.on("messageReaction", onReaction);
+      socket.on("message:reaction:updated", onReaction);
       socket.on("threadReply", onThreadReply);
       socket.on("threadUpdated", onThreadUpdated);
       socket.on("threadReplyDeleted", onThreadReplyDeleted);
@@ -1696,7 +1705,10 @@ export const useChatStore = create((set, get) => {
         if (s._onConversationUpdated)
           socket.off("conversationUpdated", s._onConversationUpdated);
         if (s._onReconnect) socket.off("connect", s._onReconnect);
-        if (s._onReaction) socket.off("messageReaction", s._onReaction);
+        if (s._onReaction) {
+          socket.off("messageReaction", s._onReaction);
+          socket.off("message:reaction:updated", s._onReaction);
+        }
         socket.off("threadReply");
         socket.off("threadUpdated");
         socket.off("threadReplyDeleted");
@@ -1867,7 +1879,7 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- SEND ---------------- */
     // accepts text, attachment/imageFile, voice, video and (optional) replyTo message
-    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo, isViewOnce }) => {
+    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo, isViewOnce, gift }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       if (!selectedUser || !authUser) return;
@@ -1926,6 +1938,9 @@ export const useChatStore = create((set, get) => {
           : null,
         replyTo: replySnapshot(replyMsg),
         reactions: [],
+        gift: gift || null,
+        messageType: gift ? "gift" : "text",
+        _gift: gift || null,
         isDeleted: false,
         isViewOnce: Boolean(isViewOnce),
         _isViewOnce: Boolean(isViewOnce),
@@ -2551,11 +2566,31 @@ export const useChatStore = create((set, get) => {
     /* ---------------- ADVANCED MESSAGING ---------------- */
     openThread: async (parentMessage) => {
       const parentId = parentMessage.id || parentMessage._id;
+      const authUser = useAuthStore.getState().authUser;
+      const authUserId = authUser?._id || authUser?.id;
+      const peerId =
+        get().selectedUser?.id ||
+        get().selectedUser?._id ||
+        dmPeerOf(parentMessage, authUserId);
+
+      // Check if we already have a decrypted copy in messages store
+      const localMsg = get().messages.find((m) =>
+        sameId(m.id || m._id, parentId)
+      );
+      let initialParent = localMsg?.decrypted ? localMsg : parentMessage;
+      if (!initialParent.decrypted && (initialParent.encrypted || initialParent.e2ee)) {
+        try {
+          initialParent = await decryptDmMessage(initialParent, authUserId, peerId);
+        } catch (e) {
+          console.error("[ChatStore] openThread decrypt error:", e);
+        }
+      }
+
       set({
         activeThread: {
-          parentMessage,
+          parentMessage: initialParent,
           replies: [],
-          totalReplies: parentMessage.threadReplyCount || 0,
+          totalReplies: initialParent.threadReplyCount || 0,
           loading: true,
           isGroup: false,
         },
@@ -2565,9 +2600,16 @@ export const useChatStore = create((set, get) => {
         const res = await axiosInstance.get(`/messages/${parentId}/thread`);
         if (res.data?.success && res.data.data) {
           const rawReplies = res.data.data.replies || [];
-          const decryptedReplies = await Promise.all(
-            rawReplies.map((r) => decryptDmMessage(r))
-          );
+          const serverParent = res.data.data.parentMessage;
+          let finalParent = initialParent;
+          if (serverParent) {
+            try {
+              finalParent = await decryptDmMessage(serverParent, authUserId, peerId);
+            } catch (err) {
+              console.error("[ChatStore] openThread server parent decrypt error:", err);
+            }
+          }
+          const decryptedReplies = await decryptDmList(rawReplies, authUserId, peerId);
           set((s) => {
             if (
               !s.activeThread ||
@@ -2581,7 +2623,7 @@ export const useChatStore = create((set, get) => {
             return {
               activeThread: {
                 ...s.activeThread,
-                parentMessage: res.data.data.parentMessage || s.activeThread.parentMessage,
+                parentMessage: finalParent,
                 replies: decryptedReplies,
                 totalReplies: res.data.data.totalReplies ?? decryptedReplies.length,
                 loading: false,
@@ -2607,14 +2649,56 @@ export const useChatStore = create((set, get) => {
     closeThread: () => set({ activeThread: null }),
 
     sendThreadReply: async (text) => {
-      const { activeThread } = get();
+      const { activeThread, selectedUser } = get();
       if (!activeThread?.parentMessage) return;
       const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
+      const authUser = useAuthStore.getState().authUser;
+      const authUserId = authUser?._id || authUser?.id;
+      const peerId =
+        selectedUser?.id ||
+        selectedUser?._id ||
+        dmPeerOf(activeThread.parentMessage, authUserId);
+
+      const clientId = newClientId();
+      let payload = { text, clientId };
+      let enc = null;
+
+      const isChatEncrypted = Boolean(
+        activeThread.parentMessage.e2ee || activeThread.parentMessage.encrypted
+      );
+
+      if (peerId && (isChatEncrypted || (await e2eeReady()))) {
+        try {
+          enc = await encryptFor(peerId, text);
+          if (enc?.text && enc?.iv) {
+            payload = {
+              text: enc.text,
+              iv: enc.iv,
+              keyEnvelopes: enc.keyEnvelopes || [],
+              encrypted: true,
+              e2ee: true,
+              clientId,
+            };
+          }
+        } catch (encErr) {
+          console.error("[ChatStore] sendThreadReply encryption failed:", encErr);
+          if (isChatEncrypted) {
+            toast.error(e2eeErrMsg(encErr) || "Failed to encrypt thread reply.");
+            throw encErr;
+          }
+        }
+      }
 
       try {
-        const res = await axiosInstance.post(`/messages/${parentId}/thread`, { text });
+        const res = await axiosInstance.post(`/messages/${parentId}/thread`, payload);
         if (res.data?.success && res.data.data) {
-          const reply = res.data.data.reply || res.data.data;
+          let reply = res.data.data.reply || res.data.data;
+          if (enc) {
+            reply = { ...reply, text, decrypted: true, cryptoState: "decrypted" };
+          } else {
+            reply = await decryptDmMessage(reply, authUserId, peerId);
+          }
+
           set((s) => {
             if (
               !s.activeThread ||

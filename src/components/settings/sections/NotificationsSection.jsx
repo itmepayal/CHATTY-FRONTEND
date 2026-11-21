@@ -470,7 +470,7 @@ export default function NotificationsSection() {
 
         <SettingsRow
           title="Mentions"
-          desc="Alerts when you are mentioned in group chats or with @everyone"
+          desc="Alerts when you are mentioned in group chats or with @all"
           icon={AtSign}
           toggle={
             <SettingsToggle

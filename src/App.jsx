@@ -40,6 +40,9 @@ import { useAppLockStore } from "./store/useAppLockStore.js";
 import { usePrivacyStore } from "./store/usePrivacyStore.js";
 import { useChatLockStore } from "./store/useChatLockStore.js";
 import { useNotificationStore } from "./store/useNotificationStore.js";
+import { useSlidingSidebarStore } from "./store/useSlidingSidebarStore.js";
+import SlidingSidebar from "./components/Sidebar/SlidingSidebar.jsx";
+import GiftAnimationOverlay from "./components/Chat/gift/GiftAnimationOverlay.jsx";
 
 const AuthRedirect = () => {
   const [searchParams] = useSearchParams();
@@ -106,6 +109,18 @@ const App = () => {
 
   useGroupCallListeners();
 
+  // Global keyboard shortcut: Cmd+B / Ctrl+B to toggle Sliding Sidebar
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        useSlidingSidebarStore.getState().toggleCollapse();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const isAppLocked = useAppLockStore((s) => s.isLocked && s.isConfigured);
   const showNavbar = pathname === "/" || pathname === "/landing";
 
@@ -119,6 +134,7 @@ const App = () => {
       <div className="min-h-screen bg-base-100 text-base-content">
         <AppLockScreen />
         <CustomToastContainer position="top-right" />
+        <GiftAnimationOverlay />
       </div>
     );
   }
@@ -198,9 +214,11 @@ const App = () => {
         </Routes>
 
         <CustomToastContainer position="top-right" />
+        <GiftAnimationOverlay />
 
         {authUser && (
           <>
+            {pathname !== "/chat" && <SlidingSidebar mobileOnly />}
             <LiveLocationSender />
             <CallUI />
             <GroupCallModal />

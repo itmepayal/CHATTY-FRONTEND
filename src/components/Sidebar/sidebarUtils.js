@@ -107,7 +107,7 @@ export const isFile = (m) =>
 export const getBody = (m) => {
   if (!m) return "No messages yet";
   if (m.isLocked) return "🔒 Locked conversation";
-  if (m.decryptFailed || (m.encrypted && !m.decrypted))
+  if (m.decryptFailed || ((m.encrypted || m.e2ee) && !m.decrypted))
     return "🔒 Encrypted message";
   if (m.poll?.question) return `📊 Poll: ${m.poll.question}`;
   if (m.text) return m.text;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useChatStore } from "../../store/useChatStore";
 import { useGroupStore } from "../../store/useGroupStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -36,6 +36,21 @@ export const useSidebarData = () => {
 
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["chats", "groups", "calls", "requests"].includes(tabParam)) {
+      if (tabParam !== mode) {
+        setDir(MODE_ORDER.indexOf(tabParam) > MODE_ORDER.indexOf(mode) ? 1 : -1);
+        setMode(tabParam);
+      }
+    }
+    if (searchParams.get("archived") === "true") {
+      setShowArchived(true);
+      setShowArchivedGroups(true);
+    }
+  }, [searchParams]);
 
   const {
     getUsers,

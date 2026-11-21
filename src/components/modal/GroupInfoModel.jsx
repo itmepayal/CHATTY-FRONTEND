@@ -12,6 +12,7 @@ import {
   UserPlus,
   Users,
   X,
+  AtSign,
 } from "lucide-react";
 import { useGroupStore } from "../../store/useGroupStore";
 import { useChatStore } from "../../store/useChatStore";
@@ -344,6 +345,31 @@ const GroupInfoModal = ({ open, onClose }) => {
               >
                 <option value="all">All members</option>
                 <option value="admins">Only admins</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-base-200/80">
+              <div className="flex items-center gap-2 min-w-0">
+                <AtSign className="size-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <h5 className="text-xs font-semibold truncate">Who can mention @all</h5>
+                  <p className="text-[11px] text-base-content/60 truncate">
+                    Control who can notify all members with @all
+                  </p>
+                </div>
+              </div>
+              <select
+                className="select select-bordered select-xs rounded-lg shrink-0"
+                value={group.mentionAllPermission || "everyone"}
+                disabled={busy}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  await run(() => updateGroup(group.id, { mentionAllPermission: val }));
+                }}
+              >
+                <option value="everyone">All members</option>
+                <option value="admins_only">Only admins</option>
+                <option value="disabled">Disabled</option>
               </select>
             </div>
           </div>

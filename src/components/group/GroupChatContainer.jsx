@@ -56,6 +56,7 @@ import {
   X,
   Bookmark,
   BarChart2,
+  Gift,
 } from "lucide-react";
 import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
@@ -103,11 +104,13 @@ import SaveMessageModal from "../Chat/saved/SaveMessageModal.jsx";
 import ViewOnceMediaModal from "../Chat/viewOnce/ViewOnceMediaModal.jsx";
 import DisappearingSettingsModal from "../Chat/disappearing/DisappearingSettingsModal.jsx";
 import { MentionDropdown } from "./mentions/MentionDropdown.jsx";
+import GiftPickerModal from "../Chat/gift/GiftPickerModal.jsx";
+import GiftMessageBubble from "../Chat/gift/GiftMessageBubble.jsx";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "🎉", "👏"];
 
 const MENU_W = 208;
-const REACT_W = 248;
+const REACT_W = 320;
 const REACT_H = 48;
 const MAX_PINS = 5;
 
@@ -397,8 +400,9 @@ const MAX_FORWARD_TARGETS = 5;
 const replyPreviewText = (r) => {
   if (!r || r.missing) return "Original message unavailable";
   if (r.isDeleted) return "This message was deleted";
-  if (r.decryptFailed || (r.encrypted && !r.decrypted && !r.text))
+  if (r.decryptFailed || ((r.encrypted || r.e2ee) && !r.decrypted))
     return "🔒 Encrypted message";
+  if (r.gift?.name) return `${r.gift.icon || "🎁"} Gift: ${r.gift.name}`;
   if (r.text) return r.text;
   if (r.image?.url) return "📷 Photo";
   if (r.file?.name) return `📎 ${r.file.name}`;
@@ -1418,6 +1422,17 @@ const MessageRow = memo(function MessageRow({
                   />
                 )}
 
+                {/* Gift Card */}
+                {m.gift?.name && (
+                  <div className="mb-2">
+                    <GiftMessageBubble
+                      gift={m.gift}
+                      isMine={mine}
+                      senderName={mine ? "You" : replyPeerName}
+                    />
+                  </div>
+                )}
+
                 {/* Poll Card */}
                 {m.poll?.question && (
                   <div className="mb-2">
@@ -1783,6 +1798,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
   const [savingMessage, setSavingMessage] = useState(null);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
   const [viewOnceMessage, setViewOnceMessage] = useState(null);
+  const [showGiftModal, setShowGiftModal] = useState(false);
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [showDisappearing, setShowDisappearing] = useState(false);
 
@@ -1849,6 +1865,48 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
           mb.role === "admin",
       )
     : false;
+
+  const canMentionAll = useMemo(() => {
+    const perm = group?.mentionAllPermission || "everyone";
+    if (perm === "disabled") return false;
+    if (perm === "admins_only") return isAdminOrOwner;
+    return true;
+  }, [group?.mentionAllPermission, isAdminOrOwner]);
+
+  const showMentionAll = useMemo(() => {
+    if (!canMentionAll) return false;
+    if (!mentionState.open) return false;
+    const q = (mentionState.query || "").trim().toLowerCase();
+    if (!q) return true;
+    return "all".startsWith(q);
+  }, [canMentionAll, mentionState.open, mentionState.query]);
+
+  const filteredMentionItems = useMemo(() => {
+    if (!mentionState.open) return [];
+    const items = [];
+    if (showMentionAll) {
+      items.push({
+        type: "all",
+        id: "__all__",
+        name: "all",
+        fullName: "all",
+      });
+    }
+    filteredMentionMembers.forEach((m) => {
+      items.push({ type: "user", ...m });
+    });
+    return items;
+  }, [showMentionAll, filteredMentionMembers, mentionState.open]);
+
+  useEffect(() => {
+    setMentionState({
+      open: false,
+      query: "",
+      triggerIndex: -1,
+      activeIndex: 0,
+    });
+    setSelectedMentions([]);
+  }, [group?.id]);
   const canPinSetting = group?.whoCanPin !== "admins";
   const pinnedMessages = useGroupStore((st) => st.pinnedMessages) || [];
 
@@ -2549,7 +2607,9 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
       const textAfter = text.slice(
         textRef.current?.selectionStart ?? text.length,
       );
-      const mentionName = member.fullName || member.username || "user";
+
+      const isAll = member.type === "all" || member.id === "__all__";
+      const mentionName = isAll ? "all" : member.fullName || member.username || "user";
       const tag = `@${mentionName} `;
       const newText = textBefore + tag + textAfter;
 
@@ -2561,19 +2621,21 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
         activeIndex: 0,
       });
 
-      const memberId = String(member.id || member._id || member.userId);
-      setSelectedMentions((prev) => {
-        if (prev.some((x) => String(x.userId || x.id) === memberId))
-          return prev;
-        return [
-          ...prev,
-          {
-            userId: memberId,
-            name: mentionName,
-            username: member.username,
-          },
-        ];
-      });
+      if (!isAll) {
+        const memberId = String(member.id || member._id || member.userId);
+        setSelectedMentions((prev) => {
+          if (prev.some((x) => String(x.userId || x.id) === memberId))
+            return prev;
+          return [
+            ...prev,
+            {
+              userId: memberId,
+              name: mentionName,
+              username: member.username,
+            },
+          ];
+        });
+      }
 
       setTimeout(() => {
         if (textRef.current) {
@@ -2817,7 +2879,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setMentionState((prev) => {
-          const len = filteredMentionMembers.length;
+          const len = filteredMentionItems.length;
           if (len === 0) return prev;
           return { ...prev, activeIndex: (prev.activeIndex + 1) % len };
         });
@@ -2826,18 +2888,18 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
       if (e.key === "ArrowUp") {
         e.preventDefault();
         setMentionState((prev) => {
-          const len = filteredMentionMembers.length;
+          const len = filteredMentionItems.length;
           if (len === 0) return prev;
           return { ...prev, activeIndex: (prev.activeIndex - 1 + len) % len };
         });
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
-        if (filteredMentionMembers.length > 0) {
+        if (filteredMentionItems.length > 0) {
           e.preventDefault();
           const chosen =
-            filteredMentionMembers[mentionState.activeIndex] ||
-            filteredMentionMembers[0];
+            filteredMentionItems[mentionState.activeIndex] ||
+            filteredMentionItems[0];
           handleSelectMention(chosen);
           return;
         }
@@ -3574,6 +3636,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
                     }
                     currentUserId={myId}
                     onlineSet={onlineUsersSet}
+                    canMentionAll={canMentionAll}
                   />
                 )}
                 <AnimatePresence>
@@ -3652,6 +3715,18 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
                     title="Create poll"
                   >
                     <BarChart2 className="size-5" />
+                  </motion.button>
+
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.88 }}
+                    className="btn btn-ghost btn-sm btn-circle text-amber-500 hover:text-amber-600"
+                    onClick={() => setShowGiftModal(true)}
+                    disabled={Boolean(editingMessage)}
+                    aria-label="Send gift"
+                    title="Send a gift"
+                  >
+                    <Gift className="size-5" />
                   </motion.button>
 
                   <AiAssist
@@ -4202,6 +4277,17 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
                 onJump={(id) => scrollToMessage(id)}
                 onUnpin={(id) => togglePin(group.id, id)}
                 onClose={() => setShowPinnedModal(false)}
+              />
+            )}
+
+            {showGiftModal && (
+              <GiftPickerModal
+                isOpen={showGiftModal}
+                onClose={() => setShowGiftModal(false)}
+                recipientName={group?.name || "Group"}
+                recipientAvatar={group?.avatar || ""}
+                groupId={group?.id || group?._id}
+                isGroup={true}
               />
             )}
           </AnimatePresence>

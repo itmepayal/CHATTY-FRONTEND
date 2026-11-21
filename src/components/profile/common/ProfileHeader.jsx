@@ -11,8 +11,10 @@ import {
   Mail,
   AtSign,
   Sparkles,
+  Menu,
 } from "lucide-react";
 import { PROFILE_SPRING, AVATAR_TYPES } from "./ProfileTokens";
+import { useSlidingSidebarStore } from "../../../store/useSlidingSidebarStore.js";
 
 export default function ProfileHeader({
   onBack,
@@ -61,6 +63,16 @@ export default function ProfileHeader({
             >
               <ArrowLeft className="size-5" />
             </motion.button>
+
+            <button
+              type="button"
+              onClick={() => useSlidingSidebarStore.getState().openMobile()}
+              className="flex size-10 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-100 text-base-content/80 shadow-xs transition-colors hover:border-primary hover:text-primary focus-visible:outline-2 focus-visible:outline-primary min-h-[44px] min-w-[44px] cursor-pointer"
+              aria-label="Open navigation menu"
+              title="Navigation Menu (Cmd+B)"
+            >
+              <Menu className="size-5" />
+            </button>
 
             <div className="min-w-0">
               <h1 className="truncate text-lg sm:text-xl font-bold tracking-tight text-base-content">

@@ -26,8 +26,12 @@ import { useChatLockStore } from "./useChatLockStore.js";
 import notificationService from "../services/notificationService.js";
 import soundService from "../services/soundService.js";
 
-const sameId = (a, b) => String(a) === String(b);
 const idOf = (v) => String(v?._id ?? v?.id ?? v ?? "");
+const sameId = (a, b) => {
+  const sa = idOf(a);
+  const sb = idOf(b);
+  return Boolean(sa && sb && sa === sb);
+};
 const unwrap = (res) => res.data?.data;
 const errMsg = (e) => e?.response?.data?.message || "Something went wrong.";
 const newClientId = () =>
@@ -378,12 +382,14 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  updateGroup: async (groupId, { name, avatarFile, whoCanPin }) => {
+  updateGroup: async (groupId, { name, avatarFile, whoCanPin, mentionAllPermission }) => {
     try {
       const fd = new FormData();
       if (name !== undefined) fd.append("name", name);
       if (avatarFile) fd.append("avatar", avatarFile);
       if (whoCanPin !== undefined) fd.append("whoCanPin", whoCanPin);
+      if (mentionAllPermission !== undefined)
+        fd.append("mentionAllPermission", mentionAllPermission);
       const res = await axiosInstance.patch(`/groups/${groupId}`, fd);
       get().applyGroupUpdate(unwrap(res));
       return true;
@@ -637,8 +643,8 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Accepts: text, mentions, imageFile, attachment, voice, video, replyTo, isForwarded, isViewOnce
-  sendMessage: async ({ text, mentions = [], imageFile, attachment, voice, video, replyTo: explicitReplyTo, isForwarded, isViewOnce }) => {
+  // Accepts: text, mentions, imageFile, attachment, voice, video, replyTo, isForwarded, isViewOnce, gift
+  sendMessage: async ({ text, mentions = [], imageFile, attachment, voice, video, replyTo: explicitReplyTo, isForwarded, isViewOnce, gift }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
     const meId = myId();
@@ -663,7 +669,7 @@ export const useGroupStore = create((set, get) => ({
         : null;
 
     const file = voiceFile || videoFile || imageFile || attachment || null;
-    if (!selectedGroup || !me || !meId || (!trimmed && !file)) return;
+    if (!selectedGroup || !me || !meId || (!trimmed && !file && !gift)) return;
 
     const replyMsg = explicitReplyTo ?? get().replyingTo;
     const replyToId = replyMsg ? idOf(replyMsg.id || replyMsg._id) : null;
@@ -723,6 +729,9 @@ export const useGroupStore = create((set, get) => ({
       isForwarded: Boolean(isForwarded),
       isViewOnce: Boolean(isViewOnce),
       _isViewOnce: Boolean(isViewOnce),
+      gift: gift || null,
+      messageType: gift ? "gift" : "text",
+      _gift: gift || null,
       mentions: mentions || [],
       _mentions: mentions || [],
       readBy: [meId],
@@ -788,6 +797,9 @@ export const useGroupStore = create((set, get) => ({
       }
       if (msg._replyToId) fd.append("replyTo", msg._replyToId);
       if (msg._isForwarded) fd.append("isForwarded", "true");
+      if (msg._gift || msg.gift) {
+        fd.append("gift", JSON.stringify(msg._gift || msg.gift));
+      }
       if (Array.isArray(msg._mentions) && msg._mentions.length > 0) {
         fd.append("mentions", JSON.stringify(msg._mentions));
       }
@@ -1073,11 +1085,25 @@ export const useGroupStore = create((set, get) => ({
   openThread: async (parentMessage, groupId) => {
     const gid = groupId || get().selectedGroup?.id;
     const parentId = parentMessage.id || parentMessage._id;
+
+    // Check if we already have a decrypted copy in groupMessages store
+    const localMsg = get().groupMessages.find((m) =>
+      sameId(m.id || m._id, parentId)
+    );
+    let initialParent = localMsg?.decrypted ? localMsg : parentMessage;
+    if (!initialParent.decrypted && (initialParent.encrypted || initialParent.e2ee)) {
+      try {
+        initialParent = await decryptGroupMessage(initialParent, gid);
+      } catch (e) {
+        console.error("[useGroupStore] openThread decrypt error:", e);
+      }
+    }
+
     set({
       activeThread: {
-        parentMessage,
+        parentMessage: initialParent,
         replies: [],
-        totalReplies: parentMessage.threadReplyCount || 0,
+        totalReplies: initialParent.threadReplyCount || 0,
         loading: true,
         isGroup: true,
         groupId: gid,
@@ -1090,6 +1116,16 @@ export const useGroupStore = create((set, get) => ({
       );
       if (res.data?.success && res.data.data) {
         const rawReplies = res.data.data.replies || [];
+        const serverParent = res.data.data.parentMessage;
+        let finalParent = initialParent;
+        if (serverParent) {
+          try {
+            finalParent = await decryptGroupMessage(serverParent, gid);
+          } catch (err) {
+            console.error("[useGroupStore] openThread server parent decrypt error:", err);
+          }
+        }
+        const decryptedReplies = await decryptGroupList(rawReplies, gid);
         set((s) => {
           if (
             !s.activeThread ||
@@ -1103,9 +1139,9 @@ export const useGroupStore = create((set, get) => ({
           return {
             activeThread: {
               ...s.activeThread,
-              parentMessage: res.data.data.parentMessage || s.activeThread.parentMessage,
-              replies: rawReplies,
-              totalReplies: res.data.data.totalReplies ?? rawReplies.length,
+              parentMessage: finalParent,
+              replies: decryptedReplies,
+              totalReplies: res.data.data.totalReplies ?? decryptedReplies.length,
               loading: false,
             },
           };
@@ -1129,18 +1165,56 @@ export const useGroupStore = create((set, get) => ({
   closeThread: () => set({ activeThread: null }),
 
   sendThreadReply: async (text) => {
-    const { activeThread } = get();
+    const { activeThread, selectedGroup } = get();
     if (!activeThread?.parentMessage || !activeThread?.groupId) return;
     const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
     const gid = activeThread.groupId;
 
+    const clientId = newClientId();
+    let payload = { text, clientId };
+    let enc = null;
+
+    const isGroupEncrypted = Boolean(
+      selectedGroup?.e2ee || activeThread.parentMessage.e2ee || activeThread.parentMessage.encrypted
+    );
+
+    if (isGroupEncrypted && (await e2eeReady())) {
+      try {
+        enc = await encryptGroupText(gid, text);
+      } catch (e) {
+        if (e?.message === "group-not-encrypted" || e?.message === "no-group-key") {
+          await get().prepareGroupKeys(gid).catch(() => {});
+          enc = await encryptGroupText(gid, text).catch(() => null);
+        }
+      }
+      if (enc) {
+        payload = {
+          text: enc.text,
+          iv: enc.iv,
+          keyVersion: enc.keyVersion,
+          encrypted: true,
+          e2ee: true,
+          clientId,
+        };
+      } else {
+        toast.error("Failed to encrypt group reply.");
+        return;
+      }
+    }
+
     try {
       const res = await axiosInstance.post(
         `/groups/${gid}/messages/${parentId}/thread`,
-        { text }
+        payload
       );
       if (res.data?.success && res.data.data) {
-        const reply = res.data.data.reply || res.data.data;
+        let reply = res.data.data.reply || res.data.data;
+        if (enc) {
+          reply = { ...reply, text, decrypted: true, cryptoState: "decrypted" };
+        } else {
+          reply = await decryptGroupMessage(reply, gid);
+        }
+
         const newCount =
           res.data.data.parentMessage?.threadReplyCount ??
           (activeThread.parentMessage.threadReplyCount || 0) + 1;
@@ -2024,17 +2098,42 @@ export const useGroupStore = create((set, get) => ({
         }));
       },
 
-      groupThreadReply: ({ parentMessageId, reply }) => {
+      "message:reaction:updated": ({ messageId, reactions, reactionSummary, total }) => {
+        set((s) => ({
+          groupMessages: s.groupMessages.map((m) =>
+            sameId(m.id, messageId) ? { ...m, reactions, reactionSummary, total } : m
+          ),
+          activeThread: s.activeThread
+            ? sameId(s.activeThread.parentMessage?.id, messageId)
+              ? { ...s.activeThread, parentMessage: { ...s.activeThread.parentMessage, reactions } }
+              : {
+                  ...s.activeThread,
+                  replies: (s.activeThread.replies || []).map((r) =>
+                    sameId(r.id, messageId) ? { ...r, reactions } : r
+                  ),
+                }
+            : null,
+        }));
+      },
+
+      groupThreadReply: async ({ parentMessageId, reply }) => {
+        let decReply = reply;
+        try {
+          const { activeThread } = get();
+          decReply = await decryptGroupMessage(reply, activeThread?.groupId);
+        } catch (err) {
+          console.error("[useGroupStore] groupThreadReply decrypt error:", err);
+        }
         const { activeThread } = get();
         if (
           activeThread &&
           sameId(activeThread.parentMessage?.id || activeThread.parentMessage?._id, parentMessageId)
         ) {
-          const replyId = reply.id || reply._id;
+          const replyId = decReply.id || decReply._id;
           const exists = (activeThread.replies || []).some(
             (r) =>
               sameId(r.id || r._id, replyId) ||
-              (reply.clientId && r.clientId && reply.clientId === r.clientId)
+              (decReply.clientId && r.clientId && decReply.clientId === r.clientId)
           );
           if (exists) {
             set((s) => ({
@@ -2042,8 +2141,8 @@ export const useGroupStore = create((set, get) => ({
                 ...s.activeThread,
                 replies: (s.activeThread.replies || []).map((r) =>
                   sameId(r.id || r._id, replyId) ||
-                  (reply.clientId && r.clientId && reply.clientId === r.clientId)
-                    ? { ...r, ...reply }
+                  (decReply.clientId && r.clientId && decReply.clientId === r.clientId)
+                    ? { ...r, ...decReply }
                     : r
                 ),
               },
@@ -2053,7 +2152,7 @@ export const useGroupStore = create((set, get) => ({
           set((s) => ({
             activeThread: {
               ...s.activeThread,
-              replies: [...(s.activeThread.replies || []), reply],
+              replies: [...(s.activeThread.replies || []), decReply],
               totalReplies: (s.activeThread.totalReplies || 0) + 1,
             },
           }));

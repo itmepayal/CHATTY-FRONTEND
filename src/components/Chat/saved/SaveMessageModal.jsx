@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Bookmark, X, Tag, Folder, StickyNote, Check } from "lucide-react";
 import { useSavedMessagesStore } from "../../../store/useSavedMessagesStore.js";
+import { displayText } from "../../../lib/e2eeMessages.js";
 
 const DEFAULT_CATEGORIES = [
   "Important",
@@ -90,7 +91,7 @@ const SaveMessageModal = ({ message, isGroup = false, onClose }) => {
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Message Preview */}
           <div className="p-3 bg-base-200/50 rounded-xl border border-base-300/60 text-xs text-base-content/80 line-clamp-2 italic">
-            "{message.text || "Media message"}"
+            "{displayText(message) || message.text || "Media message"}"
           </div>
 
           {/* Category */}

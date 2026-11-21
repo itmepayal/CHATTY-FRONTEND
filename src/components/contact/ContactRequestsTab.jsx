@@ -28,6 +28,7 @@ export const ContactRequestsTab = () => {
     acceptContactRequest,
     rejectContactRequest,
     cancelContactRequest,
+    requestActionLoading,
     requestHistory,
     isHistoryLoading,
     fetchRequestHistory,
@@ -39,6 +40,7 @@ export const ContactRequestsTab = () => {
   const [selectedProfileUser, setSelectedProfileUser] = useState(null);
   const [reportTargetUser, setReportTargetUser] = useState(null);
   const [actionBusyId, setActionBusyId] = useState(null);
+  const [justAcceptedIds, setJustAcceptedIds] = useState(new Set());
 
   useEffect(() => {
     fetchRequests();
@@ -60,9 +62,17 @@ export const ContactRequestsTab = () => {
       console.error("[ContactRequestsTab] Cannot accept: missing or invalid request ID");
       return;
     }
-    setActionBusyId(id);
-    await acceptContactRequest(id);
-    setActionBusyId(null);
+    const success = await acceptContactRequest(id);
+    if (success) {
+      setJustAcceptedIds((prev) => new Set(prev).add(id));
+      setTimeout(() => {
+        setJustAcceptedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 1500);
+    }
   };
 
   const handleReject = async (e, reqId) => {
@@ -72,9 +82,7 @@ export const ContactRequestsTab = () => {
       console.error("[ContactRequestsTab] Cannot reject: missing or invalid request ID");
       return;
     }
-    setActionBusyId(id);
     await rejectContactRequest(id);
-    setActionBusyId(null);
   };
 
   const handleCancel = async (e, reqId) => {
@@ -84,9 +92,7 @@ export const ContactRequestsTab = () => {
       console.error("[ContactRequestsTab] Cannot cancel: missing or invalid request ID");
       return;
     }
-    setActionBusyId(id);
     await cancelContactRequest(id);
-    setActionBusyId(null);
   };
 
   const handleBlock = async (e, userId, reqId) => {
@@ -210,7 +216,10 @@ export const ContactRequestsTab = () => {
               incoming.map((req, index) => {
                 const reqId = String(req.id || req._id || req.requestId || "");
                 const sender = req.sender || {};
-                const busy = Boolean(reqId && actionBusyId === reqId);
+                const isAccepting = Boolean(reqId && requestActionLoading?.[reqId] === "accepting");
+                const isDeclining = Boolean(reqId && requestActionLoading?.[reqId] === "declining");
+                const isCardBusy = isAccepting || isDeclining || Boolean(reqId && actionBusyId === reqId);
+                const isAccepted = justAcceptedIds.has(reqId);
                 const uniqueKey = reqId || sender._id || sender.id || `req-incoming-${index}`;
 
                 return (
@@ -261,43 +270,74 @@ export const ContactRequestsTab = () => {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2 pt-0.5">
-                      <button
-                        type="button"
-                        disabled={busy || !reqId}
-                        onClick={(e) => handleAccept(e, reqId)}
-                        className="btn btn-xs btn-primary gap-1 flex-1 rounded-lg"
-                      >
-                        <UserCheck className="size-3.5" />
-                        <span>Accept</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || !reqId}
-                        onClick={(e) => handleReject(e, reqId)}
-                        className="btn btn-xs btn-outline gap-1 flex-1 rounded-lg"
-                      >
-                        <UserX className="size-3.5" />
-                        <span>Decline</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || !reqId}
-                        onClick={(e) => handleBlock(e, sender._id || sender.id, reqId)}
-                        title="Block user"
-                        className="btn btn-xs btn-ghost btn-square text-error hover:bg-error/10 rounded-lg"
-                      >
-                        <Ban className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleReport(e, sender)}
-                        title="Report user"
-                        className="btn btn-xs btn-ghost btn-square text-warning hover:bg-warning/10 rounded-lg"
-                      >
-                        <AlertTriangle className="size-3.5" />
-                      </button>
-                    </div>
+                    {isAccepted ? (
+                      <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold animate-in fade-in duration-200">
+                        <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                        <span>Friend request accepted!</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <button
+                          type="button"
+                          disabled={isCardBusy || !reqId}
+                          aria-busy={isAccepting}
+                          aria-label="Accept friend request"
+                          onClick={(e) => handleAccept(e, reqId)}
+                          className="btn btn-xs bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1.5 flex-1 rounded-lg min-w-[105px] h-8 font-medium transition-all shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isAccepting ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin shrink-0" />
+                              <span>Accepting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="size-3.5 shrink-0" />
+                              <span>Accept</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isCardBusy || !reqId}
+                          aria-busy={isDeclining}
+                          aria-label="Decline friend request"
+                          onClick={(e) => handleReject(e, reqId)}
+                          className="btn btn-xs border border-base-300 hover:border-error/50 hover:bg-error/10 hover:text-error text-base-content/80 gap-1.5 flex-1 rounded-lg min-w-[105px] h-8 font-medium transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isDeclining ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin text-error shrink-0" />
+                              <span>Declining...</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserX className="size-3.5 shrink-0" />
+                              <span>Decline</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isCardBusy || !reqId}
+                          onClick={(e) => handleBlock(e, sender._id || sender.id, reqId)}
+                          title="Block user"
+                          aria-label="Block user"
+                          className="btn btn-xs btn-ghost btn-square text-error hover:bg-error/10 rounded-lg size-8 transition-colors disabled:opacity-50"
+                        >
+                          <Ban className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleReport(e, sender)}
+                          title="Report user"
+                          aria-label="Report user"
+                          className="btn btn-xs btn-ghost btn-square text-warning hover:bg-warning/10 rounded-lg size-8 transition-colors"
+                        >
+                          <AlertTriangle className="size-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -317,7 +357,8 @@ export const ContactRequestsTab = () => {
               outgoing.map((req, index) => {
                 const reqId = String(req.id || req._id || req.requestId || "");
                 const recipient = req.recipient || {};
-                const busy = Boolean(reqId && actionBusyId === reqId);
+                const isCancelling = Boolean(reqId && requestActionLoading?.[reqId] === "cancelling");
+                const isCardBusy = isCancelling || Boolean(reqId && actionBusyId === reqId);
                 const uniqueKey = reqId || recipient._id || recipient.id || `req-outgoing-${index}`;
 
                 return (
@@ -348,11 +389,20 @@ export const ContactRequestsTab = () => {
 
                     <button
                       type="button"
-                      disabled={busy || !reqId}
+                      disabled={isCardBusy || !reqId}
+                      aria-busy={isCancelling}
+                      aria-label="Cancel sent contact request"
                       onClick={(e) => handleCancel(e, reqId)}
-                      className="btn btn-xs btn-ghost text-base-content/60 hover:text-error rounded-lg shrink-0"
+                      className="btn btn-xs btn-ghost text-base-content/60 hover:text-error rounded-lg shrink-0 min-w-[95px] h-7 gap-1 disabled:opacity-50"
                     >
-                      Cancel
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="size-3 animate-spin shrink-0" />
+                          <span>Cancelling...</span>
+                        </>
+                      ) : (
+                        <span>Cancel</span>
+                      )}
                     </button>
                   </div>
                 );

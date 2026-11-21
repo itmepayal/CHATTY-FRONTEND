@@ -46,9 +46,9 @@ export const ExpandableMessage = ({
 
     let patternString;
     if (uniqueNames.length > 0) {
-      patternString = `(chatty:\\/\\/[^\\s]+|https?:\\/\\/[^\\s]+|@everyone|@all|@(?:${uniqueNames.join("|")})|@[a-zA-Z0-9_.]+)`;
+      patternString = `(chatty:\\/\\/[^\\s]+|https?:\\/\\/[^\\s]+|@all\\b|@(?:${uniqueNames.join("|")})|@[a-zA-Z0-9_.]+)`;
     } else {
-      patternString = `(chatty:\\/\\/[^\\s]+|https?:\\/\\/[^\\s]+|@everyone|@all|@[a-zA-Z0-9_.]+)`;
+      patternString = `(chatty:\\/\\/[^\\s]+|https?:\\/\\/[^\\s]+|@all\\b|@[a-zA-Z0-9_.]+)`;
     }
 
     const tokenRegex = new RegExp(patternString, "gi");
@@ -101,8 +101,24 @@ export const ExpandableMessage = ({
         );
       }
 
-      // 2. @Mentions (@Username, @FullName, @everyone, @all)
+      // 2. @Mentions (@all, @Username, @FullName)
       if (part.startsWith("@")) {
+        if (part.toLowerCase() === "@all") {
+          return (
+            <span
+              key={index}
+              title="Mentioned all group members"
+              className={`font-bold rounded-md px-1.5 py-0.5 transition-all inline-flex items-center gap-0.5 select-none ${
+                isMine
+                  ? "bg-amber-400/30 text-amber-100 ring-1 ring-amber-300/40"
+                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/30"
+              }`}
+            >
+              @all
+            </span>
+          );
+        }
+
         const rawTarget = part.slice(1).trim();
         const matchedMention = (Array.isArray(mentions) ? mentions : []).find(
           (m) => {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js";
+import { useAuthStore } from "./useAuthStore.js";
 
 const norm = (u) => ({ ...u, id: String(u.id ?? u._id) });
 const errMsg = (e, fallback) => e?.response?.data?.message || fallback;
@@ -24,6 +25,8 @@ export const useContactStore = create((set, get) => ({
   // Contact requests
   requests: { incoming: [], outgoing: [] },
   isRequestsLoading: false,
+  // Independent request loading map: { [requestId]: 'accepting' | 'declining' | 'cancelling' }
+  requestActionLoading: {},
 
   // Request History
   requestHistory: [],
@@ -172,9 +175,16 @@ export const useContactStore = create((set, get) => ({
       toast.error("Invalid contact request ID");
       return false;
     }
+    // Prevent duplicate clicks if already processing this request
+    if (get().requestActionLoading[id]) {
+      return false;
+    }
+    set((st) => ({
+      requestActionLoading: { ...st.requestActionLoading, [id]: "accepting" },
+    }));
     try {
       await axiosInstance.post(`/contacts/requests/${id}/accept`);
-      toast.success("Contact request accepted");
+      toast.success("Friend request accepted");
       set((st) => ({
         requests: {
           ...st.requests,
@@ -183,11 +193,17 @@ export const useContactStore = create((set, get) => ({
           ),
         },
       }));
-      get().fetchContacts();
+      await get().fetchContacts();
       return true;
     } catch (e) {
       toast.error(errMsg(e, "Couldn't accept request"));
       return false;
+    } finally {
+      set((st) => {
+        const next = { ...st.requestActionLoading };
+        delete next[id];
+        return { requestActionLoading: next };
+      });
     }
   },
 
@@ -198,9 +214,16 @@ export const useContactStore = create((set, get) => ({
       toast.error("Invalid contact request ID");
       return false;
     }
+    // Prevent duplicate clicks if already processing this request
+    if (get().requestActionLoading[id]) {
+      return false;
+    }
+    set((st) => ({
+      requestActionLoading: { ...st.requestActionLoading, [id]: "declining" },
+    }));
     try {
       await axiosInstance.post(`/contacts/requests/${id}/reject`);
-      toast.success("Contact request rejected");
+      toast.success("Friend request declined");
       set((st) => ({
         requests: {
           ...st.requests,
@@ -211,9 +234,19 @@ export const useContactStore = create((set, get) => ({
       }));
       return true;
     } catch (e) {
-      toast.error(errMsg(e, "Couldn't reject request"));
+      toast.error(errMsg(e, "Couldn't decline request"));
       return false;
+    } finally {
+      set((st) => {
+        const next = { ...st.requestActionLoading };
+        delete next[id];
+        return { requestActionLoading: next };
+      });
     }
+  },
+
+  declineContactRequest: async (requestId) => {
+    return get().rejectContactRequest(requestId);
   },
 
   cancelContactRequest: async (requestId) => {
@@ -223,6 +256,13 @@ export const useContactStore = create((set, get) => ({
       toast.error("Invalid contact request ID");
       return false;
     }
+    // Prevent duplicate clicks if already processing this request
+    if (get().requestActionLoading[id]) {
+      return false;
+    }
+    set((st) => ({
+      requestActionLoading: { ...st.requestActionLoading, [id]: "cancelling" },
+    }));
     try {
       await axiosInstance.post(`/contacts/requests/${id}/cancel`);
       toast.success("Contact request cancelled");
@@ -238,6 +278,12 @@ export const useContactStore = create((set, get) => ({
     } catch (e) {
       toast.error(errMsg(e, "Couldn't cancel request"));
       return false;
+    } finally {
+      set((st) => {
+        const next = { ...st.requestActionLoading };
+        delete next[id];
+        return { requestActionLoading: next };
+      });
     }
   },
 
@@ -462,11 +508,21 @@ export const useContactStore = create((set, get) => ({
           outgoing: st.requests.outgoing.filter(
             (r) => (r.id || r._id || r.requestId) !== targetId,
           ),
+          incoming: st.requests.incoming.filter(
+            (r) => (r.id || r._id || r.requestId) !== targetId,
+          ),
         },
       }));
       get().fetchContacts();
       get().fetchUnreadNotificationCount();
-      toast.success("Your contact request was accepted!");
+      const myId = String(
+        useAuthStore.getState()?.authUser?._id ||
+        useAuthStore.getState()?.authUser?.id ||
+        ""
+      );
+      if (payload?.acceptedBy && myId && String(payload.acceptedBy) !== myId) {
+        toast.success("Your contact request was accepted!");
+      }
     };
 
     const onReqRejected = (payload) => {
@@ -475,6 +531,9 @@ export const useContactStore = create((set, get) => ({
         requests: {
           ...st.requests,
           outgoing: st.requests.outgoing.filter(
+            (r) => (r.id || r._id || r.requestId) !== targetId,
+          ),
+          incoming: st.requests.incoming.filter(
             (r) => (r.id || r._id || r.requestId) !== targetId,
           ),
         },

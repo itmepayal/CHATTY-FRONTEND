@@ -58,6 +58,7 @@ import {
   Video,
   Bookmark,
   BarChart2,
+  Gift,
 } from "lucide-react";
 import { customToast } from "../toast";
 import EmojiPicker from "emoji-picker-react";
@@ -119,11 +120,13 @@ import PollCard from "./poll/PollCard.jsx";
 import CreatePollModal from "./poll/CreatePollModal.jsx";
 import SaveMessageModal from "./saved/SaveMessageModal.jsx";
 import ViewOnceMediaModal from "./viewOnce/ViewOnceMediaModal.jsx";
+import GiftPickerModal from "./gift/GiftPickerModal.jsx";
+import GiftMessageBubble from "./gift/GiftMessageBubble.jsx";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "🎉", "👏"];
 
 const MENU_W = 208;
-const REACT_W = 248;
+const REACT_W = 320;
 const REACT_H = 48;
 
 const MAX_IMAGE_MB = 5;
@@ -297,8 +300,9 @@ const resolveReply = (message, list) => {
 const replyPreviewText = (r) => {
   if (!r || r.missing) return "Original message unavailable";
   if (r.isDeleted) return "This message was deleted";
-  if (r.decryptFailed || (r.encrypted && !r.decrypted && !r.text))
+  if (r.decryptFailed || ((r.encrypted || r.e2ee) && !r.decrypted))
     return "🔒 Encrypted message";
+  if (r.gift?.name) return `${r.gift.icon || "🎁"} Gift: ${r.gift.name}`;
   if (r.text) return r.text;
   if (r.image?.url) return "📷 Photo";
   if (r.file?.name) return `📎 ${r.file.name}`;
@@ -1108,6 +1112,7 @@ const ChatInput = () => {
   const [showSchedule, setShowSchedule] = useState(false);
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
+  const [showGiftModal, setShowGiftModal] = useState(false);
 
   const fileRef = useRef(null);
   const imageRef = useRef(null);
@@ -1738,6 +1743,18 @@ const ChatInput = () => {
               <BarChart2 className="size-5" />
             </motion.button>
 
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              className="btn btn-ghost btn-sm btn-circle text-amber-500 hover:text-amber-600"
+              onClick={() => setShowGiftModal(true)}
+              disabled={isEditing}
+              aria-label="Send gift"
+              title="Send a gift"
+            >
+              <Gift className="size-5" />
+            </motion.button>
+
             <AiAssist
               text={text}
               resetKey={selectedUser?.id}
@@ -1859,6 +1876,17 @@ const ChatInput = () => {
           isGroup={false}
           targetId={selectedUser?.id || selectedUser?._id}
           onClose={() => setShowCreatePoll(false)}
+        />
+      )}
+
+      {showGiftModal && (
+        <GiftPickerModal
+          isOpen={showGiftModal}
+          onClose={() => setShowGiftModal(false)}
+          recipientName={selectedUser?.fullName || "User"}
+          recipientAvatar={selectedUser?.avatar || ""}
+          recipientId={selectedUser?.id || selectedUser?._id}
+          isGroup={false}
         />
       )}
     </div>
@@ -2025,6 +2053,17 @@ const MessageRow = memo(function MessageRow({
                     peerName={peerName}
                     onClick={() => h.current.scrollToMessage(reply.id)}
                   />
+                )}
+
+                {/* Gift Card */}
+                {m.gift?.name && (
+                  <div className="mb-2">
+                    <GiftMessageBubble
+                      gift={m.gift}
+                      isMine={isMine}
+                      senderName={isMine ? "You" : peerName}
+                    />
+                  </div>
                 )}
 
                 {/* Poll Card */}
@@ -2292,6 +2331,7 @@ const ConnectionRequiredBanner = ({
   onCancel,
   onAdd,
 }) => {
+  const requestActionLoading = useContactStore((st) => st.requestActionLoading);
   const [submitting, setSubmitting] = useState(false);
 
   const handleAction = async (fn, arg) => {
@@ -2306,6 +2346,13 @@ const ConnectionRequiredBanner = ({
 
   const reqId = incomingReq?.id || incomingReq?._id || incomingReq?.requestId;
   const outId = outgoingReq?.id || outgoingReq?._id || outgoingReq?.requestId;
+
+  const isAccepting = Boolean(reqId && requestActionLoading?.[reqId] === "accepting");
+  const isDeclining = Boolean(reqId && requestActionLoading?.[reqId] === "declining");
+  const isIncomingBusy = isAccepting || isDeclining || submitting;
+
+  const isCancelling = Boolean(outId && requestActionLoading?.[outId] === "cancelling");
+  const isOutgoingBusy = isCancelling || submitting;
 
   if (incomingReq) {
     return (
@@ -2327,21 +2374,43 @@ const ConnectionRequiredBanner = ({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              disabled={submitting}
+              disabled={isIncomingBusy}
+              aria-busy={isAccepting}
+              aria-label="Accept friend request"
               onClick={() => handleAction(onAccept, reqId)}
-              className="btn btn-sm btn-primary rounded-xl px-4 gap-1.5 shadow-sm"
+              className="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-0 rounded-xl px-4 gap-1.5 shadow-sm min-w-[105px] h-9 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <UserCheck className="size-3.5" />
-              <span>Accept</span>
+              {isAccepting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin shrink-0" />
+                  <span>Accepting...</span>
+                </>
+              ) : (
+                <>
+                  <UserCheck className="size-3.5 shrink-0" />
+                  <span>Accept</span>
+                </>
+              )}
             </button>
             <button
               type="button"
-              disabled={submitting}
+              disabled={isIncomingBusy}
+              aria-busy={isDeclining}
+              aria-label="Decline friend request"
               onClick={() => handleAction(onDecline, reqId)}
-              className="btn btn-sm btn-ghost hover:bg-base-200 text-base-content/70 rounded-xl px-3 gap-1.5"
+              className="btn btn-sm border border-base-300 hover:border-error/50 hover:bg-error/10 hover:text-error text-base-content/80 rounded-xl px-3 gap-1.5 min-w-[105px] h-9 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <UserX className="size-3.5" />
-              <span>Decline</span>
+              {isDeclining ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin text-error shrink-0" />
+                  <span>Declining...</span>
+                </>
+              ) : (
+                <>
+                  <UserX className="size-3.5 shrink-0" />
+                  <span>Decline</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -2369,12 +2438,23 @@ const ConnectionRequiredBanner = ({
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              disabled={submitting}
+              disabled={isOutgoingBusy}
+              aria-busy={isCancelling}
+              aria-label="Cancel contact request"
               onClick={() => handleAction(onCancel, outId)}
-              className="btn btn-sm btn-ghost hover:bg-error/10 text-error rounded-xl px-3 gap-1.5"
+              className="btn btn-sm btn-ghost hover:bg-error/10 text-error rounded-xl px-3 gap-1.5 min-w-[105px] h-9 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <X className="size-3.5" />
-              <span>Cancel Request</span>
+              {isCancelling ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin shrink-0" />
+                  <span>Cancelling...</span>
+                </>
+              ) : (
+                <>
+                  <X className="size-3.5 shrink-0" />
+                  <span>Cancel Request</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -3370,7 +3450,7 @@ const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
                   </span>
                   <span>{formatDateTime(r.createdAt)}</span>
                 </span>
-                <span className="block truncate text-sm">{r.text}</span>
+                <span className="block truncate text-sm">{displayText(r) || r.text}</span>
               </motion.button>
             ))}
           </div>

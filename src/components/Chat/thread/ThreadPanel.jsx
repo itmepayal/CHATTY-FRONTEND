@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   Send,
@@ -12,6 +12,12 @@ import { useAuthStore } from "../../../store/useAuthStore.js";
 import { useChatStore } from "../../../store/useChatStore.js";
 import { useGroupStore } from "../../../store/useGroupStore.js";
 import ReactionChips from "../reactions/ReactionChips.jsx";
+import {
+  displayText,
+  getDisplayText,
+  decryptDmMessage,
+  decryptGroupMessage,
+} from "../../../lib/e2eeMessages.js";
 
 const resolveAvatar = (avatar) => {
   if (!avatar) return null;
@@ -158,8 +164,54 @@ const ThreadPanel = ({
   };
 
   const currentUid = String(authUser?._id || authUser?.id || "");
+  const [localParent, setLocalParent] = useState(parentMessage);
+
+  useEffect(() => {
+    setLocalParent(parentMessage);
+    if (
+      parentMessage &&
+      (parentMessage.encrypted || parentMessage.e2ee) &&
+      !parentMessage.decrypted
+    ) {
+      let cancelled = false;
+      const decrypt = async () => {
+        try {
+          if (isGroup) {
+            const dec = await decryptGroupMessage(
+              parentMessage,
+              groupId || selectedGroup?.id
+            );
+            if (!cancelled && dec) setLocalParent(dec);
+          } else {
+            const myId = authUser?._id || authUser?.id;
+            const peerId = selectedUser?.id || selectedUser?._id;
+            const dec = await decryptDmMessage(parentMessage, myId, peerId);
+            if (!cancelled && dec) setLocalParent(dec);
+          }
+        } catch (err) {
+          console.error("[ThreadPanel] Parent decryption failed:", err);
+        }
+      };
+      decrypt();
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [
+    parentMessage?.id,
+    parentMessage?._id,
+    parentMessage?.text,
+    parentMessage?.decrypted,
+    isGroup,
+    groupId,
+    selectedGroup?.id,
+    authUser,
+    selectedUser,
+  ]);
+
+  const activeParent = localParent || parentMessage;
   const parentSender = resolveSender(
-    parentMessage,
+    activeParent,
     authUser,
     selectedUser,
     selectedGroup,
@@ -168,7 +220,11 @@ const ThreadPanel = ({
   const parentSenderName = parentSender.name;
   const parentAvatar = parentSender.avatar;
 
-  const isParentDeleted = Boolean(parentMessage?.isDeleted);
+  const isParentDeleted = Boolean(activeParent?.isDeleted);
+  const parentDisplayText = useMemo(
+    () => getDisplayText(activeParent),
+    [activeParent]
+  );
 
   return (
     <>
@@ -247,11 +303,18 @@ const ThreadPanel = ({
                 </div>
               ) : (
                 <>
-                  {parentMessage.text && (
-                    <p className="text-xs text-base-content/90 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed select-text">
-                      {parentMessage.text}
-                    </p>
+                  {/* Quoted message if any */}
+                  {activeParent?.replyTo && (
+                    <div className="border-l-2 border-primary/60 bg-base-300/40 px-2 py-1 rounded text-[11px] text-base-content/70 italic truncate mb-1">
+                      {displayText(activeParent.replyTo) || activeParent.replyTo.text || "Quoted message"}
+                    </div>
                   )}
+
+                  {parentDisplayText ? (
+                    <p className="text-xs text-base-content/90 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed select-text">
+                      {parentDisplayText}
+                    </p>
+                  ) : null}
 
                   {parentMessage.image?.url && (
                     <img
@@ -363,7 +426,7 @@ const ThreadPanel = ({
                               : "bg-base-200 text-base-content rounded-tl-none border border-base-300/60"
                           }`}
                         >
-                          {reply.text}
+                          {displayText(reply)}
                           {reply.isEdited && (
                             <span className="text-[9px] opacity-60 ml-1">
                               (edited)

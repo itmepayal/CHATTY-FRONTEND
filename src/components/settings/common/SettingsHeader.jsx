@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, RotateCcw } from "lucide-react";
+import { ArrowLeft, RotateCcw, Menu } from "lucide-react";
 import { SETTINGS_SPRING } from "./settingsTokens";
+import { useSlidingSidebarStore } from "../../../store/useSlidingSidebarStore.js";
 
 export default function SettingsHeader({
   onBack,
@@ -30,6 +31,16 @@ export default function SettingsHeader({
           >
             <ArrowLeft className="size-5" />
           </motion.button>
+
+          <button
+            type="button"
+            onClick={() => useSlidingSidebarStore.getState().openMobile()}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-base-300 bg-base-100 text-base-content/80 shadow-xs transition-colors hover:border-primary hover:text-primary focus-visible:outline-2 focus-visible:outline-primary min-h-[44px] min-w-[44px] cursor-pointer"
+            aria-label="Open navigation menu"
+            title="Navigation Menu (Cmd+B)"
+          >
+            <Menu className="size-5" />
+          </button>
 
           <div className="min-w-0">
             <div className="flex items-center gap-2">

@@ -16,10 +16,12 @@ import {
   Loader2,
   Clock,
   Sparkles,
+  Menu,
 } from "lucide-react";
 import { useSavedMessagesStore } from "../store/useSavedMessagesStore.js";
 import { useChatStore } from "../store/useChatStore.js";
 import { useGroupStore } from "../store/useGroupStore.js";
+import { useSlidingSidebarStore } from "../store/useSlidingSidebarStore.js";
 import { formatDistanceToNow, formatMessageTime } from "../utils/timeUtils.js";
 
 const CATEGORY_COLORS = {
@@ -110,6 +112,15 @@ const SavedMessagesPage = () => {
               title="Back to Chat"
             >
               <ArrowLeft className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => useSlidingSidebarStore.getState().openMobile()}
+              className="btn btn-sm btn-ghost btn-circle"
+              title="Open Navigation Menu (Cmd+B)"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2">
               <div className="p-2 rounded-xl bg-primary/10 text-primary">

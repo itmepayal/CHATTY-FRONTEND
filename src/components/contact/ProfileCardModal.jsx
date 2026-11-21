@@ -27,6 +27,7 @@ import {
   Lock,
   X,
   Quote,
+  Loader2,
 } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useContactStore } from "../../store/useContactStore";
@@ -51,6 +52,7 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
     acceptContactRequest,
     rejectContactRequest,
     cancelContactRequest,
+    requestActionLoading,
     fetchRequests,
     fetchMutualContacts,
   } = useContactStore();
@@ -146,40 +148,35 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
     }
   };
 
+  const incomingReqId =
+    incomingReq?.id || incomingReq?._id || incomingReq?.requestId;
+  const isAccepting = Boolean(
+    incomingReqId && requestActionLoading?.[incomingReqId] === "accepting",
+  );
+  const isDeclining = Boolean(
+    incomingReqId && requestActionLoading?.[incomingReqId] === "declining",
+  );
+  const isIncomingBusy = isAccepting || isDeclining || isActionLoading;
+
+  const outgoingReqId =
+    outgoingReq?.id || outgoingReq?._id || outgoingReq?.requestId;
+  const isCancelling = Boolean(
+    outgoingReqId && requestActionLoading?.[outgoingReqId] === "cancelling",
+  );
+
   const handleAcceptRequest = async () => {
-    const reqId =
-      incomingReq?.id || incomingReq?._id || incomingReq?.requestId;
-    if (!reqId) return;
-    setIsActionLoading(true);
-    try {
-      await acceptContactRequest(reqId);
-    } finally {
-      setIsActionLoading(false);
-    }
+    if (!incomingReqId) return;
+    await acceptContactRequest(incomingReqId);
   };
 
   const handleDeclineRequest = async () => {
-    const reqId =
-      incomingReq?.id || incomingReq?._id || incomingReq?.requestId;
-    if (!reqId) return;
-    setIsActionLoading(true);
-    try {
-      await rejectContactRequest(reqId);
-    } finally {
-      setIsActionLoading(false);
-    }
+    if (!incomingReqId) return;
+    await rejectContactRequest(incomingReqId);
   };
 
   const handleCancelRequest = async () => {
-    const reqId =
-      outgoingReq?.id || outgoingReq?._id || outgoingReq?.requestId;
-    if (!reqId) return;
-    setIsActionLoading(true);
-    try {
-      await cancelContactRequest(reqId);
-    } finally {
-      setIsActionLoading(false);
-    }
+    if (!outgoingReqId) return;
+    await cancelContactRequest(outgoingReqId);
   };
 
   const handleToggleBlock = async () => {
@@ -482,12 +479,23 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
                   <div className="space-y-2 w-full">
                     <button
                       type="button"
-                      disabled={isActionLoading}
+                      disabled={isActionLoading || isCancelling}
+                      aria-busy={isCancelling}
+                      aria-label="Cancel sent contact request"
                       onClick={handleCancelRequest}
-                      className="btn btn-outline btn-error w-full rounded-xl gap-2 font-medium"
+                      className="btn btn-outline btn-error w-full rounded-xl gap-2 font-medium min-h-10 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <X className="size-4.5" />
-                      <span>Cancel Request</span>
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="size-4.5 animate-spin shrink-0" />
+                          <span>Cancelling...</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="size-4.5 shrink-0" />
+                          <span>Cancel Request</span>
+                        </>
+                      )}
                     </button>
                     <div className="grid grid-cols-3 gap-1.5 opacity-40 pointer-events-none">
                       <button
@@ -524,21 +532,43 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
                     <div className="grid grid-cols-2 gap-2 w-full">
                       <button
                         type="button"
-                        disabled={isActionLoading}
+                        disabled={isIncomingBusy}
+                        aria-busy={isAccepting}
+                        aria-label="Accept friend request"
                         onClick={handleAcceptRequest}
-                        className="btn btn-primary rounded-xl gap-2 font-medium"
+                        className="btn bg-emerald-600 hover:bg-emerald-700 text-white border-0 rounded-xl gap-2 font-medium min-w-[105px] h-10 transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <UserCheck className="size-4" />
-                        <span>Accept</span>
+                        {isAccepting ? (
+                          <>
+                            <Loader2 className="size-4 animate-spin shrink-0" />
+                            <span>Accepting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck className="size-4 shrink-0" />
+                            <span>Accept</span>
+                          </>
+                        )}
                       </button>
                       <button
                         type="button"
-                        disabled={isActionLoading}
+                        disabled={isIncomingBusy}
+                        aria-busy={isDeclining}
+                        aria-label="Decline friend request"
                         onClick={handleDeclineRequest}
-                        className="btn btn-outline rounded-xl gap-2 font-medium"
+                        className="btn border border-base-300 hover:border-error/50 hover:bg-error/10 hover:text-error text-base-content/80 rounded-xl gap-2 font-medium min-w-[105px] h-10 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <UserX className="size-4" />
-                        <span>Decline</span>
+                        {isDeclining ? (
+                          <>
+                            <Loader2 className="size-4 animate-spin text-error shrink-0" />
+                            <span>Declining...</span>
+                          </>
+                        ) : (
+                          <>
+                            <UserX className="size-4 shrink-0" />
+                            <span>Decline</span>
+                          </>
+                        )}
                       </button>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5 opacity-40 pointer-events-none">
