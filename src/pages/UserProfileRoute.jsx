@@ -24,24 +24,10 @@ const UserProfileRoute = () => {
   const [resolvedUser, setResolvedUser] = useState(null);
   const [isResolving, setIsResolving] = useState(true);
 
-  // 1. If auth is still resolving on refresh or initial load, show branded loader
-  if (isCheckingAuth) {
-    return <ChattyLoader />;
-  }
-
-  // 2. If not authenticated, preserve requested destination and redirect to login
-  if (!authUser) {
-    const target = `${location.pathname}${location.search}`;
-    return (
-      <Navigate
-        to={`/login?redirect=${encodeURIComponent(target)}`}
-        replace
-      />
-    );
-  }
-
-  // 3. Resolve profile data for the authenticated user
+  // 1. Resolve profile data for the authenticated user
   useEffect(() => {
+    if (isCheckingAuth || !authUser) return;
+
     if (!username) {
       toast.error("Invalid user profile link.");
       navigate("/chat", { replace: true });
@@ -96,7 +82,23 @@ const UserProfileRoute = () => {
     return () => {
       isMounted = false;
     };
-  }, [username, authUser, resolveQRPayload, navigate]);
+  }, [username, authUser, isCheckingAuth, resolveQRPayload, navigate]);
+
+  // 2. If auth is still resolving on refresh or initial load, show branded loader
+  if (isCheckingAuth) {
+    return <ChattyLoader />;
+  }
+
+  // 3. If not authenticated, preserve requested destination and redirect to login
+  if (!authUser) {
+    const target = `${location.pathname}${location.search}`;
+    return (
+      <Navigate
+        to={`/login?redirect=${encodeURIComponent(target)}`}
+        replace
+      />
+    );
+  }
 
   const handleCloseModal = () => {
     setResolvedUser(null);

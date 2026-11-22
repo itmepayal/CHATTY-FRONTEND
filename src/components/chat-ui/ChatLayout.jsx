@@ -28,7 +28,7 @@ export const ChatLayout = ({
         <div className="absolute -right-32 bottom-20 size-96 rounded-full bg-accent/10 blur-3xl" />
       </div>
 
-      <div className="w-full h-full max-w-7xl mx-auto flex flex-col px-0 sm:px-6 lg:px-8 py-0 sm:py-4 lg:py-6 relative z-10 min-w-0">
+      <div className="w-full h-full max-w-[1720px] 2xl:max-w-[1800px] mx-auto flex flex-col px-0 sm:px-4 lg:px-6 2xl:px-8 py-0 sm:py-3 lg:py-4 relative z-10 min-w-0">
         <div className="bg-base-100 sm:rounded-2xl shadow-xl sm:border border-base-300/80 w-full h-full flex flex-col overflow-hidden relative">
           {banner}
 

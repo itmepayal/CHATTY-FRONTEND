@@ -136,7 +136,7 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
       toast.error("You must become contacts before calling.");
       return;
     }
-    startCall(userId, type);
+    startCall(user || userId, type);
     onClose?.();
   };
 

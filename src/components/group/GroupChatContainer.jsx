@@ -84,6 +84,7 @@ import { displayText } from "../../lib/e2eeMessages.js";
 import AiAssist from "../common/AiAssist.jsx";
 import E2EENotice from "../common/E2EENotice.jsx";
 import ExpandableMessage from "../common/ExpandableMessage.jsx";
+import { isEmojiOnly, getEmojiSizeClass } from "../../utils/emojiUtils.js";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoRecorderModal from "./VideoRecorderModal.jsx";
 // ---- group calls ----
@@ -259,14 +260,6 @@ const groupReactions = (reactions = [], myId) => {
   return [...map.values()];
 };
 
-const isEmojiOnly = (t) => {
-  const s = (t || "").replace(/\s/g, "");
-  return (
-    s.length > 0 &&
-    [...s].length <= 6 &&
-    /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200d|\ufe0f)+$/u.test(s)
-  );
-};
 
 const formatFileSize = (bytes = 0) => {
   if (!bytes) return "0 B";
@@ -1290,6 +1283,31 @@ const MessageRow = memo(function MessageRow({
   const imageSrc = isDeleted ? null : m.image?.url || m.localPreview;
   const grouped = isDeleted ? [] : groupReactions(m.reactions, myId);
 
+  const reply = isDeleted ? null : h.current.resolveReply?.(m);
+  const replySender = reply
+    ? reply.sender || group.members?.find((x) => sameId(x.id, reply.senderId))
+    : null;
+  const replyPeerName = replySender?.fullName || "Member";
+
+  const messageText = displayText(m);
+  const isPureEmoji =
+    !isDeleted &&
+    !isDecrypting &&
+    !decryptFailed &&
+    isEmojiOnly(messageText) &&
+    !hasAudio &&
+    !reply &&
+    !m.isForwarded &&
+    !imageSrc &&
+    !hasFile &&
+    !hasVideo &&
+    !hasLocation &&
+    !m.poll?.question &&
+    !m.gift?.name &&
+    !m.sticker?.url &&
+    !m.isViewOnce &&
+    !m.storyReply;
+
   const myReadReceipts =
     usePrivacyStore((st) => st.privacy.readReceipts) !== false;
   const seenBy = (m.readBy || []).filter(
@@ -1306,12 +1324,6 @@ const MessageRow = memo(function MessageRow({
   const isFresh =
     pending ||
     (m.createdAt && Date.now() - new Date(m.createdAt).getTime() < 5000);
-
-  const reply = isDeleted ? null : h.current.resolveReply?.(m);
-  const replySender = reply
-    ? reply.sender || group.members?.find((x) => sameId(x.id, reply.senderId))
-    : null;
-  const replyPeerName = replySender?.fullName || "Member";
 
   // Touch: tap on the bubble (not on a button/link/player) opens the bottom sheet
   const onBubbleClick = (e) => {
@@ -1399,19 +1411,23 @@ const MessageRow = memo(function MessageRow({
               <div
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
-                  hasText || hasAudio || reply || m.isForwarded
-                    ? cs.bubblePadding || "px-3 sm:px-3.5 py-2"
-                    : "p-1"
-                } ${cs.radius} shadow-sm ${
-                  isTouch ? "[-webkit-touch-callout:none] select-text" : ""
+                  isPureEmoji
+                    ? "p-1 sm:p-1.5 bg-transparent border-0 shadow-none"
+                    : `${
+                        hasText || hasAudio || reply || m.isForwarded
+                          ? cs.bubblePadding || "px-3 sm:px-3.5 py-2"
+                          : "p-1"
+                      } ${cs.radius} shadow-sm ${
+                        mine
+                          ? `bg-primary text-primary-content ${
+                              endsGroup ? cs.tailMine : ""
+                            }`
+                          : `bg-base-100 border border-base-300 ${
+                              endsGroup ? cs.tailTheirs : ""
+                            }`
+                      }`
                 } ${
-                  mine
-                    ? `bg-primary text-primary-content ${
-                        endsGroup ? cs.tailMine : ""
-                      }`
-                    : `bg-base-100 border border-base-300 ${
-                        endsGroup ? cs.tailTheirs : ""
-                      }`
+                  isTouch ? "[-webkit-touch-callout:none] select-text" : ""
                 } ${m.failed ? "ring-1 ring-error" : ""}`}
               >
                 {m.isForwarded && (
@@ -1453,7 +1469,7 @@ const MessageRow = memo(function MessageRow({
                     <StickerMessageBubble
                       sticker={m.sticker}
                       isMine={mine}
-                      onOpenPack={() => setShowStickerMarketplace(true)}
+                      onOpenPack={() => h.current.openStickerMarketplace?.()}
                     />
                   </div>
                 )}
@@ -1587,13 +1603,15 @@ const MessageRow = memo(function MessageRow({
                     </div>
                   ) : (
                     <ExpandableMessage
-                      text={displayText(m)}
+                      text={messageText}
                       mentions={m.mentions}
                       messageId={m.id || m._id || m.clientId}
                       isMine={mine}
                       className={
-                        largeEmoji && isEmojiOnly(m.text)
-                          ? "text-4xl leading-tight"
+                        isPureEmoji
+                          ? (largeEmoji !== false
+                              ? getEmojiSizeClass(messageText, cs.text)
+                              : cs.text)
                           : cs.text
                       }
                       maxLines={8}
@@ -2368,12 +2386,10 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typingEnabled]);
 
-  if (!group) return null;
-
-  const isArchived = Boolean(group.archived);
+  const isArchived = Boolean(group?.archived);
 
   const toggleArchive = async () => {
-    if (archiving) return;
+    if (archiving || !group?.id) return;
     setArchiving(true);
     try {
       if (isArchived) await unarchiveGroup(group.id);
@@ -2383,7 +2399,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
     }
   };
 
-  const typingNames = Object.entries(typing?.[group.id] || {})
+  const typingNames = Object.entries(typing?.[group?.id] || {})
     .filter(([uid]) => uid !== myId)
     .map(([, name]) => name?.split(" ")[0]);
 
@@ -2754,6 +2770,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
     closePoll: (mId) => closePoll(mId, group?.id),
     openViewOnce: (m) => setViewOnceMessage(m),
     openSaveModal: (m) => setSavingMessage(m),
+    openStickerMarketplace: () => setShowStickerMarketplace(true),
     highlightId,
     resolveReply: (m) => resolveGroupReply(m, list),
     onImageLoad: () => stickToBottomRef.current && scrollToBottom("auto"),
@@ -3202,10 +3219,12 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
     </>
   );
 
+  if (!group) return null;
+
   return (
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100 lg:min-w-[360px]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full overflow-hidden bg-base-100 md:min-w-[420px] lg:min-w-[480px] xl:min-w-[520px]">
           {/* ---------------- Single Merged Header ---------------- */}
           <GroupChatHeader
             group={group}
@@ -3480,6 +3499,9 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
             setShowPollModal={setShowCreatePoll}
             showGiftModal={showGiftModal}
             setShowGiftModal={setShowGiftModal}
+            canGift={true}
+            onOpenGift={() => setShowGiftModal(true)}
+            onOpenStickerMarketplace={() => setShowStickerMarketplace(true)}
             recorderBusy={recorderBusy}
             recordingTime={recorder.seconds}
             isPaused={recorder.state === "paused"}
@@ -3494,7 +3516,14 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
             onStopTyping={stopTyping}
             isGroup={true}
             onSendSticker={(sticker) => {
-              sendMessage({ sticker: sticker?.imageUrl || sticker?.url || sticker });
+              const stickerPayload =
+                typeof sticker === "object"
+                  ? {
+                      ...sticker,
+                      url: sticker.url || sticker.imageUrl,
+                    }
+                  : { url: sticker };
+              sendMessage({ sticker: stickerPayload, messageType: "sticker" });
             }}
             onSendGif={(gif) => {
               sendMessage({ gif: gif?.url || gif });
@@ -4101,6 +4130,7 @@ const GroupChatContainer = ({ onToggleInfo, onManage, isInfoOpen = false }) => {
             loading={activeThread.loading}
             isGroup={true}
             groupId={activeThread.groupId || group?.id}
+            groupName={group?.name || selectedGroup?.name}
             onClose={closeThread}
             onSendReply={sendThreadReply}
             onToggleReaction={(msgId, emoji) =>

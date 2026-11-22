@@ -2654,7 +2654,7 @@ export const useChatStore = create((set, get) => {
 
     closeThread: () => set({ activeThread: null }),
 
-    sendThreadReply: async (text) => {
+    sendThreadReply: async (replyData) => {
       const { activeThread, selectedUser } = get();
       if (!activeThread?.parentMessage) return;
       const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
@@ -2666,24 +2666,67 @@ export const useChatStore = create((set, get) => {
         dmPeerOf(activeThread.parentMessage, authUserId);
 
       const clientId = newClientId();
-      let payload = { text, clientId };
+      const isObj = typeof replyData === "object" && replyData !== null;
+      const text = isObj ? (replyData.text || "") : (replyData || "");
+      const sticker = isObj ? replyData.sticker : undefined;
+      const gift = isObj ? replyData.gift : undefined;
+      const image = isObj ? replyData.image : undefined;
+      const file = isObj ? replyData.file : undefined;
+      const messageType = isObj && replyData.messageType
+        ? replyData.messageType
+        : sticker
+          ? "sticker"
+          : gift
+            ? "gift"
+            : image
+              ? "image"
+              : file
+                ? "file"
+                : "text";
+
+      let normalizedSticker = sticker;
+      if (typeof normalizedSticker === "string" && normalizedSticker.trim()) {
+        try {
+          normalizedSticker = JSON.parse(normalizedSticker);
+        } catch (_e) {
+          normalizedSticker = { url: normalizedSticker.trim() };
+        }
+      }
+      if (normalizedSticker && typeof normalizedSticker === "object") {
+        if (!normalizedSticker.url && (normalizedSticker.imageUrl || normalizedSticker.thumbnailUrl)) {
+          normalizedSticker = {
+            ...normalizedSticker,
+            url: normalizedSticker.imageUrl || normalizedSticker.thumbnailUrl,
+          };
+        }
+      }
+
+      let payload = {
+        text,
+        clientId,
+        sticker: normalizedSticker,
+        gift,
+        image,
+        file,
+        messageType,
+      };
       let enc = null;
 
       const isChatEncrypted = Boolean(
         activeThread.parentMessage.e2ee || activeThread.parentMessage.encrypted
       );
 
-      if (peerId && (isChatEncrypted || (await e2eeReady()))) {
+      if (peerId && text && (isChatEncrypted || (await e2eeReady()))) {
         try {
           enc = await encryptFor(peerId, text);
           if (enc?.text && enc?.iv) {
             payload = {
+              ...payload,
               text: enc.text,
               iv: enc.iv,
               keyEnvelopes: enc.keyEnvelopes || [],
               encrypted: true,
               e2ee: true,
-              clientId,
             };
           }
         } catch (encErr) {

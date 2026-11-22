@@ -88,6 +88,7 @@ import MessageComposer from "./Common/MessageComposer.jsx";
 import AiAssist from "../common/AiAssist.jsx";
 import E2EENotice from "../common/E2EENotice.jsx";
 import ExpandableMessage from "../common/ExpandableMessage.jsx";
+import { isEmojiOnly, getEmojiSizeClass } from "../../utils/emojiUtils.js";
 import VoiceMessage, { formatDuration } from "./VoiceMessage.jsx";
 import VideoMessage from "./VideoMessage.jsx";
 import {
@@ -222,14 +223,6 @@ const groupReactions = (reactions = [], myId) => {
   return [...map.values()];
 };
 
-const isEmojiOnly = (t) => {
-  const s = (t || "").replace(/\s/g, "");
-  return (
-    s.length > 0 &&
-    [...s].length <= 6 &&
-    /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200d|\ufe0f)+$/u.test(s)
-  );
-};
 
 const toLocalInput = (date) => {
   const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -1441,6 +1434,9 @@ const ChatInput = () => {
         onCancelReply={() => setReplyingTo(null)}
         editingMessage={editingMessage}
         onCancelEdit={cancelEdit}
+        onSendSticker={(sticker) => {
+          sendMessage({ sticker, messageType: "sticker" });
+        }}
         onSendMessage={(payload) => {
           if (payload?.sticker) {
             sendMessage(payload);
@@ -1572,6 +1568,25 @@ const MessageRow = memo(function MessageRow({
   const hasPreview = !isDeleted && Boolean(m.linkPreview?.url);
   const isForwarded = !isDeleted && Boolean(m.isForwarded);
 
+  const messageText = displayText(m);
+  const isPureEmoji =
+    !isDeleted &&
+    !isDecrypting &&
+    !decryptFailed &&
+    isEmojiOnly(messageText) &&
+    !hasAudio &&
+    !reply &&
+    !isForwarded &&
+    !imageSrc &&
+    !hasFile &&
+    !hasVideo &&
+    !hasLocation &&
+    !m.poll?.question &&
+    !m.gift?.name &&
+    !m.sticker?.url &&
+    !m.isViewOnce &&
+    !m.storyReply;
+
   const showMenu = !pending;
   const showReact = !pending && !isDeleted;
 
@@ -1647,19 +1662,23 @@ const MessageRow = memo(function MessageRow({
               <div
                 onClick={onBubbleClick}
                 className={`min-w-0 max-w-full ${
-                  hasText || hasAudio || reply || isForwarded
-                    ? cs.bubblePadding || "px-3 py-2 sm:px-3.5"
-                    : "p-1"
-                } ${cs.radius} shadow-sm ${
-                  isTouch ? "[-webkit-touch-callout:none] select-text" : ""
+                  isPureEmoji
+                    ? "p-1 sm:p-1.5 bg-transparent border-0 shadow-none"
+                    : `${
+                        hasText || hasAudio || reply || isForwarded
+                          ? cs.bubblePadding || "px-3 py-2 sm:px-3.5"
+                          : "p-1"
+                      } ${cs.radius} shadow-sm ${
+                        isMine
+                          ? `bg-primary text-primary-content ${
+                              endsGroup ? cs.tailMine : ""
+                            }`
+                          : `border border-base-300 bg-base-100 ${
+                              endsGroup ? cs.tailTheirs : ""
+                            }`
+                      }`
                 } ${
-                  isMine
-                    ? `bg-primary text-primary-content ${
-                        endsGroup ? cs.tailMine : ""
-                      }`
-                    : `border border-base-300 bg-base-100 ${
-                        endsGroup ? cs.tailTheirs : ""
-                      }`
+                  isTouch ? "[-webkit-touch-callout:none] select-text" : ""
                 } ${failed ? "ring-1 ring-error" : ""}`}
               >
                 {isForwarded && (
@@ -1701,7 +1720,7 @@ const MessageRow = memo(function MessageRow({
                     <StickerMessageBubble
                       sticker={m.sticker}
                       isMine={isMine}
-                      onOpenPack={() => setShowStickerMarketplace(true)}
+                      onOpenPack={() => h.current.openStickerMarketplace?.()}
                     />
                   </div>
                 )}
@@ -1839,12 +1858,14 @@ const MessageRow = memo(function MessageRow({
                     </div>
                   ) : (
                     <ExpandableMessage
-                      text={displayText(m)}
+                      text={messageText}
                       messageId={m.id || m._id || m.clientId}
                       isMine={isMine}
                       className={
-                        largeEmoji && isEmojiOnly(m.text)
-                          ? "text-4xl leading-tight"
+                        isPureEmoji
+                          ? (largeEmoji !== false
+                              ? getEmojiSizeClass(messageText, cs.text)
+                              : cs.text)
                           : cs.text
                       }
                       maxLines={8}
@@ -2272,6 +2293,7 @@ const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
   const [previewSrc, setPreviewSrc] = useState(null);
   const [popover, setPopover] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [showStickerMarketplace, setShowStickerMarketplace] = useState(false);
 
   const [highlightId, setHighlightId] = useState(null);
   const [forwardMsg, setForwardMsg] = useState(null);
@@ -2727,6 +2749,7 @@ const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
     closePoll: (mId) => closePoll(mId),
     openViewOnce: (m) => setViewOnceMessage(m),
     openSaveModal: (m) => setSavingMessage(m),
+    openStickerMarketplace: () => setShowStickerMarketplace(true),
     retryDecryptMessage: (id) =>
       useChatStore.getState().retryDecryptMessage?.(id),
     resolveReply: (m) => resolveReply(m, list),
@@ -2967,7 +2990,7 @@ const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
   return (
     <MotionConfig reducedMotion={motionMode}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100 lg:min-w-[360px]">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-100 md:min-w-[420px] lg:min-w-[480px] xl:min-w-[520px]">
         {/* Single merged header with integrated inline search & more options */}
         <ChatHeader
           onToggleInfo={onToggleInfo}
@@ -3534,6 +3557,17 @@ const ChatContainer = ({ onToggleInfo, isInfoOpen = false }) => {
             message={viewOnceMessage}
             isGroup={false}
             onClose={() => setViewOnceMessage(null)}
+          />
+        )}
+
+        {/* Sticker marketplace modal */}
+        {showStickerMarketplace && (
+          <StickerMarketplaceModal
+            isOpen={showStickerMarketplace}
+            onClose={() => setShowStickerMarketplace(false)}
+            onSelectSticker={(sticker) =>
+              useChatStore.getState().sendMessage?.({ sticker, messageType: "sticker" })
+            }
           />
         )}
       </div>

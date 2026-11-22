@@ -45,6 +45,7 @@ const GiftMarketplaceModal = ({
   recipientId = null,
   groupId = null,
   isGroup = false,
+  parentMessageId = null,
 }) => {
   const authUser = useAuthStore((state) => state.authUser);
   const isAdmin = authUser?.role === "admin";
@@ -284,6 +285,7 @@ const GiftMarketplaceModal = ({
         giftSlug: selectedGift.slug || "",
         personalMessage: note.trim(),
         chatType: isGroup ? "group" : "direct",
+        parentMessageId: parentMessageId || null,
       });
 
       if (typeof onSendGift === "function") {

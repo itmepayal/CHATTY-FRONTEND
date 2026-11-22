@@ -22,11 +22,13 @@ import {
   ExternalLink,
   ChevronRight,
   Filter,
+  Sparkles,
 } from "lucide-react";
 import { useNotificationStore } from "../../store/useNotificationStore.js";
 import { useChatStore } from "../../store/useChatStore.js";
 import { useGroupStore } from "../../store/useGroupStore.js";
 import { useContactStore } from "../../store/useContactStore.js";
+import { useStoryStore } from "../../store/useStoryStore.js";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "../../utils/timeUtils.js";
 
@@ -37,6 +39,7 @@ const CATEGORY_TABS = [
   { id: "group", label: "Groups", icon: UsersRound },
   { id: "call", label: "Calls", icon: Phone },
   { id: "contact", label: "Contacts", icon: UserPlus },
+  { id: "story", label: "Stories", icon: Sparkles },
   { id: "security", label: "Security", icon: Shield },
   { id: "system", label: "System", icon: Info },
 ];
@@ -51,7 +54,9 @@ export const NotificationCenterModal = ({ open, onClose }) => {
     activeTab,
     fetchNotifications,
     markAsRead,
+    markAsUnread,
     markAllAsRead,
+    clearReadNotifications,
     deleteNotification,
     clearAllNotifications,
     setCategoryFilter,
@@ -123,11 +128,22 @@ export const NotificationCenterModal = ({ open, onClose }) => {
     } else if (notif.category === "group" || data.groupId) {
       if (data.messageId) {
         try {
-          sessionStorage.setItem("chatty:jump-to-message", String(data.messageId));
+          sessionStorage.setItem(
+            "chatty:jump-to-message",
+            String(data.messageId),
+          );
         } catch {}
         useGroupStore.getState().setJumpToMessageId?.(String(data.messageId));
       }
       selectGroup({ _id: data.groupId });
+      onClose();
+    } else if (notif.category === "story" || data.storyId) {
+      const storyStore = useStoryStore.getState();
+      if (data.storyId && storyStore.openMyStoryViewer) {
+        storyStore.openMyStoryViewer(data.storyId);
+      } else if (storyStore.openViewer) {
+        storyStore.openViewer(0, 0);
+      }
       onClose();
     } else if (notif.category === "call") {
       onClose();
@@ -145,6 +161,8 @@ export const NotificationCenterModal = ({ open, onClose }) => {
         return "Open Chat";
       case "group":
         return "View Group";
+      case "story":
+        return "View Story";
       case "call":
         return "Call";
       case "contact":
@@ -162,6 +180,8 @@ export const NotificationCenterModal = ({ open, onClose }) => {
         return <MessageSquare className="size-4 text-primary" />;
       case "group":
         return <UsersRound className="size-4 text-secondary" />;
+      case "story":
+        return <Sparkles className="size-4 text-purple-400" />;
       case "call":
         return <Phone className="size-4 text-error" />;
       case "contact":
@@ -210,7 +230,7 @@ export const NotificationCenterModal = ({ open, onClose }) => {
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0 flex-wrap">
             {unreadCount > 0 && (
               <button
                 type="button"
@@ -220,9 +240,26 @@ export const NotificationCenterModal = ({ open, onClose }) => {
                   )
                 }
                 className="btn btn-xs btn-ghost gap-1 text-[11px] text-primary hover:bg-primary/10 rounded-lg h-8 px-2.5"
+                title="Mark all notifications as read"
               >
                 <CheckCheck className="size-3.5" />
                 <span>Mark all read</span>
+              </button>
+            )}
+
+            {filteredNotifications.some((n) => n.isRead) && (
+              <button
+                type="button"
+                onClick={() =>
+                  clearReadNotifications(
+                    categoryFilter !== "all" ? categoryFilter : null,
+                  )
+                }
+                className="btn btn-xs btn-ghost gap-1 text-[11px] text-base-content/70 hover:bg-base-200 rounded-lg h-8 px-2.5"
+                title="Clear read notifications"
+              >
+                <CheckCheck className="size-3.5 text-base-content/50" />
+                <span>Clear read</span>
               </button>
             )}
 
@@ -235,6 +272,7 @@ export const NotificationCenterModal = ({ open, onClose }) => {
                   )
                 }
                 className="btn btn-xs btn-ghost gap-1 text-[11px] text-error hover:bg-error/10 rounded-lg h-8 px-2.5"
+                title="Clear all notifications"
               >
                 <Trash2 className="size-3.5" />
                 <span>Clear all</span>
@@ -373,13 +411,21 @@ export const NotificationCenterModal = ({ open, onClose }) => {
                         <ChevronRight className="size-3" />
                       </button>
 
-                      {isUnread && (
+                      {isUnread ? (
                         <button
                           type="button"
                           onClick={() => markAsRead(id)}
                           className="btn btn-xs btn-ghost rounded-lg text-[11px] text-base-content/60 hover:text-base-content h-7 px-2"
                         >
                           Mark read
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => markAsUnread(id)}
+                          className="btn btn-xs btn-ghost rounded-lg text-[11px] text-base-content/60 hover:text-base-content h-7 px-2"
+                        >
+                          Mark unread
                         </button>
                       )}
                     </div>

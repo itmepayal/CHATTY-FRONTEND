@@ -265,6 +265,8 @@ export const useSidebarData = () => {
   const allCalls = buildAllCalls(userCalls, groupCalls, authUser?.id);
   const filteredCalls = allCalls.filter((c) => {
     if (callFilter === "missed" && !c.missed) return false;
+    if (callFilter === "incoming" && c.outgoing) return false;
+    if (callFilter === "outgoing" && !c.outgoing) return false;
     if (q && !c.name.toLowerCase().includes(q)) return false;
     return true;
   });

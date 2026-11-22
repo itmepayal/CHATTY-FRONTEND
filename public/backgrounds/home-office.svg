@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="warmWall" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#292524"/>
+        <stop offset="100%" stop-color="#1c1917"/>
+      </linearGradient>
+      <linearGradient id="slat" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#78350f"/>
+        <stop offset="100%" stop-color="#92400e"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#warmWall)"/>
+    <!-- Scandinavian Wood Slats on left wall -->
+    <g opacity="0.7">
+      <rect x="60" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="88" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="116" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="144" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="172" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="200" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="228" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="256" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="284" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="312" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="340" y="0" width="16" height="720" fill="url(#slat)"/>
+<rect x="368" y="0" width="16" height="720" fill="url(#slat)"/>
+    </g>
+    <!-- Warm Accent Lamp Light -->
+    <circle cx="1060" cy="220" r="160" fill="#fef08a" opacity="0.12"/>
+    <circle cx="1060" cy="220" r="60" fill="#fef08a" opacity="0.25"/>
+    <path d="M1030,160 L1090,160 L1120,240 L1000,240 Z" fill="#f59e0b" opacity="0.9"/>
+    <line x1="1060" y1="240" x2="1060" y2="440" stroke="#78350f" stroke-width="6"/>
+    <!-- Minimalist Art Frame -->
+    <rect x="520" y="80" width="280" height="200" rx="4" fill="#fafaf9" stroke="#44403c" stroke-width="8"/>
+    <circle cx="660" cy="180" r="45" fill="#f97316" opacity="0.8"/>
+    <rect x="580" y="190" width="160" height="40" fill="#0284c7" opacity="0.7"/>
+    <!-- Desk Shelf -->
+    <rect x="460" y="380" width="400" height="18" rx="4" fill="#a16207"/>
+    <rect x="500" y="320" width="40" height="60" rx="4" fill="#10b981"/>
+    <rect x="548" y="300" width="16" height="80" rx="2" fill="#ec4899"/>
+  </svg>

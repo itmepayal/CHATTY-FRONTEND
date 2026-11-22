@@ -29,6 +29,7 @@ import {
   sameId,
 } from "./sidebarUtils.js";
 import { useChatLockStore } from "../../store/useChatLockStore.js";
+import { useChatStore } from "../../store/useChatStore.js";
 import { usePrivacyStore } from "../../store/usePrivacyStore.js";
 
 export const SidebarChatsTab = ({
