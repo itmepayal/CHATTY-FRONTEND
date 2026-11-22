@@ -54,20 +54,20 @@ export const StoryTray = () => {
     <div
       onMouseEnter={() => setShowScrollBtns(true)}
       onMouseLeave={() => setShowScrollBtns(false)}
-      className="relative border-b border-white/8 bg-[#080D19]/60 px-3 py-2.5 select-none transition-all group/tray"
+      className="relative border-b border-base-300/80 bg-base-100 px-3 py-2.5 select-none transition-all group/tray"
     >
       {/* Header */}
       <div className="flex items-center justify-between pb-2 px-1">
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#94A3B8]">
-          <Sparkles className="size-3.5 text-[#22C7F2] drop-shadow-[0_0_8px_rgba(34,199,242,0.5)]" />
-          <span className="text-[#F8FAFC]">Stories</span>
+        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-base-content/70">
+          <Sparkles className="size-3.5 text-primary drop-shadow-xs" />
+          <span className="text-base-content font-bold">Stories</span>
         </div>
 
         <div className="flex items-center gap-2">
           {hasMyStories && (
             <button
               onClick={() => setMyStoriesOpen(true)}
-              className="text-[11px] font-semibold text-[#94A3B8] hover:text-[#22C7F2] transition-colors cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-white/5"
+              className="text-[11px] font-semibold text-base-content/70 hover:text-primary transition-colors cursor-pointer flex items-center gap-1 px-1.5 py-0.5 rounded-lg hover:bg-base-200"
             >
               <Layers className="size-3" />
               <span>Manage</span>
@@ -76,7 +76,7 @@ export const StoryTray = () => {
 
           <button
             onClick={() => setCreatorOpen(true)}
-            className="text-xs font-semibold text-[#22C7F2] hover:text-white transition-colors cursor-pointer flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#22C7F2]/10 hover:bg-[#22C7F2]/20 border border-[#22C7F2]/30 active:scale-95"
+            className="text-xs font-semibold text-primary hover:bg-primary hover:text-primary-content transition-all cursor-pointer flex items-center gap-1 px-2.5 py-0.5 rounded-xl bg-primary/10 border border-primary/25 active:scale-95 shadow-2xs"
           >
             <Plus className="size-3.5 stroke-[2.5]" />
             <span>New</span>
@@ -90,14 +90,14 @@ export const StoryTray = () => {
           <button
             onClick={() => scroll("left")}
             aria-label="Scroll left"
-            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 size-7 rounded-full bg-[#101827]/90 shadow-lg border border-white/10 flex items-center justify-center text-white hover:bg-[#151F30] hover:border-[#22C7F2]/50 transition-all hidden md:flex cursor-pointer"
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 size-7 rounded-full bg-base-200/95 shadow-md border border-base-300 flex items-center justify-center text-base-content hover:bg-base-300 hover:border-primary/50 transition-all hidden md:flex cursor-pointer"
           >
             <ChevronLeft className="size-4" />
           </button>
           <button
             onClick={() => scroll("right")}
             aria-label="Scroll right"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 size-7 rounded-full bg-[#101827]/90 shadow-lg border border-white/10 flex items-center justify-center text-white hover:bg-[#151F30] hover:border-[#22C7F2]/50 transition-all hidden md:flex cursor-pointer"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 size-7 rounded-full bg-base-200/95 shadow-md border border-base-300 flex items-center justify-center text-base-content hover:bg-base-300 hover:border-primary/50 transition-all hidden md:flex cursor-pointer"
           >
             <ChevronRight className="size-4" />
           </button>
@@ -109,8 +109,8 @@ export const StoryTray = () => {
         <div className="flex items-center gap-3.5 overflow-hidden py-1 px-1">
           {[1, 2, 3, 4, 5].map((n) => (
             <div key={n} className="flex flex-col items-center gap-1.5 shrink-0 animate-pulse">
-              <div className="size-14 rounded-full bg-[#151F30] border border-white/5" />
-              <div className="h-2.5 w-12 rounded-md bg-[#151F30]" />
+              <div className="size-14 rounded-full bg-base-300/70 border border-base-300" />
+              <div className="h-2.5 w-12 rounded-md bg-base-300/70" />
             </div>
           ))}
         </div>
@@ -135,11 +135,11 @@ export const StoryTray = () => {
                 }}
                 className={`relative size-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105 cursor-pointer flex items-center justify-center ${
                   hasMyStories
-                    ? "bg-gradient-to-tr from-[#22C7F2] to-[#397BFF] shadow-[0_0_12px_rgba(34,199,242,0.35)]"
-                    : "border-2 border-dashed border-white/20 hover:border-[#22C7F2]/60 bg-transparent"
+                    ? "bg-gradient-to-tr from-primary to-secondary shadow-sm ring-2 ring-primary/40 ring-offset-2 ring-offset-base-100"
+                    : "border-2 border-dashed border-base-300 hover:border-primary/60 bg-transparent"
                 }`}
               >
-                <div className="size-full rounded-full p-[2px] bg-[#080D19] flex items-center justify-center overflow-hidden">
+                <div className="size-full rounded-full p-[2px] bg-base-100 flex items-center justify-center overflow-hidden">
                   <img
                     src={myAvatar}
                     alt={authUser?.fullName || "My Story"}
@@ -154,25 +154,25 @@ export const StoryTray = () => {
 
               {/* Story count badge */}
               {hasMyStories && myGroup.stories.length > 1 && (
-                <span className="absolute -top-0.5 -right-0.5 size-4.5 rounded-full bg-[#101827] text-[#22C7F2] border border-white/10 text-[9px] font-bold flex items-center justify-center shadow-xs">
+                <span className="absolute -top-0.5 -right-0.5 size-4.5 rounded-full bg-base-200 text-primary border border-base-300 text-[9px] font-bold flex items-center justify-center shadow-xs">
                   {myGroup.stories.length}
                 </span>
               )}
 
-              {/* Cyan Plus Badge */}
+              {/* Plus Badge */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setCreatorOpen(true);
                 }}
                 title="Add Story"
-                className="absolute -bottom-0.5 -right-0.5 size-5 rounded-full bg-gradient-to-tr from-[#22C7F2] to-[#397BFF] text-slate-950 flex items-center justify-center ring-2 ring-[#080D19] hover:scale-115 active:scale-95 transition-all cursor-pointer shadow-md"
+                className="absolute -bottom-0.5 -right-0.5 size-5 rounded-full bg-primary text-primary-content flex items-center justify-center ring-2 ring-base-100 hover:scale-115 active:scale-95 transition-all cursor-pointer shadow-md"
               >
                 <Plus className="size-3.5 stroke-[3]" />
               </button>
             </div>
 
-            <span className="text-[11px] font-medium text-[#F8FAFC] group-hover:text-[#22C7F2] transition-colors truncate max-w-[64px] text-center">
+            <span className="text-[11px] font-medium text-base-content group-hover:text-primary transition-colors truncate max-w-[64px] text-center">
               {hasMyStories ? "Your story" : "Add story"}
             </span>
           </div>
@@ -198,11 +198,11 @@ export const StoryTray = () => {
                   <div
                     className={`size-14 rounded-full p-[2px] transition-all duration-300 group-hover:scale-105 flex items-center justify-center ${
                       group.hasUnseen
-                        ? "bg-gradient-to-tr from-[#22C7F2] to-[#397BFF] shadow-[0_0_12px_rgba(34,199,242,0.35)]"
-                        : "bg-white/15 opacity-75 group-hover:opacity-100"
+                        ? "bg-gradient-to-tr from-primary to-secondary shadow-sm ring-2 ring-primary/40 ring-offset-2 ring-offset-base-100"
+                        : "bg-base-300 opacity-75 group-hover:opacity-100 ring-1 ring-base-300 ring-offset-1 ring-offset-base-100"
                     }`}
                   >
-                    <div className="size-full rounded-full p-[2px] bg-[#080D19] flex items-center justify-center overflow-hidden">
+                    <div className="size-full rounded-full p-[2px] bg-base-100 flex items-center justify-center overflow-hidden">
                       <img
                         src={avatar}
                         alt={displayName}
@@ -217,7 +217,7 @@ export const StoryTray = () => {
 
                   {/* Multiple story count badge */}
                   {group.stories?.length > 1 && (
-                    <span className="absolute -top-0.5 -right-0.5 size-4.5 rounded-full bg-[#101827] text-white border border-white/10 text-[9px] font-bold flex items-center justify-center shadow-xs">
+                    <span className="absolute -top-0.5 -right-0.5 size-4.5 rounded-full bg-base-200 text-base-content border border-base-300 text-[9px] font-bold flex items-center justify-center shadow-xs">
                       {group.stories.length}
                     </span>
                   )}
@@ -226,8 +226,8 @@ export const StoryTray = () => {
                 <span
                   className={`text-[11px] truncate max-w-[64px] text-center transition-colors ${
                     group.hasUnseen
-                      ? "font-semibold text-[#F8FAFC] group-hover:text-[#22C7F2]"
-                      : "font-normal text-[#94A3B8] group-hover:text-[#F8FAFC]"
+                      ? "font-semibold text-base-content group-hover:text-primary"
+                      : "font-normal text-base-content/60 group-hover:text-base-content"
                   }`}
                 >
                   {displayName}
@@ -238,7 +238,7 @@ export const StoryTray = () => {
 
           {/* Empty State */}
           {contactGroups.length === 0 && !hasMyStories && (
-            <div className="flex items-center gap-2 py-2 text-xs text-[#94A3B8]/60 italic px-2">
+            <div className="flex items-center gap-2 py-2 text-xs text-base-content/50 italic px-2">
               <span>No active stories. Click + to share your day!</span>
             </div>
           )}

@@ -428,6 +428,7 @@ export const ChatHeader = ({
 
                 <ChatHeaderIdentity
                   name={selectedUser.fullName}
+                  badge={selectedUser.featuredBadge}
                   isEncrypted={true}
                   onClick={onToggleInfo}
                 >
@@ -496,16 +497,7 @@ export const ChatHeader = ({
                   label="Voice call"
                   onClick={() => startCall(callPeer, "audio")}
                   disabled={!canCall}
-                  className="hidden xs:flex"
-                />
-
-                {/* Video Call */}
-                <ChatHeaderActionButton
-                  icon={Video}
-                  label="Video call"
-                  onClick={() => startCall(callPeer, "video")}
-                  disabled={!canCall}
-                  className="hidden sm:flex"
+                  className="flex"
                 />
 
                 {/* Contact Info */}

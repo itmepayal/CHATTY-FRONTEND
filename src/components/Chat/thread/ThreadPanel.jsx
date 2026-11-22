@@ -29,12 +29,17 @@ const resolveAvatar = (avatar) => {
 };
 
 const resolveSender = (msg, authUser, selectedUser, selectedGroup, isGroup) => {
-  if (!msg) return { name: isGroup ? "Group Member" : "User", avatar: null, isMe: false };
+  if (!msg)
+    return {
+      name: isGroup ? "Group Member" : "User",
+      avatar: null,
+      isMe: false,
+    };
   const currentUid = String(authUser?._id || authUser?.id || "");
   const senderObj =
     msg.sender || (typeof msg.senderId === "object" ? msg.senderId : null);
   const senderId = String(
-    senderObj?._id || senderObj?.id || msg.senderId || ""
+    senderObj?._id || senderObj?.id || msg.senderId || "",
   );
   const isMe = Boolean(senderId && currentUid && senderId === currentUid);
 
@@ -56,7 +61,11 @@ const resolveSender = (msg, authUser, selectedUser, selectedGroup, isGroup) => {
   }
 
   // 1:1 chat peer lookup
-  if (!isGroup && selectedUser && String(selectedUser.id || selectedUser._id) === senderId) {
+  if (
+    !isGroup &&
+    selectedUser &&
+    String(selectedUser.id || selectedUser._id) === senderId
+  ) {
     return {
       name: selectedUser.fullName || selectedUser.username || "User",
       avatar: resolveAvatar(selectedUser.avatar || selectedUser.profilePic),
@@ -179,7 +188,7 @@ const ThreadPanel = ({
           if (isGroup) {
             const dec = await decryptGroupMessage(
               parentMessage,
-              groupId || selectedGroup?.id
+              groupId || selectedGroup?.id,
             );
             if (!cancelled && dec) setLocalParent(dec);
           } else {
@@ -215,7 +224,7 @@ const ThreadPanel = ({
     authUser,
     selectedUser,
     selectedGroup,
-    isGroup
+    isGroup,
   );
   const parentSenderName = parentSender.name;
   const parentAvatar = parentSender.avatar;
@@ -223,7 +232,7 @@ const ThreadPanel = ({
   const isParentDeleted = Boolean(activeParent?.isDeleted);
   const parentDisplayText = useMemo(
     () => getDisplayText(activeParent),
-    [activeParent]
+    [activeParent],
   );
 
   return (
@@ -306,12 +315,14 @@ const ThreadPanel = ({
                   {/* Quoted message if any */}
                   {activeParent?.replyTo && (
                     <div className="border-l-2 border-primary/60 bg-base-300/40 px-2 py-1 rounded text-[11px] text-base-content/70 italic truncate mb-1">
-                      {displayText(activeParent.replyTo) || activeParent.replyTo.text || "Quoted message"}
+                      {displayText(activeParent.replyTo) ||
+                        activeParent.replyTo.text ||
+                        "Quoted message"}
                     </div>
                   )}
 
                   {parentDisplayText ? (
-                    <p className="text-xs text-base-content/90 whitespace-pre-wrap break-words [overflow-wrap:anywhere] leading-relaxed select-text">
+                    <p className="text-xs text-base-content/90 whitespace-pre-wrap [overflow-wrap:anywhere] leading-relaxed select-text">
                       {parentDisplayText}
                     </p>
                   ) : null}
@@ -371,7 +382,7 @@ const ThreadPanel = ({
                   authUser,
                   selectedUser,
                   selectedGroup,
-                  isGroup
+                  isGroup,
                 );
                 const name = senderInfo.name;
                 const avatar = senderInfo.avatar;
@@ -420,7 +431,7 @@ const ThreadPanel = ({
                         </div>
                       ) : (
                         <div
-                          className={`px-3 py-2 rounded-2xl break-words [overflow-wrap:anywhere] text-xs shadow-xs leading-relaxed select-text ${
+                          className={`px-3 py-2 rounded-2xl break-words text-xs shadow-xs leading-relaxed select-text ${
                             isMe
                               ? "bg-primary text-primary-content rounded-tr-none"
                               : "bg-base-200 text-base-content rounded-tl-none border border-base-300/60"

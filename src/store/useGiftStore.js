@@ -63,7 +63,7 @@ export const useGiftStore = create((set, get) => ({
     try {
       const query = {
         page: 1,
-        limit: 100,
+        limit: 600,
         ...params,
       };
       const res = await axiosInstance.get("/gifts", { params: query });
@@ -252,6 +252,7 @@ export const useGiftStore = create((set, get) => ({
     recipientId = null,
     groupId = null,
     giftId,
+    giftSlug = "",
     personalMessage = "",
     chatType = "direct",
   }) => {
@@ -262,6 +263,7 @@ export const useGiftStore = create((set, get) => ({
         recipientId,
         groupId,
         giftId,
+        giftSlug,
         personalMessage: personalMessage?.trim() || "",
         idempotencyKey,
         chatType,
@@ -282,12 +284,16 @@ export const useGiftStore = create((set, get) => ({
         // Trigger celebratory animation
         set({ celebrationGift: gift });
 
+        // Update local sent history & transactions
+        get().fetchSentHistory();
+        get().fetchTransactions();
+
         toast.success(`Sent ${gift?.name || "gift"} successfully!`);
-        return { success: true, message, gift };
+        return { success: true, message, gift, wallet };
       }
       return { success: false };
     } catch (err) {
-      const msg = err.response?.data?.message || "Failed to send gift.";
+      const msg = err.response?.data?.message || err.message || "Failed to send gift.";
       toast.error(msg);
       throw err;
     } finally {

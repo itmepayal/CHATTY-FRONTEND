@@ -643,8 +643,8 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
-  // Accepts: text, mentions, imageFile, attachment, voice, video, replyTo, isForwarded, isViewOnce, gift
-  sendMessage: async ({ text, mentions = [], imageFile, attachment, voice, video, replyTo: explicitReplyTo, isForwarded, isViewOnce, gift }) => {
+  // Accepts: text, mentions, imageFile, attachment, voice, video, replyTo, isForwarded, isViewOnce, gift, sticker
+  sendMessage: async ({ text, mentions = [], imageFile, attachment, voice, video, replyTo: explicitReplyTo, isForwarded, isViewOnce, gift, sticker }) => {
     const { selectedGroup } = get();
     const me = useAuthStore.getState().authUser;
     const meId = myId();
@@ -669,7 +669,7 @@ export const useGroupStore = create((set, get) => ({
         : null;
 
     const file = voiceFile || videoFile || imageFile || attachment || null;
-    if (!selectedGroup || !me || !meId || (!trimmed && !file && !gift)) return;
+    if (!selectedGroup || !me || !meId || (!trimmed && !file && !gift && !sticker)) return;
 
     const replyMsg = explicitReplyTo ?? get().replyingTo;
     const replyToId = replyMsg ? idOf(replyMsg.id || replyMsg._id) : null;
@@ -730,8 +730,10 @@ export const useGroupStore = create((set, get) => ({
       isViewOnce: Boolean(isViewOnce),
       _isViewOnce: Boolean(isViewOnce),
       gift: gift || null,
-      messageType: gift ? "gift" : "text",
+      sticker: sticker || null,
+      messageType: gift ? "gift" : sticker ? "sticker" : "text",
       _gift: gift || null,
+      _sticker: sticker || null,
       mentions: mentions || [],
       _mentions: mentions || [],
       readBy: [meId],
@@ -799,6 +801,9 @@ export const useGroupStore = create((set, get) => ({
       if (msg._isForwarded) fd.append("isForwarded", "true");
       if (msg._gift || msg.gift) {
         fd.append("gift", JSON.stringify(msg._gift || msg.gift));
+      }
+      if (msg._sticker || msg.sticker) {
+        fd.append("sticker", JSON.stringify(msg._sticker || msg.sticker));
       }
       if (Array.isArray(msg._mentions) && msg._mentions.length > 0) {
         fd.append("mentions", JSON.stringify(msg._mentions));

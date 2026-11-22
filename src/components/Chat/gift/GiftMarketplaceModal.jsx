@@ -30,6 +30,12 @@ import {
 import GiftArtwork from "./GiftArtwork.jsx";
 import { getCategoryTheme, getRarityTheme } from "./giftUIHelpers.js";
 
+/**
+ * GiftMarketplaceModal
+ * Redesigned, fully theme-aware Virtual Gift Marketplace.
+ * Dynamically conforms to every application theme (light, dark, coffee, retro, cyberpunk, etc.).
+ * Separates gift artwork & metadata from the local viewer's interface theme.
+ */
 const GiftMarketplaceModal = ({
   isOpen,
   onClose,
@@ -156,7 +162,7 @@ const GiftMarketplaceModal = ({
     }
   }, [selectedGift]);
 
-  // Comprehensive Client-side Filtering & Sorting for Instant Response
+  // Comprehensive Client-side Filtering & Sorting
   const filteredGifts = useMemo(() => {
     let list = [...sourceItems];
 
@@ -271,13 +277,18 @@ const GiftMarketplaceModal = ({
     }
 
     try {
-      await sendGift({
+      const res = await sendGift({
         recipientId: isGroup ? null : recipientId,
         groupId: isGroup ? groupId : null,
-        giftId: selectedGift.id || selectedGift._id || selectedGift.slug,
+        giftId: selectedGift._id || selectedGift.id || selectedGift.slug,
+        giftSlug: selectedGift.slug || "",
         personalMessage: note.trim(),
         chatType: isGroup ? "group" : "direct",
       });
+
+      if (typeof onSendGift === "function") {
+        onSendGift(res?.gift || selectedGift);
+      }
 
       setNote("");
       setShowPreviewModal(false);
@@ -305,16 +316,16 @@ const GiftMarketplaceModal = ({
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 select-none">
-        {/* Dark Luxury Backdrop */}
+        {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-[#0B1120]/80 backdrop-blur-md"
+          className="fixed inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-md"
           onClick={onClose}
         />
 
-        {/* Modal Window Container (85-90% viewport width, luxury dark palette) */}
+        {/* Modal Window Container (Theme-aware DaisyUI surface) */}
         <motion.div
           initial={{ scale: 0.94, opacity: 0, y: 16 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -322,36 +333,36 @@ const GiftMarketplaceModal = ({
           transition={{ type: "spring", stiffness: 350, damping: 28 }}
           role="dialog"
           aria-modal="true"
-          className="relative w-[92vw] max-w-6xl xl:max-w-7xl h-[92vh] max-h-[890px] rounded-3xl bg-[#0B1120] text-slate-100 border border-white/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden"
+          className="relative w-[94vw] max-w-6xl xl:max-w-7xl h-[92vh] max-h-[890px] rounded-3xl bg-base-100 text-base-content border border-base-300 shadow-2xl flex flex-col overflow-hidden"
         >
           {/* Header Bar */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-[#111827]/80 backdrop-blur-sm shrink-0">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-3.5 border-b border-base-300/80 bg-base-100/95 backdrop-blur-sm shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/20 shrink-0">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-amber-500/20 shrink-0">
                 <Gift className="size-5 sm:size-5.5" />
               </div>
               <div className="min-w-0">
-                <h3 className="font-extrabold text-base sm:text-lg leading-tight flex items-center gap-1.5 text-white">
-                  Virtual Gift Store
-                  <Sparkles className="size-4 text-amber-400" />
+                <h3 className="font-extrabold text-base sm:text-lg leading-tight flex items-center gap-1.5 text-base-content">
+                  Gift Marketplace
+                  <Sparkles className="size-4 text-amber-500" />
                 </h3>
-                <div className="flex items-center gap-2 text-xs text-slate-400 truncate mt-0.5">
-                  <span>Make someone's day special.</span>
-                  <span className="text-slate-600">•</span>
-                  <div className="inline-flex items-center gap-1.5 text-slate-300">
+                <div className="flex items-center gap-2 text-xs text-base-content/60 truncate mt-0.5">
+                  <span className="hidden sm:inline">Make someone's day special.</span>
+                  <span className="hidden sm:inline text-base-content/30">•</span>
+                  <div className="inline-flex items-center gap-1.5 text-base-content/80">
                     <span>Sending to:</span>
                     {recipientAvatar ? (
                       <img
                         src={recipientAvatar}
                         alt={recipientName}
-                        className="size-4 rounded-full object-cover inline-block border border-white/20"
+                        className="size-4 rounded-full object-cover inline-block border border-base-300"
                       />
                     ) : (
-                      <div className="size-4 rounded-full bg-sky-500/20 border border-sky-500/40 text-[9px] flex items-center justify-center font-bold text-sky-400">
+                      <div className="size-4 rounded-full bg-primary/20 border border-primary/40 text-[9px] flex items-center justify-center font-bold text-primary">
                         {recipientName?.charAt(0) || "U"}
                       </div>
                     )}
-                    <span className="font-bold text-slate-100">
+                    <span className="font-bold text-base-content">
                       {recipientName}
                     </span>
                   </div>
@@ -363,7 +374,7 @@ const GiftMarketplaceModal = ({
             <div className="flex items-center gap-2">
               <div
                 onClick={() => setActiveTab("wallet")}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer text-xs font-black text-amber-400 shadow-sm"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-colors cursor-pointer text-xs font-black text-amber-500 shadow-xs"
                 title="Click to view wallet & transactions"
               >
                 <Coins className="size-4 text-amber-500 animate-spin-slow" />
@@ -385,7 +396,7 @@ const GiftMarketplaceModal = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                className="p-2 rounded-xl text-base-content/60 hover:text-base-content hover:bg-base-200 transition-colors cursor-pointer"
                 aria-label="Close"
               >
                 <X className="size-5" />
@@ -394,7 +405,7 @@ const GiftMarketplaceModal = ({
           </div>
 
           {/* 5 Navigation Sub-Tabs */}
-          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/10 bg-[#111827]/50 text-xs font-semibold overflow-x-auto no-scrollbar shrink-0">
+          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-base-300/80 bg-base-200/50 text-xs font-semibold overflow-x-auto no-scrollbar shrink-0">
             {[
               {
                 id: "store",
@@ -417,10 +428,10 @@ const GiftMarketplaceModal = ({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                  className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                     isActive
-                      ? "bg-[#1E293B] text-sky-400 border border-sky-500/40 shadow-sm font-bold"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                      ? "bg-primary text-primary-content font-bold shadow-xs border border-primary"
+                      : "text-base-content/70 hover:text-base-content hover:bg-base-200/80 border border-transparent"
                   }`}
                 >
                   <IconComp
@@ -440,24 +451,24 @@ const GiftMarketplaceModal = ({
           {activeTab === "store" && (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               {/* Search & Comprehensive Filter Controls */}
-              <div className="px-4 py-2.5 border-b border-white/10 bg-[#111827]/30 space-y-2 shrink-0">
+              <div className="px-4 py-2.5 border-b border-base-300/80 bg-base-200/30 space-y-2 shrink-0">
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Search Bar */}
                   <div className="relative flex-1 min-w-[200px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-500" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-base-content/40" />
                     <input
                       ref={searchInputRef}
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search 600+ gifts by name, category, mood..."
-                      className="w-full pl-9 pr-7 py-1.5 rounded-xl text-xs bg-[#151F32] border border-white/10 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-500/60"
+                      className="w-full pl-9 pr-7 py-1.5 rounded-xl text-xs bg-base-100 border border-base-300 text-base-content placeholder:text-base-content/40 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
                     />
                     {searchQuery && (
                       <button
                         type="button"
                         onClick={() => setSearchQuery("")}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-base-content/40 hover:text-base-content"
                       >
                         ×
                       </button>
@@ -481,10 +492,10 @@ const GiftMarketplaceModal = ({
                           key={chip.id}
                           type="button"
                           onClick={() => setFilterType(chip.id)}
-                          className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-all flex items-center gap-1 text-xs ${
+                          className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-all flex items-center gap-1 text-xs cursor-pointer ${
                             isSelected
-                              ? "bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold shadow-sm"
-                              : "bg-[#151F32] hover:bg-[#1C2840] text-slate-400 border border-white/5 hover:text-slate-200"
+                              ? "bg-primary text-primary-content font-bold shadow-xs border border-primary"
+                              : "bg-base-100 hover:bg-base-200 text-base-content/70 border border-base-300 hover:text-base-content"
                           }`}
                         >
                           {IconComp && <IconComp className="size-3" />}
@@ -500,13 +511,13 @@ const GiftMarketplaceModal = ({
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Rarity Selector */}
                     <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-medium text-slate-400">
+                      <span className="text-[11px] font-medium text-base-content/60">
                         Rarity:
                       </span>
                       <select
                         value={rarityFilter}
                         onChange={(e) => setRarityFilter(e.target.value)}
-                        className="py-1 px-2 rounded-lg bg-[#151F32] border border-white/10 text-slate-200 text-xs focus:outline-none focus:border-sky-500"
+                        className="py-1 px-2 rounded-lg bg-base-100 border border-base-300 text-base-content text-xs focus:outline-none focus:border-primary"
                       >
                         <option value="all">All Rarities</option>
                         <option value="common">Common</option>
@@ -519,7 +530,7 @@ const GiftMarketplaceModal = ({
 
                     {/* Price Range */}
                     <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-medium text-slate-400">
+                      <span className="text-[11px] font-medium text-base-content/60">
                         Coins:
                       </span>
                       <input
@@ -528,16 +539,16 @@ const GiftMarketplaceModal = ({
                         placeholder="Min"
                         value={minPrice}
                         onChange={(e) => setMinPrice(e.target.value)}
-                        className="w-14 py-1 px-1.5 rounded-lg bg-[#151F32] border border-white/10 text-slate-200 text-xs focus:outline-none focus:border-sky-500 text-center"
+                        className="w-14 py-1 px-1.5 rounded-lg bg-base-100 border border-base-300 text-base-content text-xs focus:outline-none focus:border-primary text-center"
                       />
-                      <span className="text-slate-600">-</span>
+                      <span className="text-base-content/40">-</span>
                       <input
                         type="number"
                         min="0"
                         placeholder="Max"
                         value={maxPrice}
                         onChange={(e) => setMaxPrice(e.target.value)}
-                        className="w-14 py-1 px-1.5 rounded-lg bg-[#151F32] border border-white/10 text-slate-200 text-xs focus:outline-none focus:border-sky-500 text-center"
+                        className="w-14 py-1 px-1.5 rounded-lg bg-base-100 border border-base-300 text-base-content text-xs focus:outline-none focus:border-primary text-center"
                       />
                     </div>
 
@@ -545,7 +556,7 @@ const GiftMarketplaceModal = ({
                     <select
                       value={sortOption}
                       onChange={(e) => setSortOption(e.target.value)}
-                      className="py-1 px-2 rounded-lg bg-[#151F32] border border-white/10 text-slate-200 text-xs font-semibold focus:outline-none focus:border-sky-500"
+                      className="py-1 px-2 rounded-lg bg-base-100 border border-base-300 text-base-content text-xs font-semibold focus:outline-none focus:border-primary"
                     >
                       <option value="default">Default Order</option>
                       <option value="price_asc">Price: Low to High</option>
@@ -559,7 +570,7 @@ const GiftMarketplaceModal = ({
                       <button
                         type="button"
                         onClick={clearAllFilters}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold text-sky-400 hover:bg-sky-500/10 transition-colors"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
                         title="Reset all search & filter options"
                       >
                         <RotateCcw className="size-3" />
@@ -569,13 +580,13 @@ const GiftMarketplaceModal = ({
                   </div>
 
                   {/* Total Count Indicator */}
-                  <div className="text-[11px] text-slate-400 font-medium">
+                  <div className="text-[11px] text-base-content/60 font-medium">
                     Showing{" "}
-                    <span className="font-bold text-slate-100">
+                    <span className="font-bold text-base-content">
                       {filteredGifts.length}
                     </span>{" "}
                     of{" "}
-                    <span className="font-bold text-slate-100">
+                    <span className="font-bold text-base-content">
                       {totalGifts || sourceItems.length}
                     </span>{" "}
                     gifts
@@ -583,15 +594,15 @@ const GiftMarketplaceModal = ({
                 </div>
               </div>
 
-              {/* 15 Categories Horizontal Slider */}
-              <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-white/10 no-scrollbar bg-[#0B1120] shrink-0">
+              {/* Categories Horizontal Slider */}
+              <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto border-b border-base-300/80 no-scrollbar bg-base-100 shrink-0">
                 <button
                   type="button"
                   onClick={() => setActiveCategory("All")}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-150 ${
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-150 cursor-pointer ${
                     activeCategory === "All"
-                      ? "bg-sky-500 text-slate-950 font-black shadow-md shadow-sky-500/25"
-                      : "bg-[#151F32] hover:bg-[#1E293B] text-slate-400 hover:text-slate-200 border border-white/5"
+                      ? "bg-primary text-primary-content font-black shadow-xs"
+                      : "bg-base-200/80 hover:bg-base-200 text-base-content/70 hover:text-base-content border border-base-300/60"
                   }`}
                 >
                   🌟 All Gifts ({sourceItems.length})
@@ -607,10 +618,10 @@ const GiftMarketplaceModal = ({
                       key={cat.id || cat.name}
                       type="button"
                       onClick={() => setActiveCategory(cat.name)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-150 flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-150 flex items-center gap-1.5 cursor-pointer ${
                         isSelected
-                          ? "bg-sky-500 text-slate-950 font-black shadow-md shadow-sky-500/25"
-                          : "bg-[#151F32] hover:bg-[#1E293B] text-slate-400 hover:text-slate-200 border border-white/5"
+                          ? "bg-primary text-primary-content font-black shadow-xs"
+                          : "bg-base-200/80 hover:bg-base-200 text-base-content/70 hover:text-base-content border border-base-300/60"
                       }`}
                     >
                       <span>{cat.icon || catTheme.icon || "🎁"}</span>
@@ -618,8 +629,8 @@ const GiftMarketplaceModal = ({
                       <span
                         className={`text-[10px] px-1.5 py-0.2 rounded-full ${
                           isSelected
-                            ? "bg-slate-950/40 text-slate-950 font-black"
-                            : "bg-white/10 text-slate-300"
+                            ? "bg-primary-content/20 text-primary-content font-black"
+                            : "bg-base-300 text-base-content/70"
                         }`}
                       >
                         {count}
@@ -630,18 +641,18 @@ const GiftMarketplaceModal = ({
               </div>
 
               {/* Gifts Grid Container (5 cols desktop, 4 cols tablet, 2 cols mobile) */}
-              <div className="flex-1 overflow-y-auto p-3 sm:p-4 min-h-[240px]">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-4 min-h-[240px] bg-base-100">
                 {loading ? (
                   <div className="flex flex-col items-center justify-center h-52 gap-3">
-                    <span className="loading loading-spinner loading-md text-sky-400" />
-                    <span className="text-xs text-slate-400 font-medium">
+                    <span className="loading loading-spinner loading-md text-primary" />
+                    <span className="text-xs text-base-content/60 font-medium">
                       Loading gift catalog...
                     </span>
                   </div>
                 ) : filteredGifts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-52 text-center p-6 text-slate-400">
-                    <Gift className="size-10 mb-2 opacity-40 text-sky-400" />
-                    <p className="text-sm font-semibold text-slate-200">
+                  <div className="flex flex-col items-center justify-center h-52 text-center p-6 text-base-content/60">
+                    <Gift className="size-10 mb-2 opacity-40 text-primary" />
+                    <p className="text-sm font-semibold text-base-content">
                       No gifts match your filters
                     </p>
                     <p className="text-xs mt-1">
@@ -668,7 +679,6 @@ const GiftMarketplaceModal = ({
                         favoriteIds.has(gift.slug) ||
                         gift.isFavorited;
                       const rarityTheme = getRarityTheme(gift.rarity);
-                      const categoryTheme = getCategoryTheme(gift.category);
 
                       return (
                         <motion.button
@@ -676,10 +686,10 @@ const GiftMarketplaceModal = ({
                           type="button"
                           whileTap={{ scale: 0.97 }}
                           onClick={() => setSelectedGift(gift)}
-                          className={`group relative flex flex-col justify-between p-3 rounded-2xl border transition-all duration-200 text-center ${
+                          className={`group relative flex flex-col justify-between p-3 rounded-2xl border transition-all duration-200 text-center cursor-pointer ${
                             isSelected
-                              ? "ring-2 ring-sky-400 border-sky-400 bg-sky-500/10 shadow-[0_0_25px_rgba(56,189,248,0.25)] scale-[1.02]"
-                              : "border-white/10 hover:border-sky-500/40 bg-[#151F32]/80 hover:bg-[#1A263D]"
+                              ? "ring-2 ring-primary border-primary bg-primary/10 shadow-md shadow-primary/15 scale-[1.02]"
+                              : "border-base-300/80 hover:border-primary/40 bg-base-200/40 hover:bg-base-200/90 text-base-content shadow-xs"
                           }`}
                         >
                           {/* Card Top: Rarity Badge, Animated Badge & Favorite Heart */}
@@ -691,7 +701,7 @@ const GiftMarketplaceModal = ({
                                 {gift.rarity || "COMMON"}
                               </span>
                               {gift.isAnimated && (
-                                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold flex items-center gap-0.5">
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-500 border border-amber-500/30 font-bold flex items-center gap-0.5">
                                   <Sparkles className="size-2.5" />
                                 </span>
                               )}
@@ -704,7 +714,7 @@ const GiftMarketplaceModal = ({
                                 e.stopPropagation();
                                 toggleFavorite(gift);
                               }}
-                              className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                              className="p-1 rounded-full hover:bg-base-300/70 transition-colors"
                               title={
                                 isFavorited
                                   ? "Remove from favorites"
@@ -715,29 +725,29 @@ const GiftMarketplaceModal = ({
                                 className={`size-3.5 transition-transform group-hover:scale-110 ${
                                   isFavorited
                                     ? "fill-rose-500 text-rose-500"
-                                    : "text-slate-500 hover:text-rose-400"
+                                    : "text-base-content/40 hover:text-rose-500"
                                 }`}
                               />
                             </button>
                           </div>
 
                           {/* Dedicated Artwork Container */}
-                          <div className="h-28 sm:h-32 w-full flex items-center justify-center p-2 rounded-xl bg-gradient-to-b from-white/5 to-transparent relative my-1">
+                          <div className="h-28 sm:h-32 w-full flex items-center justify-center p-2 rounded-xl bg-base-100 border border-base-300/50 relative my-1">
                             <GiftArtwork
                               gift={gift}
                               className="w-full h-full"
-                              imgClassName="max-h-full max-w-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.45)] group-hover:scale-110 transition-transform duration-300"
+                              imgClassName="max-h-full max-w-full object-contain filter drop-shadow-[0_6px_12px_rgba(0,0,0,0.25)] group-hover:scale-110 transition-transform duration-300"
                               fallbackSize="text-5xl"
                             />
                           </div>
 
                           {/* Gift Name */}
-                          <span className="mt-1 text-xs sm:text-sm font-bold text-slate-100 group-hover:text-sky-300 transition-colors truncate w-full text-center">
+                          <span className="mt-1 text-xs sm:text-sm font-bold text-base-content group-hover:text-primary transition-colors truncate w-full text-center">
                             {gift.name}
                           </span>
 
                           {/* Coin Price Badge */}
-                          <div className="mt-1.5 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-400 shadow-sm mx-auto">
+                          <div className="mt-1.5 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-500 shadow-xs mx-auto">
                             <Coins className="size-3 text-amber-500" />
                             <span>{gift.coinPrice}</span>
                           </div>
@@ -754,7 +764,7 @@ const GiftMarketplaceModal = ({
                       type="button"
                       disabled={loadingMore}
                       onClick={() => loadMoreCatalog()}
-                      className="btn btn-outline btn-sm rounded-2xl gap-2 font-bold px-6 border-white/20 text-slate-200 hover:bg-white/10"
+                      className="btn btn-outline btn-sm rounded-2xl gap-2 font-bold px-6 border-base-300 text-base-content hover:bg-base-200"
                     >
                       {loadingMore ? (
                         <>
@@ -763,7 +773,7 @@ const GiftMarketplaceModal = ({
                         </>
                       ) : (
                         <>
-                          <Gift className="size-4 text-sky-400" />
+                          <Gift className="size-4 text-primary" />
                           Load More Gifts
                         </>
                       )}
@@ -774,11 +784,11 @@ const GiftMarketplaceModal = ({
 
               {/* Selected Gift Summary & Note Composer Panel (Sticky Bottom) */}
               {selectedGift && (
-                <div className="p-3 sm:p-4 border-t border-white/10 bg-[#111827] space-y-2.5 shrink-0">
+                <div className="p-3 sm:p-4 border-t border-base-300/80 bg-base-100/95 backdrop-blur-md space-y-2.5 shrink-0">
                   <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                     {/* Left: Thumbnail & Gift Details */}
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#151F32] border border-white/10 flex items-center justify-center p-1.5 shadow-md shrink-0 overflow-hidden">
+                      <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-base-200 border border-base-300 flex items-center justify-center p-1.5 shadow-xs shrink-0 overflow-hidden">
                         <GiftArtwork
                           gift={selectedGift}
                           className="w-full h-full"
@@ -791,11 +801,11 @@ const GiftMarketplaceModal = ({
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-extrabold text-sm sm:text-base text-white truncate">
+                          <span className="font-extrabold text-sm sm:text-base text-base-content truncate">
                             {selectedGift.name}
                           </span>
                           <span
-                            className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${selectedCategoryTheme.border} ${selectedCategoryTheme.text} bg-white/5`}
+                            className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${selectedCategoryTheme.border} ${selectedCategoryTheme.text} bg-base-200/60`}
                           >
                             {selectedGift.category}
                           </span>
@@ -804,7 +814,7 @@ const GiftMarketplaceModal = ({
                           >
                             {selectedGift.rarity || "COMMON"}
                           </span>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500 border border-amber-500/30 flex items-center gap-1">
                             <Coins className="size-3 text-amber-500" />
                             {targetGiftPrice} Coins
                           </span>
@@ -817,8 +827,8 @@ const GiftMarketplaceModal = ({
                             }
                             className={`btn btn-xs rounded-lg gap-1 font-semibold text-[10px] ${
                               isPreviewAnimating
-                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                                : "bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10"
+                                ? "bg-amber-500/20 text-amber-500 border border-amber-500/40"
+                                : "bg-base-200 text-base-content/80 border border-base-300 hover:bg-base-300"
                             }`}
                             title="Toggle animation preview"
                           >
@@ -836,7 +846,7 @@ const GiftMarketplaceModal = ({
                           <button
                             type="button"
                             onClick={() => setShowPreviewModal(true)}
-                            className="btn btn-xs rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/30 font-semibold text-[10px] hover:bg-sky-500/20"
+                            className="btn btn-xs rounded-lg bg-primary/10 text-primary border border-primary/30 font-semibold text-[10px] hover:bg-primary/20"
                           >
                             Enlarge
                           </button>
@@ -848,7 +858,7 @@ const GiftMarketplaceModal = ({
                               onClick={() =>
                                 setIsAdminEditingPrice(!isAdminEditingPrice)
                               }
-                              className="btn btn-ghost btn-xs text-amber-400 gap-1 font-semibold text-[10px]"
+                              className="btn btn-ghost btn-xs text-amber-500 gap-1 font-semibold text-[10px]"
                               title="Admin: modify gift coin price live"
                             >
                               <Edit3 className="size-3" />
@@ -860,7 +870,7 @@ const GiftMarketplaceModal = ({
                         {/* Admin inline price editor */}
                         {isAdmin && isAdminEditingPrice && (
                           <div className="flex items-center gap-1.5 mt-1.5">
-                            <span className="text-[10px] font-bold text-amber-400">
+                            <span className="text-[10px] font-bold text-amber-500">
                               New Price:
                             </span>
                             <input
@@ -870,7 +880,7 @@ const GiftMarketplaceModal = ({
                               onChange={(e) =>
                                 setAdminPriceInput(e.target.value)
                               }
-                              className="w-20 px-2 py-0.5 rounded bg-[#151F32] border border-white/20 text-xs text-white"
+                              className="w-20 px-2 py-0.5 rounded bg-base-100 border border-base-300 text-xs text-base-content"
                             />
                             <button
                               type="button"
@@ -882,7 +892,7 @@ const GiftMarketplaceModal = ({
                           </div>
                         )}
 
-                        <p className="text-xs text-slate-400 truncate mt-0.5">
+                        <p className="text-xs text-base-content/60 truncate mt-0.5">
                           {selectedGift.description ||
                             "A wonderful token of celebration."}
                         </p>
@@ -892,14 +902,14 @@ const GiftMarketplaceModal = ({
                     {/* Right: Balance After & Send Action */}
                     <div className="flex items-center justify-between md:justify-end gap-3 shrink-0">
                       <div className="text-left md:text-right">
-                        <div className="text-[10px] text-slate-400 font-medium">
+                        <div className="text-[10px] text-base-content/60 font-medium">
                           Balance after:
                         </div>
                         <div
                           className={`text-xs font-bold ${
                             hasEnoughCoins
-                              ? "text-emerald-400"
-                              : "text-rose-400"
+                              ? "text-emerald-500"
+                              : "text-rose-500"
                           }`}
                         >
                           {hasEnoughCoins
@@ -912,7 +922,7 @@ const GiftMarketplaceModal = ({
                         <button
                           type="button"
                           onClick={onClose}
-                          className="btn btn-ghost btn-xs sm:btn-sm rounded-xl text-xs text-slate-400 hover:text-white"
+                          className="btn btn-ghost btn-xs sm:btn-sm rounded-xl text-xs text-base-content/60 hover:text-base-content"
                         >
                           Cancel
                         </button>
@@ -921,7 +931,7 @@ const GiftMarketplaceModal = ({
                           whileTap={{ scale: 0.95 }}
                           disabled={sending || !hasEnoughCoins}
                           onClick={handleSend}
-                          className={`btn btn-primary btn-xs sm:btn-sm rounded-xl px-5 text-xs font-bold gap-1.5 shadow-lg shadow-sky-500/25 ${
+                          className={`btn btn-primary btn-xs sm:btn-sm rounded-xl px-5 text-xs font-bold text-primary-content gap-1.5 shadow-md shadow-primary/25 cursor-pointer ${
                             !hasEnoughCoins ? "btn-disabled opacity-50" : ""
                           }`}
                         >
@@ -952,15 +962,15 @@ const GiftMarketplaceModal = ({
                         }
                       }}
                       placeholder={`Add a warm personal greeting or note to ${recipientName} (optional)...`}
-                      className="w-full px-3.5 py-1.5 sm:py-2 rounded-xl text-xs bg-[#151F32] border border-white/10 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-500 pr-14"
+                      className="w-full px-3.5 py-1.5 sm:py-2 rounded-xl text-xs bg-base-200/60 border border-base-300/80 text-base-content placeholder:text-base-content/40 focus:bg-base-100 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 pr-14"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-base-content/40 font-mono">
                       {note.length}/160
                     </span>
                   </div>
 
                   {!hasEnoughCoins && (
-                    <div className="text-xs text-rose-400 font-medium flex items-center justify-between">
+                    <div className="text-xs text-rose-500 font-medium flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <AlertCircle className="size-4 shrink-0" />
                         <span>
@@ -986,21 +996,21 @@ const GiftMarketplaceModal = ({
 
           {/* TAB 2: FAVORITES */}
           {activeTab === "favorites" && (
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-base-100">
               <div className="flex items-center justify-between mb-4">
-                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <h4 className="text-sm font-bold text-base-content flex items-center gap-1.5">
                   <Heart className="size-4 fill-rose-500 text-rose-500" />
                   Your Favorited Gifts ({favorites.length})
                 </h4>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-base-content/60">
                   Tap any gift to select and send
                 </span>
               </div>
 
               {favorites.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-12 text-center text-xs text-slate-400 border border-white/10 rounded-3xl bg-[#111827]/40 gap-2">
+                <div className="flex flex-col items-center justify-center p-12 text-center text-xs text-base-content/60 border border-base-300 rounded-3xl bg-base-200/40 gap-2">
                   <Heart className="size-12 text-rose-500/40" />
-                  <p className="text-sm font-bold text-white">
+                  <p className="text-sm font-bold text-base-content">
                     No favorites yet
                   </p>
                   <p>
@@ -1029,8 +1039,8 @@ const GiftMarketplaceModal = ({
                         onClick={() => setSelectedGift(gift)}
                         className={`group relative flex flex-col justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                           isSelected
-                            ? "ring-2 ring-sky-400 border-sky-400 bg-sky-500/10 shadow-lg"
-                            : "border-white/10 hover:border-sky-500/40 bg-[#151F32]/80 hover:bg-[#1A263D]"
+                            ? "ring-2 ring-primary border-primary bg-primary/10 shadow-md"
+                            : "border-base-300/80 hover:border-primary/40 bg-base-200/40 hover:bg-base-200/90"
                         }`}
                       >
                         <div className="w-full flex justify-end">
@@ -1040,14 +1050,14 @@ const GiftMarketplaceModal = ({
                               e.stopPropagation();
                               toggleFavorite(gift);
                             }}
-                            className="p-1 rounded-full hover:bg-white/10 transition-colors"
+                            className="p-1 rounded-full hover:bg-base-300 transition-colors"
                             title="Remove from favorites"
                           >
                             <Heart className="size-3.5 fill-rose-500 text-rose-500" />
                           </button>
                         </div>
 
-                        <div className="h-28 sm:h-32 w-full flex items-center justify-center my-1">
+                        <div className="h-28 sm:h-32 w-full flex items-center justify-center my-1 bg-base-100 rounded-xl border border-base-300/50">
                           <GiftArtwork
                             gift={gift}
                             className="w-full h-full"
@@ -1055,11 +1065,11 @@ const GiftMarketplaceModal = ({
                           />
                         </div>
 
-                        <span className="text-xs font-bold text-slate-100 truncate w-full text-center">
+                        <span className="text-xs font-bold text-base-content truncate w-full text-center">
                           {gift.name}
                         </span>
 
-                        <div className="mt-1.5 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-400 mx-auto">
+                        <div className="mt-1.5 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-500 mx-auto">
                           <Coins className="size-3 text-amber-500" />
                           <span>{gift.coinPrice}</span>
                         </div>
@@ -1073,21 +1083,21 @@ const GiftMarketplaceModal = ({
 
           {/* TAB 3: MY WALLET & TRANSACTIONS */}
           {activeTab === "wallet" && (
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-base-100">
               {/* Balance Card */}
-              <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-purple-500/20 border border-amber-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-primary/15 border border-amber-500/30 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <div className="text-xs uppercase font-black tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <div className="text-xs uppercase font-black tracking-wider text-amber-500 flex items-center gap-1.5">
                     <Coins className="size-4" />
                     Available Coin Balance
                   </div>
-                  <div className="text-3xl sm:text-4xl font-black mt-1 text-white">
+                  <div className="text-3xl sm:text-4xl font-black mt-1 text-base-content">
                     {currentBalance.toLocaleString()}{" "}
-                    <span className="text-lg font-bold text-amber-400/80">
+                    <span className="text-lg font-bold text-amber-500/80">
                       Coins
                     </span>
                   </div>
-                  <div className="text-xs text-slate-400 mt-1 flex items-center gap-3">
+                  <div className="text-xs text-base-content/60 mt-1 flex items-center gap-3">
                     <span>Total Spent: {wallet?.totalSpent || 0} 🪙</span>
                     <span>•</span>
                     <span>Total Received: {wallet?.totalReceived || 0} 🪙</span>
@@ -1112,7 +1122,7 @@ const GiftMarketplaceModal = ({
                   </button>
                   {!wallet?.canClaimDailyBonus &&
                     wallet?.nextClaimAvailableAt && (
-                      <span className="text-[10px] text-slate-500 text-center">
+                      <span className="text-[10px] text-base-content/50 text-center">
                         Next claim available in 24h
                       </span>
                     )}
@@ -1121,13 +1131,13 @@ const GiftMarketplaceModal = ({
 
               {/* Transactions History Header */}
               <div className="pt-2">
-                <h4 className="text-sm font-bold text-white mb-2.5 flex items-center gap-1.5">
-                  <History className="size-4 text-sky-400" />
+                <h4 className="text-sm font-bold text-base-content mb-2.5 flex items-center gap-1.5">
+                  <History className="size-4 text-primary" />
                   Recent Coin Transactions
                 </h4>
 
                 {transactions.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-slate-400 border border-white/10 rounded-2xl bg-[#111827]/40">
+                  <div className="p-8 text-center text-xs text-base-content/60 border border-base-300 rounded-2xl bg-base-200/40">
                     No transactions recorded yet.
                   </div>
                 ) : (
@@ -1135,15 +1145,15 @@ const GiftMarketplaceModal = ({
                     {transactions.map((t) => (
                       <div
                         key={t.id || t._id}
-                        className="flex items-center justify-between p-3.5 rounded-2xl border border-white/10 bg-[#151F32]/80 text-xs"
+                        className="flex items-center justify-between p-3.5 rounded-2xl border border-base-300 bg-base-200/50 text-xs text-base-content"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-2xl">{t.giftIcon || "🪙"}</span>
                           <div>
-                            <div className="font-bold text-white capitalize">
+                            <div className="font-bold text-base-content capitalize">
                               {t.giftName || t.type?.replace("_", " ")}
                             </div>
-                            <div className="text-[10px] text-slate-400">
+                            <div className="text-[10px] text-base-content/60">
                               {new Date(t.createdAt).toLocaleString()}
                             </div>
                           </div>
@@ -1153,8 +1163,8 @@ const GiftMarketplaceModal = ({
                           <span
                             className={`font-black text-sm ${
                               t.type === "gift_sent"
-                                ? "text-rose-400"
-                                : "text-emerald-400"
+                                ? "text-rose-500"
+                                : "text-emerald-500"
                             }`}
                           >
                             {t.type === "gift_sent"
@@ -1162,7 +1172,7 @@ const GiftMarketplaceModal = ({
                               : `+${t.amount}`}{" "}
                             🪙
                           </span>
-                          <div className="text-[10px] text-slate-500">
+                          <div className="text-[10px] text-base-content/50">
                             Bal: {t.balanceAfter}
                           </div>
                         </div>
@@ -1176,13 +1186,13 @@ const GiftMarketplaceModal = ({
 
           {/* TAB 4: SENT GIFTS HISTORY */}
           {activeTab === "sent" && (
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-              <h4 className="text-sm font-bold text-white mb-3.5 flex items-center gap-1.5">
-                <Send className="size-4 text-sky-400" />
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-base-100">
+              <h4 className="text-sm font-bold text-base-content mb-3.5 flex items-center gap-1.5">
+                <Send className="size-4 text-primary" />
                 Gifts You Have Sent
               </h4>
               {sentHistory.length === 0 ? (
-                <div className="p-10 text-center text-xs text-slate-400 border border-white/10 rounded-2xl bg-[#111827]/40">
+                <div className="p-10 text-center text-xs text-base-content/60 border border-base-300 rounded-2xl bg-base-200/40">
                   You haven't sent any gifts yet. Browse the store to send your
                   first gift!
                 </div>
@@ -1191,9 +1201,9 @@ const GiftMarketplaceModal = ({
                   {sentHistory.map((item) => (
                     <div
                       key={item.id || item._id}
-                      className="p-3.5 rounded-2xl border border-white/10 bg-[#151F32]/80 flex items-center gap-3 text-xs"
+                      className="p-3.5 rounded-2xl border border-base-300 bg-base-200/50 flex items-center gap-3 text-xs"
                     >
-                      <div className="w-14 h-14 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-center p-1 shrink-0">
+                      <div className="w-14 h-14 rounded-xl bg-base-100 border border-base-300 flex items-center justify-center p-1 shrink-0">
                         <GiftArtwork
                           gift={item.gift}
                           className="w-full h-full"
@@ -1202,17 +1212,17 @@ const GiftMarketplaceModal = ({
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-bold text-white truncate">
+                        <div className="font-bold text-base-content truncate">
                           {item.gift?.name || "Gift"}
                         </div>
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-[11px] text-base-content/60">
                           Sent to:{" "}
-                          <span className="font-semibold text-slate-200">
+                          <span className="font-semibold text-base-content">
                             {item.recipient?.fullName || "Friend"}
                           </span>
                         </div>
                         {item.personalMessage && (
-                          <div className="text-[10px] italic text-slate-400 truncate mt-0.5">
+                          <div className="text-[10px] italic text-base-content/60 truncate mt-0.5">
                             "{item.personalMessage}"
                           </div>
                         )}
@@ -1226,13 +1236,13 @@ const GiftMarketplaceModal = ({
 
           {/* TAB 5: RECEIVED GIFTS HISTORY */}
           {activeTab === "received" && (
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-              <h4 className="text-sm font-bold text-white mb-3.5 flex items-center gap-1.5">
-                <Gift className="size-4 text-sky-400" />
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-base-100">
+              <h4 className="text-sm font-bold text-base-content mb-3.5 flex items-center gap-1.5">
+                <Gift className="size-4 text-primary" />
                 Gifts You Have Received
               </h4>
               {receivedHistory.length === 0 ? (
-                <div className="p-10 text-center text-xs text-slate-400 border border-white/10 rounded-2xl bg-[#111827]/40">
+                <div className="p-10 text-center text-xs text-base-content/60 border border-base-300 rounded-2xl bg-base-200/40">
                   No gifts received yet. Your friends can surprise you with
                   gifts from the store!
                 </div>
@@ -1241,9 +1251,9 @@ const GiftMarketplaceModal = ({
                   {receivedHistory.map((item) => (
                     <div
                       key={item.id || item._id}
-                      className="p-3.5 rounded-2xl border border-white/10 bg-[#151F32]/80 flex items-center gap-3 text-xs"
+                      className="p-3.5 rounded-2xl border border-base-300 bg-base-200/50 flex items-center gap-3 text-xs"
                     >
-                      <div className="w-14 h-14 rounded-xl bg-slate-900/60 border border-white/10 flex items-center justify-center p-1 shrink-0">
+                      <div className="w-14 h-14 rounded-xl bg-base-100 border border-base-300 flex items-center justify-center p-1 shrink-0">
                         <GiftArtwork
                           gift={item.gift}
                           className="w-full h-full"
@@ -1252,17 +1262,17 @@ const GiftMarketplaceModal = ({
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-bold text-white truncate">
+                        <div className="font-bold text-base-content truncate">
                           {item.gift?.name || "Gift"}
                         </div>
-                        <div className="text-[11px] text-slate-400">
+                        <div className="text-[11px] text-base-content/60">
                           From:{" "}
-                          <span className="font-semibold text-slate-200">
+                          <span className="font-semibold text-base-content">
                             {item.sender?.fullName || "A Friend"}
                           </span>
                         </div>
                         {item.personalMessage && (
-                          <div className="text-[10px] italic text-slate-400 truncate mt-0.5">
+                          <div className="text-[10px] italic text-base-content/60 truncate mt-0.5">
                             "{item.personalMessage}"
                           </div>
                         )}
@@ -1279,24 +1289,24 @@ const GiftMarketplaceModal = ({
         {showPreviewModal && selectedGift && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div
-              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-sm"
               onClick={() => setShowPreviewModal(false)}
             />
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative z-10 w-full max-w-sm rounded-3xl bg-[#111827] border border-white/15 p-6 shadow-2xl text-center flex flex-col items-center"
+              className="relative z-10 w-full max-w-sm rounded-3xl bg-base-100 border border-base-300 p-6 shadow-2xl text-center flex flex-col items-center text-base-content"
             >
               <button
                 type="button"
                 onClick={() => setShowPreviewModal(false)}
-                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white"
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-base-200 text-base-content/60 hover:text-base-content transition-colors cursor-pointer"
               >
                 <X className="size-4" />
               </button>
 
-              <div className="w-44 h-44 rounded-3xl bg-[#151F32] border border-white/10 p-4 flex items-center justify-center relative overflow-hidden my-2">
+              <div className="w-44 h-44 rounded-3xl bg-base-200 border border-base-300 p-4 flex items-center justify-center relative overflow-hidden my-2 shadow-inner">
                 <GiftArtwork
                   gift={selectedGift}
                   className="w-full h-full"
@@ -1305,13 +1315,13 @@ const GiftMarketplaceModal = ({
                 />
               </div>
 
-              <h3 className="text-xl font-black text-white mt-2">
+              <h3 className="text-xl font-black text-base-content mt-2">
                 {selectedGift.name}
               </h3>
 
               <div className="flex items-center gap-2 mt-1.5">
                 <span
-                  className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${selectedCategoryTheme.border} ${selectedCategoryTheme.text} bg-white/5`}
+                  className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${selectedCategoryTheme.border} ${selectedCategoryTheme.text} bg-base-200/60`}
                 >
                   {selectedGift.category}
                 </span>
@@ -1322,12 +1332,12 @@ const GiftMarketplaceModal = ({
                 </span>
               </div>
 
-              <p className="text-xs text-slate-400 mt-2 px-2">
+              <p className="text-xs text-base-content/60 mt-2 px-2">
                 {selectedGift.description ||
                   "A wonderful token of celebration."}
               </p>
 
-              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 font-black text-sm">
+              <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-500 font-black text-sm">
                 <Coins className="size-4" />
                 <span>{selectedGift.coinPrice} Coins</span>
               </div>
@@ -1336,7 +1346,7 @@ const GiftMarketplaceModal = ({
                 <button
                   type="button"
                   onClick={() => setShowPreviewModal(false)}
-                  className="btn btn-sm btn-ghost flex-1 rounded-xl text-slate-400"
+                  className="btn btn-sm btn-ghost flex-1 rounded-xl text-base-content/70 hover:bg-base-200"
                 >
                   Back
                 </button>
@@ -1344,7 +1354,7 @@ const GiftMarketplaceModal = ({
                   type="button"
                   disabled={!hasEnoughCoins || sending}
                   onClick={handleSend}
-                  className="btn btn-sm btn-primary flex-1 rounded-xl font-bold gap-1 shadow-md"
+                  className="btn btn-sm btn-primary flex-1 rounded-xl font-bold gap-1 shadow-md text-primary-content"
                 >
                   <Send className="size-3.5" />
                   Send Now

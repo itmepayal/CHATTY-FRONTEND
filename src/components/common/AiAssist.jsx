@@ -9,6 +9,12 @@ import {
   SpellCheck,
   Wand2,
   X,
+  Minimize2,
+  Maximize2,
+  Smile,
+  Briefcase,
+  MessageSquarePlus,
+  Edit3,
 } from "lucide-react";
 import { customToast } from "../toast";
 import { AI_TONES, useAiStore } from "../../store/useAiStore";
@@ -28,12 +34,18 @@ const ACTION_ICON = {
   correct: SpellCheck,
   hinglish: Languages,
   rewrite: Wand2,
+  shorter: Minimize2,
+  expand: Maximize2,
+  suggest: MessageSquarePlus,
 };
 
 const LOADING_TEXT = {
-  correct: "Fixing grammar…",
-  hinglish: "Translating to English…",
-  rewrite: "Rewriting your message…",
+  correct: "Fixing grammar & spelling…",
+  hinglish: "Translating to natural English…",
+  rewrite: "Rewriting message…",
+  shorter: "Making it concise…",
+  expand: "Expanding message…",
+  suggest: "Drafting suggested reply…",
 };
 
 /* ---------- tiny word diff (for "Fix grammar") ---------- */
@@ -89,14 +101,16 @@ const ActionRow = ({ icon: Icon, title, desc, onClick, disabled }) => (
     role="menuitem"
     onClick={onClick}
     disabled={disabled}
-    className="group w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-base-200 focus-visible:bg-base-200 outline-none disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+    className="group w-full flex items-center gap-3 rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-base-200 focus-visible:bg-base-200 outline-none disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
   >
-    <span className="size-9 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center transition-transform group-hover:scale-105">
-      <Icon className="size-[18px]" />
+    <span className="size-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center transition-transform group-hover:scale-105">
+      <Icon className="size-4" />
     </span>
     <span className="min-w-0">
-      <span className="block text-sm font-medium leading-tight">{title}</span>
-      <span className="block text-xs text-base-content/60 leading-snug">
+      <span className="block text-xs font-semibold text-base-content leading-tight">
+        {title}
+      </span>
+      <span className="block text-[11px] text-base-content/60 leading-snug">
         {desc}
       </span>
     </span>
@@ -117,7 +131,13 @@ const IconBtn = ({ icon: Icon, label, onClick }) => (
 
 /* ---------- main component ---------- */
 
-const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
+const AiAssist = ({
+  text,
+  onApply,
+  disabled = false,
+  resetKey,
+  className = "",
+}) => {
   const {
     isLoading,
     activeAction,
@@ -129,31 +149,37 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
     reset,
   } = useAiStore();
 
-  // user settings (Settings > AI Assistant)
   const { aiEnabled, aiDefaultTone, aiShowChanges } = useSettingsStore(
     (st) => st.settings,
   );
 
   const [open, setOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(aiShowChanges);
+  const [isEditingDraft, setIsEditingDraft] = useState(false);
+  const [editableValue, setEditableValue] = useState("");
   const wrapRef = useRef(null);
-  const lastRunRef = useRef(null); // remembers last action so "Regenerate" works
+  const lastRunRef = useRef(null);
 
-  const hasText = text.trim().length > 0;
+  const hasText = text?.trim()?.length > 0;
 
-  // keep the "Show changes" chip in sync with the setting
   useEffect(() => {
     setShowDiff(aiShowChanges);
   }, [aiShowChanges]);
 
-  // default tone first in the list
-  const tones = useMemo(
-    () =>
-      AI_TONES.includes(aiDefaultTone)
-        ? [aiDefaultTone, ...AI_TONES.filter((t) => t !== aiDefaultTone)]
-        : AI_TONES,
-    [aiDefaultTone],
-  );
+  // When result arrives, initialize editable draft
+  useEffect(() => {
+    if (result?.value) {
+      setEditableValue(result.value);
+      setIsEditingDraft(false);
+    }
+  }, [result]);
+
+  const tones = useMemo(() => {
+    const list = ["professional", "friendly", "casual", "formal", "persuasive"];
+    return AI_TONES.includes(aiDefaultTone)
+      ? [aiDefaultTone, ...list.filter((t) => t !== aiDefaultTone)]
+      : list;
+  }, [aiDefaultTone]);
 
   useEffect(() => {
     setOpen(false);
@@ -161,7 +187,7 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
     return () => reset();
   }, [resetKey, reset]);
 
-  // close menu on outside click / Escape
+  // Close menu on outside click / Escape
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
@@ -196,15 +222,16 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
   };
 
   const apply = () => {
-    if (!result) return;
-    onApply(result.value.slice(0, 2000));
+    if (!editableValue) return;
+    onApply(editableValue.slice(0, 2000));
     clearResult();
+    customToast.success("Draft applied to composer");
   };
 
   const copyResult = async () => {
     try {
-      await navigator.clipboard.writeText(result.value);
-      customToast.success("Copied");
+      await navigator.clipboard.writeText(editableValue);
+      customToast.success("Copied to clipboard");
     } catch {
       customToast.error("Couldn't copy");
     }
@@ -219,94 +246,113 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
   const ResultIcon = ACTION_ICON[result?.action] || Sparkles;
   const showResult = Boolean(result) && !isLoading && !open;
 
-  // AI turned off in Settings -> hide everything (must stay after all hooks)
   if (!aiEnabled) return null;
 
   return (
-    <div ref={wrapRef} className="contents">
-      {/* Trigger */}
+    <div ref={wrapRef} className="relative inline-flex items-center">
+      {/* Trigger Button */}
       <button
         type="button"
-        className={`btn btn-sm btn-circle border-0 transition-all ${
+        className={`btn btn-sm btn-circle transition-all ${
           open || isLoading
-            ? "bg-gradient-to-br from-primary to-secondary text-primary-content shadow-md"
+            ? "bg-primary text-primary-content shadow-sm"
             : hasText
               ? "btn-ghost text-primary hover:bg-primary/10"
-              : "btn-ghost text-base-content/60"
-        }`}
+              : "btn-ghost text-base-content/60 hover:text-primary hover:bg-base-200"
+        } ${className}`}
         onClick={() => setOpen((v) => !v)}
         disabled={disabled || isLoading}
-        aria-label="AI assist"
+        aria-label="AI Writing Assistant"
         aria-haspopup="menu"
         aria-expanded={open}
-        title="AI assist"
+        title="AI Writing Assistant"
       >
         {isLoading ? (
-          <Loader2 className="size-5 animate-spin" />
+          <Loader2 className="size-4.5 animate-spin" />
         ) : (
-          <Sparkles className="size-5" />
+          <Sparkles className="size-4.5" />
         )}
       </button>
 
-      {/* Menu */}
+      {/* AI Assistant Context Menu */}
       {open && (
         <div
           role="menu"
-          className="absolute bottom-full left-0 mb-2 z-40 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-2xl"
+          className="absolute bottom-full right-0 mb-3 z-40 w-72 sm:w-80 overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl p-2.5 animate-fade-in"
         >
-          <div className="flex items-center gap-2.5 border-b border-base-300 bg-gradient-to-r from-primary/10 to-secondary/10 px-4 py-3">
-            <span className="size-8 rounded-xl bg-gradient-to-br from-primary to-secondary text-primary-content flex items-center justify-center shadow-sm">
-              <Sparkles className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold leading-tight">AI Assist</p>
-              <p className="text-[11px] leading-tight text-base-content/60">
-                {hasText
-                  ? "Improve your message before sending"
-                  : "Type a message first to use AI"}
-              </p>
+          {/* Header */}
+          <div className="flex items-center justify-between p-2 border-b border-base-300/60 mb-1">
+            <div className="flex items-center gap-2">
+              <span className="size-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <Sparkles className="size-4" />
+              </span>
+              <div>
+                <p className="text-xs font-bold text-base-content leading-tight">
+                  AI Writing Assistant
+                </p>
+                <p className="text-[10px] text-base-content/60 leading-tight">
+                  {hasText ? "Enhance, polish or translate draft" : "Type a draft to enhance"}
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setOpen(false)}
+              className="p-1 rounded-lg hover:bg-base-200 text-base-content/50"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
 
-          <div className="p-2">
+          {/* Quick Actions */}
+          <div className="space-y-0.5">
             <ActionRow
               icon={SpellCheck}
-              title="Fix grammar"
-              desc="Correct spelling, grammar & punctuation"
+              title="Fix Grammar & Spelling"
+              desc="Correct typos, punctuation and grammar"
               disabled={!hasText}
               onClick={() => run(() => correctEnglish(text))}
             />
             <ActionRow
+              icon={Minimize2}
+              title="Make it Shorter"
+              desc="Remove filler words and make it concise"
+              disabled={!hasText}
+              onClick={() => run(() => rewriteText(text, "shorter"))}
+            />
+            <ActionRow
+              icon={Maximize2}
+              title="Expand Message"
+              desc="Add clear context and reasoning"
+              disabled={!hasText}
+              onClick={() => run(() => rewriteText(text, "expand"))}
+            />
+            <ActionRow
               icon={Languages}
-              title="Hinglish → English"
-              desc="Turn Hinglish into natural English"
+              title="Translate to English"
+              desc="Turn Hinglish/regional notes into clear English"
               disabled={!hasText}
               onClick={() => run(() => hinglishToEnglish(text))}
             />
           </div>
 
-          <div className="border-t border-base-300 px-4 pb-3 pt-3">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-              Rewrite in a tone
+          {/* Tone Selector */}
+          <div className="border-t border-base-300/60 pt-2.5 mt-1.5 px-1">
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-base-content/50">
+              Rewrite Tone
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {tones.map((tone, i) => {
+            <div className="flex flex-wrap gap-1">
+              {tones.map((tone) => {
                 const meta = TONE_META[tone] || { emoji: "✨", label: tone };
                 return (
                   <button
                     key={tone}
                     type="button"
                     disabled={!hasText}
-                    title={i === 0 ? "Your default tone" : undefined}
                     onClick={() => run(() => rewriteText(text, tone))}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary disabled:opacity-40 disabled:hover:border-base-300 disabled:hover:bg-base-100 disabled:hover:text-inherit disabled:cursor-not-allowed ${
-                      i === 0
-                        ? "border-primary/60 bg-primary/5 text-primary"
-                        : "border-base-300 bg-base-100"
-                    }`}
+                    className="inline-flex items-center gap-1 rounded-xl border border-base-300 px-2.5 py-1 text-xs font-medium bg-base-200/50 hover:border-primary hover:bg-primary/10 hover:text-primary transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <span aria-hidden="true">{meta.emoji}</span>
-                    {meta.label}
+                    <span>{meta.emoji}</span>
+                    <span>{meta.label}</span>
                   </button>
                 );
               })}
@@ -315,126 +361,131 @@ const AiAssist = ({ text, onApply, disabled = false, resetKey }) => {
         </div>
       )}
 
-      {/* Loading skeleton */}
+      {/* Loading Banner */}
       {isLoading && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 z-40 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
-          <div className="flex items-center gap-2 border-b border-base-300 bg-gradient-to-r from-primary/10 to-secondary/10 px-4 py-2.5">
-            <Sparkles className="size-4 animate-pulse text-primary" />
-            <p className="text-xs font-medium text-base-content/70">
-              {LOADING_TEXT[activeAction] || "Working on it…"}
-            </p>
+        <div className="absolute bottom-full right-0 mb-3 z-40 w-72 sm:w-80 overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl p-4 animate-fade-in">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="size-4 animate-spin text-primary" />
+            <span className="text-xs font-bold text-base-content">
+              {LOADING_TEXT[activeAction] || "Polishing message…"}
+            </span>
           </div>
-          <div className="animate-pulse space-y-2 px-4 py-3">
-            <div className="h-3 w-11/12 rounded bg-base-300" />
-            <div className="h-3 w-9/12 rounded bg-base-300" />
-            <div className="h-3 w-6/12 rounded bg-base-300" />
+          <div className="space-y-1.5 animate-pulse">
+            <div className="h-3 w-10/12 rounded-lg bg-base-300" />
+            <div className="h-3 w-8/12 rounded-lg bg-base-300" />
           </div>
         </div>
       )}
 
-      {/* Result card */}
+      {/* Editable Draft Result Card */}
       {showResult && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 z-40 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
-          {/* header */}
-          <div className="flex items-center justify-between gap-2 border-b border-base-300 bg-gradient-to-r from-primary/10 to-secondary/10 px-4 py-2.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="size-6 shrink-0 rounded-lg bg-gradient-to-br from-primary to-secondary text-primary-content flex items-center justify-center">
+        <div className="absolute bottom-full right-0 mb-3 z-40 w-80 sm:w-96 overflow-hidden rounded-3xl border border-base-300 bg-base-100 shadow-2xl animate-fade-in">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-2 border-b border-base-300/80 bg-base-200/50 px-3.5 py-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="size-6 shrink-0 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
                 <ResultIcon className="size-3.5" />
               </span>
-              <p className="truncate text-sm font-semibold">{result.label}</p>
+              <p className="truncate text-xs font-bold text-base-content">
+                {result.label}
+              </p>
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
               {diff && (
                 <button
                   type="button"
                   onClick={() => setShowDiff((v) => !v)}
-                  className={`mr-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors ${
                     showDiff
-                      ? "bg-primary/15 text-primary"
+                      ? "bg-primary/20 text-primary border border-primary/30"
                       : "bg-base-200 text-base-content/60 hover:text-base-content"
                   }`}
                 >
-                  Show changes
+                  {showDiff ? "Hide Changes" : "Show Changes"}
                 </button>
               )}
               <IconBtn icon={X} label="Dismiss" onClick={clearResult} />
             </div>
           </div>
 
-          {/* body */}
-          <div className="max-h-52 overflow-y-auto px-4 py-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
-              {diff && showDiff
-                ? diff.map((part, i) =>
-                    part.type === "same" ? (
-                      <span key={i}>{part.text}</span>
-                    ) : part.type === "add" ? (
-                      <span
-                        key={i}
-                        className="rounded bg-success/20 px-0.5 font-medium text-success"
-                      >
-                        {part.text}
-                      </span>
-                    ) : (
-                      <span
-                        key={i}
-                        className="rounded bg-error/15 px-0.5 text-error line-through decoration-error/60"
-                      >
-                        {part.text}
-                      </span>
-                    ),
-                  )
-                : result.value}
-            </p>
-
-            {result.changes.length > 0 && (
-              <details className="group mt-3 rounded-xl bg-base-200/60 px-3 py-2">
-                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-base-content/70">
-                  <span>
-                    {result.changes.length}{" "}
-                    {result.changes.length === 1 ? "fix" : "fixes"} made
-                  </span>
-                  <span className="text-[10px] text-base-content/50 group-open:hidden">
-                    View
-                  </span>
-                  <span className="hidden text-[10px] text-base-content/50 group-open:inline">
-                    Hide
-                  </span>
-                </summary>
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-base-content/70">
-                  {result.changes.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              </details>
+          {/* Editable Draft Body */}
+          <div className="p-3 max-h-56 overflow-y-auto scrollbar-thin">
+            {isEditingDraft ? (
+              <textarea
+                value={editableValue}
+                onChange={(e) => setEditableValue(e.target.value)}
+                rows={3}
+                className="w-full p-2 text-xs rounded-xl bg-base-200 border border-base-300 text-base-content focus:outline-none focus:border-primary resize-none"
+                placeholder="Edit AI draft before applying..."
+              />
+            ) : diff && showDiff ? (
+              <div className="p-2 rounded-xl bg-base-200/40 text-xs leading-relaxed">
+                {diff.map((part, i) =>
+                  part.type === "same" ? (
+                    <span key={i}>{part.text}</span>
+                  ) : part.type === "add" ? (
+                    <span
+                      key={i}
+                      className="rounded bg-success/20 text-success font-medium px-0.5"
+                    >
+                      {part.text}
+                    </span>
+                  ) : (
+                    <span
+                      key={i}
+                      className="rounded bg-error/15 text-error line-through px-0.5"
+                    >
+                      {part.text}
+                    </span>
+                  ),
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={() => setIsEditingDraft(true)}
+                title="Click to edit before applying"
+                className="p-2 rounded-xl bg-base-200/40 text-xs leading-relaxed text-base-content hover:bg-base-200/70 transition-colors cursor-pointer border border-transparent hover:border-base-300"
+              >
+                {editableValue}
+              </div>
             )}
+
+            <div className="flex items-center justify-between mt-2 text-[10px] text-base-content/50">
+              <span className="flex items-center gap-1">
+                <Edit3 className="size-3 text-primary" />
+                <span>Editable suggestion · not sent automatically</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsEditingDraft(!isEditingDraft)}
+                className="text-primary hover:underline font-semibold"
+              >
+                {isEditingDraft ? "Done Editing" : "Edit Text"}
+              </button>
+            </div>
           </div>
 
-          {/* footer */}
-          <div className="flex items-center justify-between gap-2 border-t border-base-300 bg-base-200/40 px-3 py-2">
-            <div className="flex items-center">
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between gap-2 border-t border-base-300 px-3 py-2 bg-base-200/40">
+            <div className="flex items-center gap-1">
               <IconBtn icon={Copy} label="Copy" onClick={copyResult} />
-              <IconBtn
-                icon={RefreshCw}
-                label="Try again"
-                onClick={regenerate}
-              />
+              <IconBtn icon={RefreshCw} label="Try again" onClick={regenerate} />
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="btn btn-ghost btn-xs"
+                className="btn btn-ghost btn-xs rounded-xl"
                 onClick={clearResult}
               >
-                Dismiss
+                Discard
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-xs gap-1"
+                className="btn btn-primary btn-xs rounded-xl font-bold gap-1 shadow-2xs"
                 onClick={apply}
               >
                 <Check className="size-3.5" />
-                Use this
+                Apply to Message
               </button>
             </div>
           </div>

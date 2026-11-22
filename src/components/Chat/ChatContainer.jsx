@@ -84,6 +84,7 @@ import { whenE2EEReady } from "../../lib/e2ee.js";
 import { displayText } from "../../lib/e2eeMessages.js";
 import ChatHeader from "./Common/ChatHeader";
 import MessageSkeleton from "../Skeleton/MessageSkeleton";
+import MessageComposer from "./Common/MessageComposer.jsx";
 import AiAssist from "../common/AiAssist.jsx";
 import E2EENotice from "../common/E2EENotice.jsx";
 import ExpandableMessage from "../common/ExpandableMessage.jsx";
@@ -123,6 +124,9 @@ import ViewOnceMediaModal from "./viewOnce/ViewOnceMediaModal.jsx";
 import GiftPickerModal from "./gift/GiftPickerModal.jsx";
 import GiftMessageBubble from "./gift/GiftMessageBubble.jsx";
 import StoryReplyCard from "./StoryReplyCard.jsx";
+import StickerPicker from "../stickers/StickerPicker.jsx";
+import StickerMarketplaceModal from "../stickers/StickerMarketplaceModal.jsx";
+import StickerMessageBubble from "../stickers/StickerMessageBubble.jsx";
 
 const QUICK_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "🎉", "👏"];
 
@@ -1114,6 +1118,8 @@ const ChatInput = () => {
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
   const [showGiftModal, setShowGiftModal] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [showStickerMarketplace, setShowStickerMarketplace] = useState(false);
 
   const fileRef = useRef(null);
   const imageRef = useRef(null);
@@ -1183,6 +1189,16 @@ const ChatInput = () => {
     }
   };
 
+  const handleTyping = () => {
+    if (!typingEnabled || isEditing) return;
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      emitTyping(true, targetId);
+    }
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(stopTyping, 2000);
+  };
+
   const handleChange = (e) => {
     const val = e.target.value;
     setText(val);
@@ -1237,7 +1253,7 @@ const ChatInput = () => {
 
   useEffect(() => {
     const el = textRef.current;
-    if (!el) return;
+    if (!el || !el.style) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [text]);
@@ -1407,458 +1423,57 @@ const ChatInput = () => {
   const canSchedule = !isEditing && !file;
 
   return (
-    <div className="relative border-t border-base-300 bg-base-100 px-3 pt-2.5 pb-[max(0.6rem,env(safe-area-inset-bottom))] sm:px-5 md:px-6 lg:px-8 sm:py-3.5">
-      {/* Reply bar */}
-      <CollapseBar show={Boolean(replyingTo) && !isEditing}>
-        <div className="mb-2 flex items-center gap-2 rounded-xl border-l-4 border-primary bg-base-200 px-3 py-1.5">
-          <Reply className="size-4 shrink-0 text-primary" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold">
-              Replying to{" "}
-              {sameId(replyingTo?.senderId, authUser?.id)
-                ? "yourself"
-                : selectedUser?.fullName}
-            </p>
-            <p className="truncate text-xs text-base-content/70">
-              {replyPreviewText(replyingTo)}
-            </p>
-          </div>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.88 }}
-            className="btn btn-ghost btn-xs btn-circle"
-            onClick={() => setReplyingTo(null)}
-            aria-label="Cancel reply"
-          >
-            <X className="size-4" />
-          </motion.button>
-        </div>
-      </CollapseBar>
-
-      {/* Edit bar */}
-      <CollapseBar show={isEditing}>
-        <div className="mb-2 flex items-center gap-2 rounded-xl border-l-4 border-warning bg-base-200 px-3 py-1.5">
-          <Pencil className="size-4 shrink-0 text-warning" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold">Editing message</p>
-            <p className="truncate text-xs text-base-content/70">
-              {editingMessage?.text}
-            </p>
-          </div>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.88 }}
-            className="btn btn-ghost btn-xs btn-circle"
-            onClick={cancelEdit}
-            aria-label="Cancel edit"
-          >
-            <X className="size-4" />
-          </motion.button>
-        </div>
-      </CollapseBar>
-
-      <AnimatePresence initial={false}>
-        {file && (
-          <motion.div
-            key="attachment-preview"
-            initial={{ opacity: 0, scale: 0.9, y: 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.12 } }}
-            transition={spring}
-            className="relative mb-2 inline-block max-w-full"
-          >
-            {fileIsImage ? (
-              preview && (
-                <img
-                  src={preview}
-                  alt="Preview"
-                  className="h-20 rounded-lg object-cover"
-                />
-              )
-            ) : (
-              <div className="flex w-64 max-w-full items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-2">
-                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                  {PreviewIcon && <PreviewIcon className="size-5" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {file.name}
-                  </span>
-                  <span className="block text-xs text-base-content/60">
-                    {formatFileSize(file.size)}
-                  </span>
-                </span>
-              </div>
-            )}
-            <motion.button
-              type="button"
-              onClick={clearFile}
-              whileTap={{ scale: 0.85 }}
-              className="absolute -right-2 -top-2 flex size-6 items-center justify-center rounded-full bg-base-300"
-              aria-label="Remove attachment"
-            >
-              <X className="size-3" />
-            </motion.button>
-
-            {/* View-Once Media Toggle */}
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setIsViewOnce((v) => !v)}
-              className={`mt-1.5 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border transition-colors ${
-                isViewOnce
-                  ? "bg-primary text-primary-content border-primary"
-                  : "bg-base-200/80 text-base-content/70 border-base-300 hover:bg-base-300"
-              }`}
-              title={isViewOnce ? "View once is ON (will be deleted after viewed)" : "Turn on View Once"}
-            >
-              <span className="flex size-4 items-center justify-center rounded-full border border-current text-[10px] font-bold">1</span>
-              <span>{isViewOnce ? "View Once Active" : "View Once"}</span>
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showEmoji && (
-          <motion.div
-            key="emoji-picker"
-            data-emoji-ui
-            initial={{ opacity: 0, scale: 0.95, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{
-              opacity: 0,
-              scale: 0.97,
-              y: 4,
-              transition: { duration: 0.1 },
-            }}
-            transition={{ duration: 0.18, ease: EASE }}
-            style={{ transformOrigin: "bottom left" }}
-            className="absolute bottom-full left-2 z-40 mb-2 max-w-[calc(100%-1rem)] sm:left-3"
-          >
-            <EmojiPicker
-              theme="auto"
-              width={Math.min(350, window.innerWidth - 24)}
-              height={Math.min(420, Math.round(window.innerHeight * 0.5))}
-              lazyLoadEmojis
-              searchPlaceHolder="Search"
-              previewConfig={{ showPreview: false }}
-              onEmojiClick={(emojiData) => {
-                setText((t) => (t + emojiData.emoji).slice(0, 2000));
-                textRef.current?.focus();
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Voice recording bar */}
-      {recorderBusy && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/5 px-2 py-2 sm:gap-3 sm:px-3"
-        >
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.88 }}
-            className="btn btn-ghost btn-sm btn-circle text-error"
-            onClick={recorder.cancel}
-            aria-label="Cancel recording"
-            title="Cancel"
-          >
-            <Trash2 className="size-5" />
-          </motion.button>
-
-          <span className="relative flex size-2.5 shrink-0">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-error opacity-60" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-error" />
-          </span>
-
-          <span className="font-mono text-sm tabular-nums">
-            {formatDuration(recorder.seconds)}
-          </span>
-
-          <Equalizer active={recorder.state === "recording"} />
-
-          <span className="min-w-0 flex-1 truncate text-xs text-base-content/50">
-            {recorder.state === "requesting"
-              ? "Waiting for microphone…"
-              : `Recording · max ${formatDuration(MAX_VOICE_SECONDS)}`}
-          </span>
-
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.88 }}
-            className="btn btn-primary btn-sm btn-circle"
-            onClick={recorder.stop}
-            disabled={recorder.state !== "recording"}
-            aria-label="Send voice message"
-            title="Send"
-          >
-            <Send className="size-4" />
-          </motion.button>
-        </div>
-      )}
-
-      {/* Video recording panel (live camera preview) */}
-      {videoBusy && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="rounded-2xl border border-primary/40 bg-primary/5 p-2"
-        >
-          <div className="relative overflow-hidden rounded-xl bg-black">
-            <video
-              ref={previewRef}
-              muted
-              autoPlay
-              playsInline
-              className="mx-auto max-h-64 w-full -scale-x-100 object-contain"
-            />
-            <span className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 font-mono text-xs text-white backdrop-blur">
-              <span className="size-2 animate-pulse rounded-full bg-error" />
-              {videoRec.state === "requesting"
-                ? "Waiting for camera…"
-                : `${formatDuration(videoRec.seconds)} / ${formatDuration(MAX_VIDEO_SECONDS)}`}
-            </span>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between">
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle text-error"
-              onClick={videoRec.cancel}
-              aria-label="Cancel video"
-              title="Cancel"
-            >
-              <Trash2 className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-primary btn-sm btn-circle"
-              onClick={videoRec.stop}
-              disabled={videoRec.state !== "recording"}
-              aria-label="Send video message"
-              title="Send"
-            >
-              <Send className="size-4" />
-            </motion.button>
-          </div>
-        </div>
-      )}
-
-      {!busy && (
-        <form
-          onSubmit={handleSend}
-          onDragEnter={handleDragEnter}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`relative flex flex-wrap items-end gap-1.5 rounded-2xl border px-2 py-1.5 transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary sm:flex-nowrap sm:items-center sm:gap-2 sm:px-3 sm:py-2 ${
-            isDragging
-              ? "border-dashed border-primary bg-primary/10"
-              : "border-base-300"
-          }`}
-        >
-          <AnimatePresence>
-            {isDragging && (
-              <motion.div
-                key="drop-overlay"
-                {...fade}
-                className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-base-100/85 text-sm font-medium text-primary"
-              >
-                Drop file to attach
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Tools: image / file / video / emoji / AI.
-              Phones: hidden behind the "+" button, shown as their own row.
-              sm and up: inline. */}
-          <div
-            className={`${
-              showTools ? "flex" : "hidden"
-            } order-1 w-full items-center gap-1 border-b border-base-300/60 pb-1.5 sm:flex sm:w-auto sm:border-0 sm:pb-0`}
-          >
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle"
-              onClick={() => imageRef.current?.click()}
-              disabled={isEditing}
-              aria-label="Send image"
-              title="Send image"
-            >
-              <ImageIcon className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle"
-              onClick={() => fileRef.current?.click()}
-              disabled={isEditing}
-              aria-label="Send file"
-              title="Send file"
-            >
-              <Paperclip className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle"
-              onClick={startVideo}
-              disabled={isEditing}
-              aria-label="Record video"
-              title="Record video"
-            >
-              <Video className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              data-emoji-ui
-              whileTap={{ scale: 0.88 }}
-              className={`btn btn-ghost btn-sm btn-circle ${showEmoji ? "text-primary" : ""}`}
-              onClick={() => setShowEmoji((v) => !v)}
-              aria-label="Emoji"
-              aria-expanded={showEmoji}
-            >
-              <Smile className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle"
-              onClick={() => setShowCreatePoll(true)}
-              disabled={isEditing}
-              aria-label="Create poll"
-              title="Create poll"
-            >
-              <BarChart2 className="size-5" />
-            </motion.button>
-
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.88 }}
-              className="btn btn-ghost btn-sm btn-circle text-amber-500 hover:text-amber-600"
-              onClick={() => setShowGiftModal(true)}
-              disabled={isEditing}
-              aria-label="Send gift"
-              title="Send a gift"
-            >
-              <Gift className="size-5" />
-            </motion.button>
-
-            <AiAssist
-              text={text}
-              resetKey={selectedUser?.id}
-              onApply={(v) => {
-                setText(v);
-                textRef.current?.focus();
-              }}
-            />
-          </div>
-
-          {/* "+" toggle (phones only) */}
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.88 }}
-            className="btn btn-ghost btn-sm btn-circle order-2 shrink-0 sm:hidden"
-            onClick={() => setShowTools((v) => !v)}
-            aria-label="More attachments"
-            aria-expanded={showTools}
-          >
-            <Plus
-              className={`size-5 transition-transform duration-200 ${
-                showTools ? "rotate-45" : ""
-              }`}
-            />
-          </motion.button>
-
-          <input
-            ref={imageRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={pickImage}
-          />
-
-          <input
-            ref={fileRef}
-            type="file"
-            accept={FILE_ACCEPT}
-            hidden
-            onChange={pickDoc}
-          />
-
-          <textarea
-            ref={textRef}
-            rows={1}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            maxLength={isEditing ? 4000 : 2000}
-            placeholder={isEditing ? "Edit message…" : "Message"}
-            // 16px on phones stops iOS from zooming the page on focus
-            className="order-3 max-h-[120px] min-w-0 flex-1 resize-none bg-transparent py-1.5 text-base outline-none sm:text-sm"
-          />
-
-          <div className="order-4 flex shrink-0 items-center gap-1">
-            {/* Schedule message action near the send button */}
-            {!isEditing && !file && (
-              <motion.button
-                key="schedule-btn"
-                type="button"
-                whileTap={{ scale: 0.88 }}
-                className={`btn btn-ghost btn-sm btn-circle transition-colors cursor-pointer ${
-                  text.trim()
-                    ? "text-primary hover:bg-primary/15"
-                    : "text-base-content/60 hover:text-primary hover:bg-base-200"
-                }`}
-                onClick={() => setShowSchedule(true)}
-                aria-label="Schedule message"
-                title={
-                  text.trim()
-                    ? "Schedule message for later"
-                    : "Schedule a message"
-                }
-              >
-                <Clock className="size-5" />
-              </motion.button>
-            )}
-
-            {/* Send / save when there's content, otherwise record a voice note */}
-            <SendMicButton
-              hasContent={Boolean(text.trim() || file)}
-              isEditing={isEditing}
-              onRecord={startRecording}
-              SendIcon={Send}
-              MicIcon={Mic}
-            />
-          </div>
-        </form>
-      )}
-
-      {!busy && (
-        <p className="mt-1.5 hidden items-center gap-1 px-1 text-[11px] text-base-content/50 sm:flex">
-          <Lock className="size-3 shrink-0" />
-          <span>
-            {isEditing
-              ? "Esc to cancel · Enter to save"
-              : enterToSend
-                ? "Enter to send · Shift+Enter for a new line"
-                : "Enter for a new line · Ctrl+Enter to send"}
-          </span>
-        </p>
-      )}
+    <>
+      <MessageComposer
+        ref={textRef}
+        text={text}
+        setText={setText}
+        placeholder={isEditing ? "Edit message…" : "Write a message…"}
+        maxLength={isEditing ? 4000 : 2000}
+        enterToSend={enterToSend}
+        file={file}
+        setFile={setFile}
+        clearFile={clearFile}
+        preview={preview}
+        isViewOnce={isViewOnce}
+        setIsViewOnce={setIsViewOnce}
+        replyTarget={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
+        editingMessage={editingMessage}
+        onCancelEdit={cancelEdit}
+        onSendMessage={(payload) => {
+          if (payload?.sticker) {
+            sendMessage(payload);
+          } else {
+            handleSend();
+          }
+        }}
+        onStartVoice={startRecording}
+        voiceRecordingState={{
+          state: recorder.state,
+          seconds: recorder.seconds,
+          cancel: recorder.cancel,
+          stop: recorder.stop,
+        }}
+        onStartVideoCamera={startVideo}
+        videoRecordingState={{
+          state: videoRec.state,
+          seconds: videoRec.seconds,
+          cancel: videoRec.cancel,
+          stop: videoRec.stop,
+          previewRef: previewRef,
+        }}
+        canSchedule={canSchedule}
+        onOpenSchedule={() => setShowSchedule(true)}
+        canPoll={true}
+        onOpenPoll={() => setShowCreatePoll(true)}
+        canGift={true}
+        onOpenGift={() => setShowGiftModal(true)}
+        onOpenStickerMarketplace={() => setShowStickerMarketplace(true)}
+        onTyping={handleTyping}
+        onStopTyping={stopTyping}
+        peerId={selectedUser?.id}
+      />
 
       <AnimatePresence>
         {showSchedule && (
@@ -1890,7 +1505,15 @@ const ChatInput = () => {
           isGroup={false}
         />
       )}
-    </div>
+
+      {showStickerMarketplace && (
+        <StickerMarketplaceModal
+          isOpen={showStickerMarketplace}
+          onClose={() => setShowStickerMarketplace(false)}
+          onSelectSticker={(sticker) => sendMessage({ sticker, messageType: "sticker" })}
+        />
+      )}
+    </>
   );
 };
 
@@ -2068,6 +1691,17 @@ const MessageRow = memo(function MessageRow({
                       gift={m.gift}
                       isMine={isMine}
                       senderName={isMine ? "You" : peerName}
+                    />
+                  </div>
+                )}
+
+                {/* Sticker Bubble */}
+                {m.sticker?.url && (
+                  <div className="mb-2">
+                    <StickerMessageBubble
+                      sticker={m.sticker}
+                      isMine={isMine}
+                      onOpenPack={() => setShowStickerMarketplace(true)}
                     />
                   </div>
                 )}

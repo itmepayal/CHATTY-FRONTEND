@@ -10,6 +10,8 @@ export const AI_TONES = [
   "friendly",
   "professional",
   "persuasive",
+  "shorter",
+  "expand",
 ];
 
 let requestSeq = 0;

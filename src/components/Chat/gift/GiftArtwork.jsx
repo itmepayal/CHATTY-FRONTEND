@@ -4,7 +4,7 @@ import { getCategoryTheme, getRarityTheme } from "./giftUIHelpers.js";
 const GiftArtwork = ({
   gift,
   className = "w-full h-full",
-  imgClassName = "w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.35)]",
+  imgClassName = "w-full h-full object-contain filter drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]",
   fallbackSize = "text-5xl",
   glow = true,
 }) => {
@@ -22,7 +22,7 @@ const GiftArtwork = ({
     >
       {glow && (
         <div
-          className="pointer-events-none absolute inset-2 rounded-2xl opacity-40 blur-xl transition-opacity group-hover:opacity-75"
+          className="pointer-events-none absolute inset-2 rounded-2xl opacity-35 blur-xl transition-opacity group-hover:opacity-60"
           style={{ background: categoryTheme.glow || rarityTheme.glow }}
         />
       )}
@@ -37,17 +37,17 @@ const GiftArtwork = ({
           className={`relative z-10 ${imgClassName}`}
         />
       ) : (
-        /* Rich Vector Fallback with Category Theme */
+        /* Rich Vector Fallback with Theme-Aware Neutral Styling */
         <div
-          className="relative z-10 w-full h-full rounded-2xl flex flex-col items-center justify-center p-2 border border-white/10"
+          className="relative z-10 w-full h-full rounded-2xl flex flex-col items-center justify-center p-2 border border-base-300/60 bg-base-200/60"
           style={{
-            background: `radial-gradient(circle at center, ${categoryTheme.accent}25 0%, rgba(15,23,42,0.8) 85%)`,
+            background: `radial-gradient(circle at center, ${categoryTheme.accent}20 0%, transparent 85%)`,
           }}
         >
           <span className={`${fallbackSize} filter drop-shadow-md`}>
             {icon}
           </span>
-          <span className="text-[10px] font-bold text-slate-300 mt-1 uppercase tracking-wider text-center line-clamp-1">
+          <span className="text-[10px] font-bold text-base-content/80 mt-1 uppercase tracking-wider text-center line-clamp-1">
             {gift.name}
           </span>
         </div>

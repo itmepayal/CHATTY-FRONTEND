@@ -43,6 +43,9 @@ import { useNotificationStore } from "./store/useNotificationStore.js";
 import { useSlidingSidebarStore } from "./store/useSlidingSidebarStore.js";
 import SlidingSidebar from "./components/Sidebar/SlidingSidebar.jsx";
 import GiftAnimationOverlay from "./components/Chat/gift/GiftAnimationOverlay.jsx";
+import AchievementUnlockModal from "./components/badges/AchievementUnlockModal.jsx";
+import { useBadgeStore } from "./store/useBadgeStore.js";
+import { useGiftStore } from "./store/useGiftStore.js";
 import StoryViewerModal from "./components/stories/StoryViewerModal.jsx";
 import StoryCreatorModal from "./components/stories/StoryCreatorModal.jsx";
 import StoryViewersModal from "./components/stories/StoryViewersModal.jsx";
@@ -105,9 +108,40 @@ const App = () => {
     useGroupStore.getState().subscribeToGroups();
     useNotificationStore.getState().bindSocketEvents(socket);
     useNotificationStore.getState().fetchUnreadCount();
+
+    const onBadgeUnlocked = (data) =>
+      useBadgeStore.getState().handleRealtimeUnlock(data);
+    const onBadgeProgress = (data) =>
+      useBadgeStore.getState().handleRealtimeProgress(data);
+    const onGiftReceived = (data) => {
+      if (data?.gift) {
+        useGiftStore.getState().setCelebrationGift(data.gift);
+        useGiftStore.getState().fetchReceivedHistory();
+        useGiftStore.getState().fetchWallet();
+      }
+    };
+    const onGiftWalletUpdated = (data) => {
+      if (data) {
+        useGiftStore.getState().fetchWallet();
+      }
+    };
+
+    socket.on("badge:unlocked", onBadgeUnlocked);
+    socket.on("achievement:completed", onBadgeUnlocked);
+    socket.on("badge:progress", onBadgeProgress);
+    socket.on("achievement:progress", onBadgeProgress);
+    socket.on("message:gift:received", onGiftReceived);
+    socket.on("gift:wallet:updated", onGiftWalletUpdated);
+
     return () => {
       useChatStore.getState().unSubscribeFromMessage();
       useGroupStore.getState().unsubscribeFromGroups();
+      socket.off("badge:unlocked", onBadgeUnlocked);
+      socket.off("achievement:completed", onBadgeUnlocked);
+      socket.off("badge:progress", onBadgeProgress);
+      socket.off("achievement:progress", onBadgeProgress);
+      socket.off("message:gift:received", onGiftReceived);
+      socket.off("gift:wallet:updated", onGiftWalletUpdated);
     };
   }, [socket, authUser]);
 
@@ -139,6 +173,7 @@ const App = () => {
         <AppLockScreen />
         <CustomToastContainer position="top-right" />
         <GiftAnimationOverlay />
+        <AchievementUnlockModal />
       </div>
     );
   }
@@ -219,6 +254,7 @@ const App = () => {
 
         <CustomToastContainer position="top-right" />
         <GiftAnimationOverlay />
+        <AchievementUnlockModal />
 
         {authUser && (
           <>

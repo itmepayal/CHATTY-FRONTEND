@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Lock } from "lucide-react";
+import BadgePill from "../../badges/BadgePill.jsx";
 
 export const SPRING = { type: "spring", stiffness: 420, damping: 28 };
 export const BUTTON_SPRING = { type: "spring", stiffness: 400, damping: 18 };
@@ -185,6 +186,7 @@ export const EncryptionIndicator = ({ title = "End-to-end encrypted" }) => (
 export const ChatHeaderIdentity = ({
   name,
   isEncrypted = true,
+  badge = null,
   subtitle,
   children,
   onClick,
@@ -210,6 +212,7 @@ export const ChatHeaderIdentity = ({
         <h3 className="truncate text-[14px] sm:text-[15px] font-semibold leading-tight tracking-tight text-base-content hover:text-primary transition-colors">
           {name}
         </h3>
+        {badge && <BadgePill badge={badge} size="xs" />}
         {isEncrypted && <EncryptionIndicator />}
       </div>
 
