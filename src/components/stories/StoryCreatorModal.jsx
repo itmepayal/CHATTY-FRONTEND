@@ -1,9 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   X,
   Image as ImageIcon,
   Type,
-  Sparkles,
   Lock,
   Globe,
   Users,
@@ -16,29 +15,73 @@ import {
   Smile,
   Trash2,
   Plus,
+  Check,
+  RotateCw,
+  Maximize2,
 } from "lucide-react";
 import { useStoryStore } from "../../store/useStoryStore.js";
-import { useContactStore } from "../../store/useContactStore.js";
 import { customToast as toast } from "../toast/customToastService.js";
 import PrivacySelectorModal from "./PrivacySelectorModal.jsx";
 
+/* =========================================================
+   Constants
+   ========================================================= */
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
 const GRADIENT_PRESETS = [
-  { id: "purple-pink", value: "linear-gradient(135deg, #ec4899, #8b5cf6)", label: "Sunset Aura" },
-  { id: "blue-cyan", value: "linear-gradient(135deg, #06b6d4, #3b82f6)", label: "Ocean Breeze" },
-  { id: "amber-rose", value: "linear-gradient(135deg, #f59e0b, #ef4444)", label: "Warm Flame" },
-  { id: "emerald-teal", value: "linear-gradient(135deg, #10b981, #064e3b)", label: "Emerald Deep" },
-  { id: "violet-indigo", value: "linear-gradient(135deg, #6366f1, #4c1d95)", label: "Midnight Sky" },
-  { id: "fuchsia-purple", value: "linear-gradient(135deg, #d946ef, #701a75)", label: "Cosmic Glow" },
+  {
+    id: "purple-pink",
+    value: "linear-gradient(135deg, #ec4899, #8b5cf6)",
+    label: "Sunset Aura",
+  },
+  {
+    id: "blue-cyan",
+    value: "linear-gradient(135deg, #06b6d4, #3b82f6)",
+    label: "Ocean Breeze",
+  },
+  {
+    id: "amber-rose",
+    value: "linear-gradient(135deg, #f59e0b, #ef4444)",
+    label: "Warm Flame",
+  },
+  {
+    id: "emerald-teal",
+    value: "linear-gradient(135deg, #10b981, #064e3b)",
+    label: "Emerald Deep",
+  },
+  {
+    id: "violet-indigo",
+    value: "linear-gradient(135deg, #6366f1, #4c1d95)",
+    label: "Midnight Sky",
+  },
+  {
+    id: "fuchsia-purple",
+    value: "linear-gradient(135deg, #d946ef, #701a75)",
+    label: "Cosmic Glow",
+  },
   { id: "solid-dark", value: "#0f172a", label: "Onyx Dark" },
   { id: "solid-crimson", value: "#881337", label: "Velvet Crimson" },
 ];
 
 const FONT_PRESETS = [
-  { id: "sans", label: "Sans", style: "font-sans" },
-  { id: "serif", label: "Serif", style: "font-serif" },
-  { id: "mono", label: "Mono", style: "font-mono" },
-  { id: "cursive", label: "Script", style: "font-cursive" },
+  { id: "sans", label: "Sans", family: "ui-sans-serif, system-ui, sans-serif" },
+  { id: "serif", label: "Serif", family: "Georgia, 'Times New Roman', serif" },
+  {
+    id: "mono",
+    label: "Mono",
+    family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  },
+  {
+    id: "cursive",
+    label: "Script",
+    family: "'Brush Script MT', 'Segoe Script', 'Snell Roundhand', cursive",
+  },
 ];
+
+const FONT_FAMILY = Object.fromEntries(
+  FONT_PRESETS.map((f) => [f.id, f.family]),
+);
 
 const COLOR_PRESETS = [
   { id: "white", value: "#FFFFFF", label: "White" },
@@ -49,11 +92,160 @@ const COLOR_PRESETS = [
   { id: "green", value: "#4ade80", label: "Green" },
 ];
 
+const TEXT_SIZE_PX = { sm: 16, md: 22, lg: 28, xl: 38 };
+
 const STICKER_EMOJIS = [
-  "✨", "🔥", "❤️", "😍", "🎉", "👏", "🚀", "💯",
-  "⭐", "🌈", "☕", "🍕", "🌸", "🥳", "😎", "💪",
-  "🙌", "✌️", "🎶", "💡", "🎈", "💖", "⚡", "🍀",
+  "✨",
+  "🔥",
+  "❤️",
+  "😍",
+  "🎉",
+  "👏",
+  "🚀",
+  "💯",
+  "⭐",
+  "🌈",
+  "☕",
+  "🍕",
+  "🌸",
+  "🥳",
+  "😎",
+  "💪",
+  "🙌",
+  "✌️",
+  "🎶",
+  "💡",
+  "🎈",
+  "💖",
+  "⚡",
+  "🍀",
 ];
+
+const PRIVACY_OPTIONS = [
+  {
+    id: "contacts",
+    icon: Users,
+    title: "My contacts",
+    sub: "All accepted contacts",
+  },
+  {
+    id: "everyone",
+    icon: Globe,
+    title: "Everyone",
+    sub: "Visible to all users",
+  },
+  {
+    id: "custom",
+    icon: Lock,
+    title: "Only share with…",
+    sub: "Choose specific contacts",
+  },
+  {
+    id: "excluded",
+    icon: EyeOff,
+    title: "Hide from…",
+    sub: "Exclude specific contacts",
+  },
+];
+
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+/* =========================================================
+   Small presentational building blocks
+   ========================================================= */
+
+const Section = ({ title, action, children }) => (
+  <section className="space-y-3">
+    <div className="flex items-center justify-between min-h-6">
+      <h3 className="text-sm font-semibold text-base-content">{title}</h3>
+      {action}
+    </div>
+    {children}
+  </section>
+);
+
+const Row = ({ label, children }) => (
+  <div className="flex items-center gap-3 min-h-8">
+    <span className="w-14 shrink-0 text-xs text-base-content/60">{label}</span>
+    <div className="flex items-center flex-wrap gap-2 min-w-0">{children}</div>
+  </div>
+);
+
+const Segmented = ({ options, value, onChange, label }) => (
+  <div
+    role="group"
+    aria-label={label}
+    className="inline-flex p-0.5 rounded-lg bg-base-200 border border-base-300/70"
+  >
+    {options.map((o) => {
+      const active = value === o.id;
+      return (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          aria-pressed={active}
+          title={o.title || o.label}
+          style={o.style}
+          className={`h-7 min-w-8 px-2.5 inline-flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+            active
+              ? "bg-base-100 text-base-content shadow-sm"
+              : "text-base-content/60 hover:text-base-content"
+          }`}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const Swatch = ({ color, label, active, onClick, size = "size-6" }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    aria-pressed={active}
+    className={`${size} rounded-full border border-base-content/15 grid place-items-center transition-transform cursor-pointer ${
+      active
+        ? "ring-2 ring-primary ring-offset-2 ring-offset-base-100"
+        : "hover:scale-110"
+    }`}
+    style={{ background: color }}
+  >
+    {active && <Check className="size-3 text-white mix-blend-difference" />}
+  </button>
+);
+
+const RangeRow = ({
+  icon: Icon,
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}) => (
+  <label className="flex items-center gap-2.5 text-xs text-base-content/60">
+    <Icon className="size-3.5 shrink-0" aria-hidden />
+    <span className="w-12 shrink-0">{label}</span>
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="range range-primary range-xs grow"
+    />
+  </label>
+);
+
+/* =========================================================
+   Main component
+   ========================================================= */
 
 export const StoryCreatorModal = () => {
   const {
@@ -66,105 +258,155 @@ export const StoryCreatorModal = () => {
 
   const [mode, setMode] = useState("text"); // "text" | "media"
   const [textContent, setTextContent] = useState("");
-  const [textAlignment, setTextAlignment] = useState("center"); // "left" | "center" | "right"
-  const [textSize, setTextSize] = useState("lg"); // "sm" | "md" | "lg" | "xl"
+  const [textAlignment, setTextAlignment] = useState("center");
+  const [textSize, setTextSize] = useState("lg");
   const [selectedBg, setSelectedBg] = useState(GRADIENT_PRESETS[0]);
   const [selectedFont, setSelectedFont] = useState("sans");
   const [textColor, setTextColor] = useState("#FFFFFF");
   const [caption, setCaption] = useState("");
 
-  // Creative Overlays State
+  // Overlays
   const [overlays, setOverlays] = useState([]);
   const [selectedOverlayId, setSelectedOverlayId] = useState(null);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
 
-  // Privacy State
-  const [privacy, setPrivacy] = useState("contacts"); // "everyone" | "contacts" | "custom" | "excluded"
+  // Privacy
+  const [privacy, setPrivacy] = useState("contacts");
   const [selectedCustomUsers, setSelectedCustomUsers] = useState([]);
   const [selectedExcludedUsers, setSelectedExcludedUsers] = useState([]);
-  const [privacyModalType, setPrivacyModalType] = useState(null); // null | "custom" | "excluded"
+  const [privacyModalType, setPrivacyModalType] = useState(null);
 
-  // Media Upload State
+  // Media
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef(null);
+  const previewRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const selectedOverlay = overlays.find((o) => o.id === selectedOverlayId);
+
+  /* ----- lifecycle ----- */
+
+  const handleClose = useCallback(() => {
+    if (isUploading) return;
+    setCreatorOpen(false);
+  }, [isUploading, setCreatorOpen]);
+
+  useEffect(() => {
+    if (!isCreatorOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !privacyModalType) handleClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isCreatorOpen, privacyModalType, handleClose]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+    };
+  }, [mediaPreview]);
 
   if (!isCreatorOpen) return null;
 
+  /* ----- media ----- */
+
   const handleFile = (file) => {
     if (!file) return;
-    if (file.size > 50 * 1024 * 1024) {
+    if (file.size > MAX_FILE_SIZE) {
       toast.error("File is too large. Max 50MB allowed.");
       return;
     }
     setMediaFile(file);
-    const objectUrl = URL.createObjectURL(file);
-    setMediaPreview(objectUrl);
+    setMediaPreview(URL.createObjectURL(file));
     setMode("media");
-  };
-
-  const handleFileChange = (e) => {
-    handleFile(e.target.files?.[0]);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.[0]) {
-      handleFile(e.dataTransfer.files[0]);
-    }
+    handleFile(e.dataTransfer.files?.[0]);
   };
 
   const clearMedia = () => {
     setMediaFile(null);
-    if (mediaPreview) URL.revokeObjectURL(mediaPreview);
     setMediaPreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Overlay operations
+  /* ----- overlays ----- */
+
   const addTextOverlay = () => {
-    const newOverlay = {
+    const ov = {
       id: String(Date.now()),
       type: "text",
-      content: "Double tap to edit",
+      content: "Tap to edit",
       x: 50,
-      y: 40 + overlays.length * 10,
+      y: clamp(30 + overlays.length * 10, 10, 90),
       scale: 1,
+      rotation: 0,
       color: "#FFFFFF",
       font: "sans",
     };
-    setOverlays((prev) => [...prev, newOverlay]);
-    setSelectedOverlayId(newOverlay.id);
+    setOverlays((p) => [...p, ov]);
+    setSelectedOverlayId(ov.id);
+    setShowStickerPicker(false);
   };
 
   const addEmojiOverlay = (emoji) => {
-    const newOverlay = {
+    const ov = {
       id: String(Date.now()),
       type: "emoji",
       content: emoji,
       x: 50,
       y: 50,
       scale: 1.5,
+      rotation: 0,
     };
-    setOverlays((prev) => [...prev, newOverlay]);
-    setSelectedOverlayId(newOverlay.id);
+    setOverlays((p) => [...p, ov]);
+    setSelectedOverlayId(ov.id);
     setShowStickerPicker(false);
   };
 
   const removeOverlay = (id) => {
-    setOverlays((prev) => prev.filter((o) => o.id !== id));
+    setOverlays((p) => p.filter((o) => o.id !== id));
     if (selectedOverlayId === id) setSelectedOverlayId(null);
   };
 
-  const updateSelectedOverlay = (key, val) => {
+  const updateSelectedOverlay = (patch) => {
     if (!selectedOverlayId) return;
-    setOverlays((prev) =>
-      prev.map((o) => (o.id === selectedOverlayId ? { ...o, [key]: val } : o))
+    setOverlays((p) =>
+      p.map((o) => (o.id === selectedOverlayId ? { ...o, ...patch } : o)),
     );
   };
+
+  const onOverlayPointerDown = (e, id) => {
+    e.stopPropagation();
+    setSelectedOverlayId(id);
+    dragRef.current = { id };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onOverlayPointerMove = (e) => {
+    if (!dragRef.current || !previewRef.current) return;
+    const rect = previewRef.current.getBoundingClientRect();
+    const x = clamp(((e.clientX - rect.left) / rect.width) * 100, 4, 96);
+    const y = clamp(((e.clientY - rect.top) / rect.height) * 100, 4, 96);
+    const { id } = dragRef.current;
+    setOverlays((p) => p.map((o) => (o.id === id ? { ...o, x, y } : o)));
+  };
+
+  const onOverlayPointerUp = (e) => {
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
+  /* ----- publish ----- */
+
+  const canPublish =
+    mode === "text" ? Boolean(textContent.trim()) : Boolean(mediaFile);
 
   const handlePublish = async () => {
     if (isUploading) return;
@@ -198,7 +440,7 @@ export const StoryCreatorModal = () => {
           value: selectedBg.value,
           textColor,
           font: selectedFont,
-        })
+        }),
       );
     } else {
       if (!mediaFile) {
@@ -208,609 +450,600 @@ export const StoryCreatorModal = () => {
       const isVideo = mediaFile.type.startsWith("video/");
       formData.append("mediaType", isVideo ? "video" : "image");
       formData.append("media", mediaFile);
-      if (caption.trim()) {
-        formData.append("caption", caption.trim());
-      }
+      if (caption.trim()) formData.append("caption", caption.trim());
     }
 
     try {
       await createStory(formData);
-      // Reset state
       setTextContent("");
       setCaption("");
       setOverlays([]);
+      setSelectedOverlayId(null);
       clearMedia();
     } catch (_err) {
       // Toast handled by store
     }
   };
 
-  const selectedOverlay = overlays.find((o) => o.id === selectedOverlayId);
+  /* ----- derived ----- */
+
+  const alignClass =
+    textAlignment === "left"
+      ? "text-left"
+      : textAlignment === "right"
+        ? "text-right"
+        : "text-center";
+
+  const audience = PRIVACY_OPTIONS.find((p) => p.id === privacy);
+  const audienceCount =
+    privacy === "custom"
+      ? selectedCustomUsers.length
+      : privacy === "excluded"
+        ? selectedExcludedUsers.length
+        : 0;
+
+  /* ----- overlay renderer ----- */
+
+  const renderOverlays = () =>
+    overlays.map((ov) => {
+      const active = selectedOverlayId === ov.id;
+      return (
+        <div
+          key={ov.id}
+          onPointerDown={(e) => onOverlayPointerDown(e, ov.id)}
+          onPointerMove={onOverlayPointerMove}
+          onPointerUp={onOverlayPointerUp}
+          onPointerCancel={onOverlayPointerUp}
+          style={{
+            left: `${ov.x}%`,
+            top: `${ov.y}%`,
+            transform: `translate(-50%, -50%) scale(${ov.scale}) rotate(${ov.rotation || 0}deg)`,
+            color: ov.color || "#FFFFFF",
+            fontFamily:
+              ov.type === "text"
+                ? FONT_FAMILY[ov.font] || FONT_FAMILY.sans
+                : undefined,
+            touchAction: "none",
+          }}
+          className={`absolute z-20 cursor-grab active:cursor-grabbing whitespace-nowrap rounded-md px-1.5 py-0.5 ${
+            active
+              ? "outline-1 outline-dashed outline-white/90 bg-black/20"
+              : "hover:outline hover:outline-white/40"
+          }`}
+        >
+          {ov.type === "emoji" ? (
+            <span className="text-3xl select-none leading-none">
+              {ov.content}
+            </span>
+          ) : (
+            <span className="text-base font-bold select-none [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]">
+              {ov.content}
+            </span>
+          )}
+        </div>
+      );
+    });
+
+  /* =========================================================
+     Render
+     ========================================================= */
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 select-none">
-      <div className="relative w-full max-w-xl max-h-[94vh] bg-[#101827] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/10 text-[#F8FAFC]">
-        {/* Upload Progress Bar */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-6 select-none"
+      onMouseDown={(e) => e.target === e.currentTarget && handleClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Create story"
+    >
+      <div className="relative flex flex-col w-full max-w-4xl max-h-[94vh] bg-base-100 rounded-2xl shadow-2xl border border-base-300 overflow-hidden text-base-content">
+        {/* Upload progress */}
         {isUploading && (
-          <div className="absolute top-0 inset-x-0 z-50 h-1.5 bg-[#22C7F2]/20 overflow-hidden">
+          <div className="absolute top-0 inset-x-0 z-50 h-1 bg-primary/15">
             <div
-              className="h-full bg-gradient-to-r from-[#22C7F2] to-[#397BFF] transition-all duration-150 ease-out"
+              className="h-full bg-primary transition-all duration-150 ease-out"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
         )}
 
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5 bg-[#0B1120]/60">
-          <div className="flex items-center gap-2">
-            <Sparkles className="size-4.5 text-[#22C7F2] drop-shadow-[0_0_8px_rgba(34,199,242,0.5)]" />
-            <h2 className="text-base font-bold text-[#F8FAFC]">Create Story</h2>
-            <span className="px-2 py-0.5 rounded-full bg-[#22C7F2]/10 text-[#22C7F2] border border-[#22C7F2]/30 text-[10px] font-semibold">
-              24h Status
+        {/* ---------- Header ---------- */}
+        <header className="flex items-center justify-between px-6 h-14 border-b border-base-200 shrink-0">
+          <div className="flex items-baseline gap-2.5">
+            <h2 className="text-base font-semibold">New story</h2>
+            <span className="text-xs text-base-content/50">
+              Visible for 24 hours
             </span>
           </div>
-
           <button
-            onClick={() => !isUploading && setCreatorOpen(false)}
+            onClick={handleClose}
             disabled={isUploading}
-            className="p-1.5 rounded-full text-[#94A3B8] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            aria-label="Close"
+            className="btn btn-ghost btn-sm btn-circle text-base-content/60 disabled:opacity-40"
           >
-            <X className="size-4.5" />
+            <X className="size-4" />
           </button>
-        </div>
+        </header>
 
-        {/* Content Mode Switcher */}
-        <div className="flex border-b border-white/10 bg-[#0B1120] p-1.5">
-          <button
-            onClick={() => setMode("text")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-              mode === "text"
-                ? "bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950 font-bold shadow-md"
-                : "text-[#94A3B8] hover:text-[#F8FAFC]"
-            }`}
-          >
-            <Type className="size-3.5" />
-            <span>Text Status</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setMode("media");
-              if (!mediaFile && fileInputRef.current) {
-                fileInputRef.current.click();
+        {/* ---------- Body ---------- */}
+        <div className="grow min-h-0 overflow-y-auto md:overflow-hidden grid md:grid-cols-[320px_1fr]">
+          {/* Preview column */}
+          <aside className="p-6 bg-base-200/40 md:border-r border-base-200 flex justify-center items-start md:items-center">
+            <div
+              ref={previewRef}
+              onPointerDown={() => setSelectedOverlayId(null)}
+              onDragOver={
+                mode === "media" && !mediaPreview
+                  ? (e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }
+                  : undefined
               }
-            }}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-              mode === "media"
-                ? "bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950 font-bold shadow-md"
-                : "text-[#94A3B8] hover:text-[#F8FAFC]"
-            }`}
-          >
-            <ImageIcon className="size-3.5" />
-            <span>Photo / Video</span>
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="overflow-y-auto p-4 sm:p-5 space-y-4 grow">
-          {mode === "text" ? (
-            /* TEXT STORY CREATOR */
-            <div className="space-y-3.5">
-              {/* Live Preview Box with Overlays */}
-              <div
-                className="relative h-64 sm:h-72 w-full rounded-2xl flex flex-col items-center justify-center p-6 text-center shadow-inner overflow-hidden transition-all duration-300 border border-white/10"
-                style={{
-                  background: selectedBg.value,
-                  color: textColor,
-                }}
-              >
-                <textarea
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
-                  maxLength={500}
-                  placeholder="Type your status story here..."
-                  className={`w-full bg-transparent focus:outline-none resize-none leading-relaxed drop-shadow-md placeholder-white/40 ${
-                    textAlignment === "left"
-                      ? "text-left"
-                      : textAlignment === "right"
-                      ? "text-right"
-                      : "text-center"
-                  } ${
-                    textSize === "sm"
-                      ? "text-sm"
-                      : textSize === "md"
-                      ? "text-base sm:text-lg"
-                      : textSize === "xl"
-                      ? "text-2xl sm:text-3xl font-extrabold"
-                      : "text-lg sm:text-xl font-bold"
-                  } ${
-                    selectedFont === "serif"
-                      ? "font-serif"
-                      : selectedFont === "mono"
-                      ? "font-mono"
-                      : selectedFont === "cursive"
-                      ? "font-cursive"
-                      : "font-sans"
-                  }`}
-                  rows={4}
-                />
-
-                {/* Overlays on Preview */}
-                {overlays.map((ov) => (
-                  <div
-                    key={ov.id}
-                    onClick={() => setSelectedOverlayId(ov.id)}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={
+                mode === "media" && !mediaPreview ? handleDrop : undefined
+              }
+              className="relative w-full max-w-[260px] aspect-[9/16] max-h-[64vh] rounded-2xl overflow-hidden shadow-xl ring-1 ring-black/10 bg-neutral"
+              style={
+                mode === "text"
+                  ? { background: selectedBg.value, color: textColor }
+                  : undefined
+              }
+            >
+              {mode === "text" ? (
+                <div className="absolute inset-0 flex items-center justify-center p-6">
+                  <textarea
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    maxLength={500}
+                    placeholder="Type something…"
+                    aria-label="Story text"
+                    rows={5}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className={`w-full bg-transparent focus:outline-none resize-none leading-snug placeholder-white/40 [text-shadow:0_1px_8px_rgba(0,0,0,0.25)] ${alignClass}`}
                     style={{
-                      left: `${ov.x}%`,
-                      top: `${ov.y}%`,
-                      transform: `translate(-50%, -50%) scale(${ov.scale}) rotate(${ov.rotation || 0}deg)`,
-                      color: ov.color || "#FFFFFF",
+                      fontSize: TEXT_SIZE_PX[textSize],
+                      fontWeight: textSize === "sm" ? 500 : 700,
+                      fontFamily: FONT_FAMILY[selectedFont],
+                      color: textColor,
                     }}
-                    className={`absolute cursor-pointer transition-all ${
-                      selectedOverlayId === ov.id
-                        ? "ring-2 ring-[#22C7F2] ring-offset-2 ring-offset-black/50 rounded-lg p-1 bg-black/40"
-                        : "hover:scale-105"
-                    }`}
-                  >
-                    {ov.type === "emoji" ? (
-                      <span className="text-2xl select-none">{ov.content}</span>
-                    ) : (
-                      <span className="text-sm font-semibold select-none drop-shadow-md">
-                        {ov.content}
-                      </span>
-                    )}
-                  </div>
-                ))}
-
-                <div className="absolute bottom-2 right-3 text-[10px] text-white/70">
-                  {textContent.length}/500
+                  />
+                  <span className="absolute bottom-3 right-4 text-[10px] text-white/60 pointer-events-none">
+                    {textContent.length}/500
+                  </span>
                 </div>
-              </div>
-
-              {/* Formatting Toolbar: Alignment & Size */}
-              <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-[#151F30] border border-white/10">
-                {/* Alignment */}
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setTextAlignment("left")}
-                    className={`p-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
-                      textAlignment === "left"
-                        ? "bg-[#22C7F2]/20 text-[#22C7F2]"
-                        : "text-[#94A3B8] hover:text-[#F8FAFC]"
-                    }`}
-                  >
-                    <AlignLeft className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setTextAlignment("center")}
-                    className={`p-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
-                      textAlignment === "center"
-                        ? "bg-[#22C7F2]/20 text-[#22C7F2]"
-                        : "text-[#94A3B8] hover:text-[#F8FAFC]"
-                    }`}
-                  >
-                    <AlignCenter className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setTextAlignment("right")}
-                    className={`p-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
-                      textAlignment === "right"
-                        ? "bg-[#22C7F2]/20 text-[#22C7F2]"
-                        : "text-[#94A3B8] hover:text-[#F8FAFC]"
-                    }`}
-                  >
-                    <AlignRight className="size-3.5" />
-                  </button>
-                </div>
-
-                {/* Size */}
-                <div className="flex items-center gap-1 text-xs">
-                  {["sm", "md", "lg", "xl"].map((sz) => (
-                    <button
-                      key={sz}
-                      onClick={() => setTextSize(sz)}
-                      className={`px-2 py-1 rounded-lg font-bold uppercase text-[10px] cursor-pointer transition-colors ${
-                        textSize === sz
-                          ? "bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950"
-                          : "text-[#94A3B8] hover:text-[#F8FAFC]"
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Text Color */}
-                <div className="flex items-center gap-1">
-                  {COLOR_PRESETS.map((col) => (
-                    <button
-                      key={col.id}
-                      onClick={() => setTextColor(col.value)}
-                      title={col.label}
-                      className={`size-5 rounded-full border border-white/20 transition-transform ${
-                        textColor === col.value ? "ring-2 ring-[#22C7F2] scale-110" : ""
-                      }`}
-                      style={{ background: col.value }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Background Color & Gradient Palette */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-[#94A3B8]">
-                  Background Style
-                </span>
-                <div className="flex items-center gap-2.5 overflow-x-auto py-1 no-scrollbar">
-                  {GRADIENT_PRESETS.map((bg) => (
-                    <button
-                      key={bg.id}
-                      onClick={() => setSelectedBg(bg)}
-                      title={bg.label}
-                      className={`size-8 rounded-full shrink-0 transition-transform cursor-pointer shadow-md ${
-                        selectedBg.id === bg.id
-                          ? "ring-2 ring-[#22C7F2] ring-offset-2 ring-offset-[#101827] scale-110"
-                          : "hover:scale-105"
-                      }`}
-                      style={{ background: bg.value }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Typography / Font Selector */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-[#94A3B8]">
-                  Font Family
-                </span>
-                <div className="grid grid-cols-4 gap-2">
-                  {FONT_PRESETS.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => setSelectedFont(f.id)}
-                      className={`py-1.5 px-2 text-xs rounded-xl border text-center transition-all cursor-pointer ${
-                        selectedFont === f.id
-                          ? "border-[#22C7F2] bg-[#22C7F2]/15 text-[#22C7F2] font-bold"
-                          : "border-white/10 bg-[#151F30] text-[#94A3B8] hover:text-[#F8FAFC]"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* MEDIA STORY CREATOR */
-            <div className="space-y-3.5">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/mp4,video/webm"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              {mediaPreview ? (
-                <div className="relative h-64 sm:h-72 w-full rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-white/10">
+              ) : mediaPreview ? (
+                <>
                   {mediaFile?.type.startsWith("video/") ? (
                     <video
                       src={mediaPreview}
                       controls
-                      className="size-full object-contain"
+                      playsInline
+                      className="absolute inset-0 size-full object-contain"
                     />
                   ) : (
                     <img
                       src={mediaPreview}
-                      alt="Media preview"
-                      className="size-full object-contain"
+                      alt="Story preview"
+                      draggable={false}
+                      className="absolute inset-0 size-full object-contain"
                     />
                   )}
-
-                  {/* Overlays on Media Preview */}
-                  {overlays.map((ov) => (
-                    <div
-                      key={ov.id}
-                      onClick={() => setSelectedOverlayId(ov.id)}
-                      style={{
-                        left: `${ov.x}%`,
-                        top: `${ov.y}%`,
-                        transform: `translate(-50%, -50%) scale(${ov.scale}) rotate(${ov.rotation || 0}deg)`,
-                        color: ov.color || "#FFFFFF",
-                      }}
-                      className={`absolute cursor-pointer transition-all z-20 ${
-                        selectedOverlayId === ov.id
-                          ? "ring-2 ring-[#22C7F2] ring-offset-2 ring-offset-black/50 rounded-lg p-1 bg-black/50"
-                          : "hover:scale-105"
-                      }`}
-                    >
-                      {ov.type === "emoji" ? (
-                        <span className="text-2xl select-none">{ov.content}</span>
-                      ) : (
-                        <span className="text-sm font-semibold select-none drop-shadow-md">
-                          {ov.content}
-                        </span>
-                      )}
+                  {caption.trim() && (
+                    <div className="absolute bottom-0 inset-x-0 z-10 px-4 pt-10 pb-4 bg-gradient-to-t from-black/70 to-transparent text-white text-sm text-center pointer-events-none">
+                      {caption}
                     </div>
-                  ))}
-
+                  )}
                   <button
-                    onClick={clearMedia}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/90 transition-colors z-30"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearMedia();
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-label="Remove media"
+                    className="absolute top-3 right-3 z-30 grid place-items-center size-7 rounded-full bg-black/60 text-white hover:bg-black/85 transition-colors cursor-pointer"
                   >
-                    <X className="size-4" />
+                    <X className="size-3.5" />
                   </button>
-                </div>
+                </>
               ) : (
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
+                <button
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className={`h-64 sm:h-72 w-full rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
+                  className={`absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-6 text-center transition-colors cursor-pointer border-2 border-dashed rounded-2xl ${
                     isDragging
-                      ? "border-[#22C7F2] bg-[#22C7F2]/10"
-                      : "border-white/20 hover:border-[#22C7F2]/60 bg-[#151F30]/40"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-base-content/20 bg-base-200 text-base-content hover:border-primary/60"
                   }`}
                 >
-                  <div className="size-12 rounded-full bg-[#22C7F2]/10 text-[#22C7F2] flex items-center justify-center">
-                    <Upload className="size-6" />
-                  </div>
-                  <span className="text-sm font-semibold text-[#F8FAFC]">
-                    Drag and drop or click to upload
+                  <Upload className="size-6 text-base-content/50" />
+                  <span className="text-sm font-medium">
+                    Upload photo or video
                   </span>
-                  <span className="text-xs text-[#94A3B8]">
-                    Supports JPG, PNG, WEBP, MP4 (Max 50MB)
+                  <span className="text-xs text-base-content/50">
+                    Drag &amp; drop, or click · up to 50MB
                   </span>
-                </div>
+                </button>
               )}
 
-              {/* Caption Input */}
-              <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-[#94A3B8]">
-                  Caption (Optional)
-                </span>
+              {renderOverlays()}
+            </div>
+          </aside>
+
+          {/* Controls column */}
+          <div className="md:overflow-y-auto px-6 py-5 space-y-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/mp4,video/webm"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+              className="hidden"
+            />
+
+            {/* Mode tabs */}
+            <div
+              role="tablist"
+              className="flex gap-6 border-b border-base-200 -mx-6 px-6"
+            >
+              {[
+                { id: "text", icon: Type, label: "Text" },
+                { id: "media", icon: ImageIcon, label: "Photo / Video" },
+              ].map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={mode === id}
+                  type="button"
+                  onClick={() => {
+                    setMode(id);
+                    if (id === "media" && !mediaFile)
+                      fileInputRef.current?.click();
+                  }}
+                  className={`flex items-center gap-2 pb-3 -mb-px text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                    mode === id
+                      ? "border-primary text-primary"
+                      : "border-transparent text-base-content/60 hover:text-base-content"
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Mode-specific */}
+            {mode === "text" ? (
+              <>
+                <Section title="Text style">
+                  <div className="space-y-2">
+                    <Row label="Align">
+                      <Segmented
+                        label="Text alignment"
+                        value={textAlignment}
+                        onChange={setTextAlignment}
+                        options={[
+                          {
+                            id: "left",
+                            title: "Align left",
+                            icon: <AlignLeft className="size-3.5" />,
+                          },
+                          {
+                            id: "center",
+                            title: "Align center",
+                            icon: <AlignCenter className="size-3.5" />,
+                          },
+                          {
+                            id: "right",
+                            title: "Align right",
+                            icon: <AlignRight className="size-3.5" />,
+                          },
+                        ]}
+                      />
+                    </Row>
+                    <Row label="Size">
+                      <Segmented
+                        label="Text size"
+                        value={textSize}
+                        onChange={setTextSize}
+                        options={["sm", "md", "lg", "xl"].map((s) => ({
+                          id: s,
+                          label: s.toUpperCase(),
+                        }))}
+                      />
+                    </Row>
+                    <Row label="Font">
+                      <Segmented
+                        label="Font family"
+                        value={selectedFont}
+                        onChange={setSelectedFont}
+                        options={FONT_PRESETS.map((f) => ({
+                          id: f.id,
+                          label: f.label,
+                          style: { fontFamily: f.family },
+                        }))}
+                      />
+                    </Row>
+                    <Row label="Color">
+                      {COLOR_PRESETS.map((c) => (
+                        <Swatch
+                          key={c.id}
+                          color={c.value}
+                          label={`Text color ${c.label}`}
+                          active={textColor === c.value}
+                          onClick={() => setTextColor(c.value)}
+                        />
+                      ))}
+                    </Row>
+                  </div>
+                </Section>
+
+                <Section title="Background">
+                  <div className="flex flex-wrap gap-3">
+                    {GRADIENT_PRESETS.map((bg) => (
+                      <Swatch
+                        key={bg.id}
+                        color={bg.value}
+                        label={bg.label}
+                        size="size-8"
+                        active={selectedBg.id === bg.id}
+                        onClick={() => setSelectedBg(bg)}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              </>
+            ) : (
+              <Section
+                title="Caption"
+                action={
+                  <span className="text-xs text-base-content/40">
+                    {caption.length}/300
+                  </span>
+                }
+              >
                 <input
                   type="text"
                   maxLength={300}
-                  placeholder="Add a caption..."
+                  placeholder="Add a caption (optional)"
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
-                  className="w-full bg-[#151F30] border border-white/10 rounded-xl px-3 py-2 text-xs text-[#F8FAFC] placeholder-white/40 focus:outline-none focus:border-[#22C7F2] transition-colors"
+                  className="input input-bordered input-sm w-full text-sm"
                 />
-              </div>
-            </div>
-          )}
+              </Section>
+            )}
 
-          {/* Creative Editing: Text & Sticker Overlays Section */}
-          <div className="p-3 rounded-2xl bg-[#151F30] border border-white/10 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#F8FAFC] flex items-center gap-1.5">
-                <Sparkles className="size-3.5 text-[#22C7F2]" />
-                <span>Creative Overlays</span>
-                {overlays.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-[#22C7F2]/20 text-[#22C7F2] text-[10px] font-bold">
-                    {overlays.length}
-                  </span>
-                )}
-              </span>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={addTextOverlay}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 hover:border-[#22C7F2]/40 text-xs font-semibold text-[#F8FAFC] flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Plus className="size-3 text-[#22C7F2]" />
-                  <span>Text</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowStickerPicker(!showStickerPicker)}
-                  className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 hover:border-[#22C7F2]/40 text-xs font-semibold text-[#F8FAFC] flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Smile className="size-3 text-[#22C7F2]" />
-                  <span>Sticker</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Sticker Picker Popup */}
-            {showStickerPicker && (
-              <div className="p-2.5 rounded-xl bg-[#101827] border border-white/10 grid grid-cols-8 gap-1.5 text-xl">
-                {STICKER_EMOJIS.map((emoji) => (
+            {/* Overlays */}
+            <Section
+              title={
+                overlays.length > 0
+                  ? `Overlays (${overlays.length})`
+                  : "Overlays"
+              }
+              action={
+                <div className="flex items-center gap-2">
                   <button
-                    key={emoji}
                     type="button"
-                    onClick={() => addEmojiOverlay(emoji)}
-                    className="p-1 hover:scale-125 transition-transform text-center cursor-pointer"
+                    onClick={addTextOverlay}
+                    className="btn btn-sm btn-ghost border border-base-300 gap-1.5 font-medium"
                   >
-                    {emoji}
+                    <Plus className="size-3.5" /> Text
                   </button>
-                ))}
-              </div>
-            )}
-
-            {/* Selected Overlay Position & Text Control */}
-            {selectedOverlay && (
-              <div className="p-2.5 rounded-xl bg-[#101827] border border-white/10 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-[#22C7F2]">
-                    Edit {selectedOverlay.type === "emoji" ? "Sticker" : "Text"}
-                  </span>
                   <button
-                    onClick={() => removeOverlay(selectedOverlay.id)}
-                    className="text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer font-medium"
+                    type="button"
+                    onClick={() => setShowStickerPicker((s) => !s)}
+                    className={`btn btn-sm border gap-1.5 font-medium ${
+                      showStickerPicker
+                        ? "btn-primary border-primary"
+                        : "btn-ghost border-base-300"
+                    }`}
                   >
-                    <Trash2 className="size-3" />
-                    <span>Delete</span>
+                    <Smile className="size-3.5" /> Sticker
                   </button>
                 </div>
+              }
+            >
+              {showStickerPicker && (
+                <div className="p-2 rounded-xl border border-base-300 bg-base-100 grid grid-cols-8 gap-0.5 text-xl">
+                  {STICKER_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => addEmojiOverlay(emoji)}
+                      className="aspect-square grid place-items-center rounded-lg hover:bg-base-200 transition-colors cursor-pointer"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-                {selectedOverlay.type === "text" && (
-                  <input
-                    type="text"
-                    value={selectedOverlay.content}
-                    onChange={(e) => updateSelectedOverlay("content", e.target.value)}
-                    className="w-full bg-[#151F30] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-[#F8FAFC] focus:outline-none focus:border-[#22C7F2]"
+              {overlays.length === 0 && !showStickerPicker && (
+                <p className="text-xs text-base-content/50">
+                  Add text or stickers, then drag them on the preview to
+                  reposition.
+                </p>
+              )}
+
+              {selectedOverlay && (
+                <div className="p-4 rounded-xl border border-base-300 bg-base-200/40 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-base-content/70">
+                      {selectedOverlay.type === "emoji"
+                        ? "Selected sticker"
+                        : "Selected text"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeOverlay(selectedOverlay.id)}
+                      className="btn btn-ghost btn-xs text-error gap-1"
+                    >
+                      <Trash2 className="size-3" /> Remove
+                    </button>
+                  </div>
+
+                  {selectedOverlay.type === "text" && (
+                    <>
+                      <input
+                        type="text"
+                        value={selectedOverlay.content}
+                        onChange={(e) =>
+                          updateSelectedOverlay({ content: e.target.value })
+                        }
+                        maxLength={60}
+                        className="input input-bordered input-sm w-full text-sm"
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {COLOR_PRESETS.map((c) => (
+                            <Swatch
+                              key={c.id}
+                              color={c.value}
+                              label={`Overlay color ${c.label}`}
+                              size="size-5"
+                              active={selectedOverlay.color === c.value}
+                              onClick={() =>
+                                updateSelectedOverlay({ color: c.value })
+                              }
+                            />
+                          ))}
+                        </div>
+                        <select
+                          value={selectedOverlay.font || "sans"}
+                          onChange={(e) =>
+                            updateSelectedOverlay({ font: e.target.value })
+                          }
+                          className="select select-bordered select-xs"
+                          aria-label="Overlay font"
+                        >
+                          {FONT_PRESETS.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+
+                  <RangeRow
+                    icon={Maximize2}
+                    label="Size"
+                    min={0.5}
+                    max={3}
+                    step={0.1}
+                    value={selectedOverlay.scale}
+                    onChange={(v) => updateSelectedOverlay({ scale: v })}
                   />
-                )}
-
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-[#94A3B8]">
-                  <div className="flex items-center gap-1.5">
-                    <span>Vertical</span>
-                    <input
-                      type="range"
-                      min={10}
-                      max={90}
-                      value={selectedOverlay.y}
-                      onChange={(e) => updateSelectedOverlay("y", Number(e.target.value))}
-                      className="grow accent-[#22C7F2]"
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span>Horizontal</span>
-                    <input
-                      type="range"
-                      min={10}
-                      max={90}
-                      value={selectedOverlay.x}
-                      onChange={(e) => updateSelectedOverlay("x", Number(e.target.value))}
-                      className="grow accent-[#22C7F2]"
-                    />
-                  </div>
+                  <RangeRow
+                    icon={RotateCw}
+                    label="Rotate"
+                    min={-180}
+                    max={180}
+                    step={5}
+                    value={selectedOverlay.rotation || 0}
+                    onChange={(v) => updateSelectedOverlay({ rotation: v })}
+                  />
                 </div>
+              )}
+            </Section>
+
+            {/* Privacy */}
+            <Section title="Who can see this">
+              <div
+                role="radiogroup"
+                aria-label="Story audience"
+                className="rounded-xl border border-base-300 divide-y divide-base-200 overflow-hidden"
+              >
+                {PRIVACY_OPTIONS.map(({ id, icon: Icon, title, sub }) => {
+                  const active = privacy === id;
+                  const count =
+                    id === "custom"
+                      ? selectedCustomUsers.length
+                      : id === "excluded"
+                        ? selectedExcludedUsers.length
+                        : 0;
+                  const subtitle =
+                    count > 0 ? `${count} selected · tap to edit` : sub;
+
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setPrivacy(id);
+                        if (id === "custom" || id === "excluded")
+                          setPrivacyModalType(id);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer ${
+                        active ? "bg-primary/5" : "hover:bg-base-200/60"
+                      }`}
+                    >
+                      <Icon
+                        className={`size-4 shrink-0 ${active ? "text-primary" : "text-base-content/50"}`}
+                      />
+                      <span className="flex flex-col grow min-w-0">
+                        <span className="text-sm font-medium">{title}</span>
+                        <span className="text-xs text-base-content/50 truncate">
+                          {subtitle}
+                        </span>
+                      </span>
+                      <span
+                        className={`grid place-items-center size-4.5 rounded-full border shrink-0 ${
+                          active
+                            ? "border-primary bg-primary text-primary-content"
+                            : "border-base-content/25"
+                        }`}
+                      >
+                        {active && <Check className="size-3" />}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
-          </div>
-
-          {/* Privacy Controls */}
-          <div className="pt-2 border-t border-white/10 space-y-2">
-            <span className="text-xs font-semibold text-[#94A3B8] flex items-center gap-1.5">
-              <Lock className="size-3.5 text-[#22C7F2]" />
-              <span>Audience & Privacy</span>
-            </span>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <label
-                onClick={() => setPrivacy("contacts")}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                  privacy === "contacts"
-                    ? "border-[#22C7F2] bg-[#22C7F2]/10 text-[#22C7F2] font-semibold"
-                    : "border-white/10 bg-[#151F30]/40 hover:bg-[#151F30] text-[#94A3B8]"
-                }`}
-              >
-                <Users className="size-4 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[#F8FAFC]">My Contacts</span>
-                  <span className="text-[10px] font-normal opacity-70">
-                    All accepted contacts
-                  </span>
-                </div>
-              </label>
-
-              <label
-                onClick={() => setPrivacy("everyone")}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                  privacy === "everyone"
-                    ? "border-[#22C7F2] bg-[#22C7F2]/10 text-[#22C7F2] font-semibold"
-                    : "border-white/10 bg-[#151F30]/40 hover:bg-[#151F30] text-[#94A3B8]"
-                }`}
-              >
-                <Globe className="size-4 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[#F8FAFC]">Everyone</span>
-                  <span className="text-[10px] font-normal opacity-70">
-                    Public to all users
-                  </span>
-                </div>
-              </label>
-
-              <label
-                onClick={() => {
-                  setPrivacy("custom");
-                  setPrivacyModalType("custom");
-                }}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                  privacy === "custom"
-                    ? "border-[#22C7F2] bg-[#22C7F2]/10 text-[#22C7F2] font-semibold"
-                    : "border-white/10 bg-[#151F30]/40 hover:bg-[#151F30] text-[#94A3B8]"
-                }`}
-              >
-                <Lock className="size-4 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[#F8FAFC]">Custom Contacts</span>
-                  <span className="text-[10px] font-normal opacity-70">
-                    {selectedCustomUsers.length > 0
-                      ? `${selectedCustomUsers.length} selected`
-                      : "Choose who can see"}
-                  </span>
-                </div>
-              </label>
-
-              <label
-                onClick={() => {
-                  setPrivacy("excluded");
-                  setPrivacyModalType("excluded");
-                }}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                  privacy === "excluded"
-                    ? "border-[#22C7F2] bg-[#22C7F2]/10 text-[#22C7F2] font-semibold"
-                    : "border-white/10 bg-[#151F30]/40 hover:bg-[#151F30] text-[#94A3B8]"
-                }`}
-              >
-                <EyeOff className="size-4 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[#F8FAFC]">Hide From</span>
-                  <span className="text-[10px] font-normal opacity-70">
-                    {selectedExcludedUsers.length > 0
-                      ? `${selectedExcludedUsers.length} excluded`
-                      : "Hide from specific contacts"}
-                  </span>
-                </div>
-              </label>
-            </div>
+            </Section>
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="flex items-center justify-between border-t border-white/10 px-5 py-3.5 bg-[#0B1120]/60">
-          <span className="text-xs text-[#94A3B8]">
-            Expires in 24 hours
+        {/* ---------- Footer ---------- */}
+        <footer className="flex items-center justify-between gap-3 px-6 h-16 border-t border-base-200 shrink-0 bg-base-100">
+          <span className="text-xs text-base-content/55 truncate hidden sm:block">
+            Sharing with{" "}
+            <span className="font-medium text-base-content/80">
+              {audience?.title.replace("…", "")}
+            </span>
+            {audienceCount > 0 && ` (${audienceCount})`}
           </span>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 ml-auto">
             <button
-              onClick={() => setCreatorOpen(false)}
+              onClick={handleClose}
               disabled={isUploading}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-white/5 transition-colors cursor-pointer"
+              className="btn btn-ghost btn-sm"
             >
               Cancel
             </button>
-
             <button
               onClick={handlePublish}
-              disabled={isUploading}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950 font-bold text-xs hover:brightness-110 active:scale-95 shadow-[0_0_20px_rgba(34,199,242,0.35)] transition-all cursor-pointer flex items-center gap-2"
+              disabled={isUploading || !canPublish}
+              className="btn btn-primary btn-sm px-6 gap-2"
             >
               {isUploading ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  <span>Sharing ({uploadProgress}%)...</span>
+                  <span>Sharing {uploadProgress}%</span>
                 </>
               ) : (
-                <span>Share Story</span>
+                <span>Share story</span>
               )}
             </button>
           </div>
-        </div>
+        </footer>
       </div>
 
-      {/* Advanced Privacy Selector Modal */}
+      {/* Privacy selector */}
       {privacyModalType && (
         <PrivacySelectorModal
           open={Boolean(privacyModalType)}
@@ -830,11 +1063,8 @@ export const StoryCreatorModal = () => {
               : selectedExcludedUsers
           }
           onConfirm={(selected) => {
-            if (privacyModalType === "custom") {
-              setSelectedCustomUsers(selected);
-            } else {
-              setSelectedExcludedUsers(selected);
-            }
+            if (privacyModalType === "custom") setSelectedCustomUsers(selected);
+            else setSelectedExcludedUsers(selected);
           }}
           onClose={() => setPrivacyModalType(null)}
         />

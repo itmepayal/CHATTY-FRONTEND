@@ -38,7 +38,10 @@ export default function ProfileSidebar({
   className = "",
 }) {
   return (
-    <aside className={`space-y-4 sm:space-y-5 ${className}`} aria-label="Profile sidebar snapshot">
+    <aside
+      className={`space-y-4 sm:space-y-5 ${className}`}
+      aria-label="Profile sidebar snapshot"
+    >
       {/* 1. Account Snapshot & Security Tile */}
       <div className="rounded-2xl sm:rounded-3xl border border-base-300/80 bg-base-100 p-4 sm:p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-base-200">
@@ -48,7 +51,9 @@ export default function ProfileSidebar({
               Account Snapshot
             </h3>
           </div>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-base-200/80 border border-base-300/60 shrink-0 ${securityLevel.text}`}>
+          <span
+            className={`text-xs font-bold px-2 py-0.5 rounded-full bg-base-200/80 border border-base-300/60 shrink-0 ${securityLevel.text}`}
+          >
             {securityLevel.label}
           </span>
         </div>
@@ -84,7 +89,9 @@ export default function ProfileSidebar({
 
         <div className="mt-3 flex items-center justify-between text-xs text-base-content/65 pt-2 border-t border-base-200/60">
           <span>2-Step Verification</span>
-          <span className={`font-semibold ${twoFA ? "text-success" : "text-warning"}`}>
+          <span
+            className={`font-semibold ${twoFA ? "text-success" : "text-warning"}`}
+          >
             {twoFA ? "Enabled" : "Disabled"}
           </span>
         </div>
@@ -99,7 +106,11 @@ export default function ProfileSidebar({
           <QuickInfoRow icon={Phone} label="Phone" value={form.phone} />
           <QuickInfoRow icon={MapPin} label="Location" value={form.location} />
           <QuickInfoRow icon={Globe} label="Website" value={form.website} />
-          <QuickInfoRow icon={Calendar} label="Member Since" value={memberSince} />
+          <QuickInfoRow
+            icon={Calendar}
+            label="Member Since"
+            value={memberSince}
+          />
         </ul>
       </div>
 
@@ -113,7 +124,8 @@ export default function ProfileSidebar({
             </h4>
           </div>
           <p className="text-xs text-base-content/70 mb-3 leading-relaxed">
-            Adding more details makes your profile stand out in chats and group rosters.
+            Adding more details makes your profile stand out in chats and group
+            rosters.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {missing.map((item) => (

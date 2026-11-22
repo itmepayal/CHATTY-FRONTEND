@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { PROFILE_SPRING, AVATAR_TYPES } from "./ProfileTokens";
 import { useSlidingSidebarStore } from "../../../store/useSlidingSidebarStore.js";
+import BadgePill from "../../badges/BadgePill.jsx";
 
 export default function ProfileHeader({
   onBack,
@@ -242,6 +243,9 @@ export default function ProfileHeader({
                     <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-base-content break-words">
                       {fullName}
                     </h2>
+                    {authUser?.featuredBadge && (
+                      <BadgePill badge={authUser.featuredBadge} size="sm" />
+                    )}
                     <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary border border-primary/20">
                       <Sparkles className="size-3" />
                       <span>{completion}% Complete</span>

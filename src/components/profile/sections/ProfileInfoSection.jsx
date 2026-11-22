@@ -17,6 +17,7 @@ import {
   Pencil,
 } from "lucide-react";
 import ProfileCard from "../common/ProfileCard";
+import ProfileAchievementsShowcase from "./ProfileAchievementsShowcase.jsx";
 import {
   PROFILE_SPRING,
   PROFILE_SOFT,
@@ -65,6 +66,8 @@ export default function ProfileInfoSection({
   isUpdateProfile,
   copyText,
   onEditField = null,
+  onNavigateBadges = null,
+  onSelectBadge = null,
 }) {
   const controlClass = (error) =>
     `w-full rounded-xl border bg-base-100 pl-10 pr-3 py-2.5 text-xs sm:text-sm shadow-sm outline-none transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -312,6 +315,14 @@ export default function ProfileInfoSection({
           </div>
         )}
       </ProfileCard>
+
+      {/* Gamification / Profile Achievements Showcase */}
+      {!isEditing && (
+        <ProfileAchievementsShowcase
+          onNavigateBadges={onNavigateBadges}
+          onSelectBadge={onSelectBadge}
+        />
+      )}
 
       <AnimatePresence>
         {isEditing && (

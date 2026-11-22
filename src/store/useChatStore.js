@@ -364,6 +364,10 @@ export const useChatStore = create((set, get) => {
         formData.append("gift", JSON.stringify(msg._gift || msg.gift));
       }
 
+      if (msg._sticker || msg.sticker) {
+        formData.append("sticker", JSON.stringify(msg._sticker || msg.sticker));
+      }
+
       if (msg._isVoice) formData.append("isVoice", "true");
       if (msg._isVideo) formData.append("isVideo", "true");
       if (msg.isViewOnce || msg._isViewOnce) formData.append("isViewOnce", "true");
@@ -1879,7 +1883,7 @@ export const useChatStore = create((set, get) => {
 
     /* ---------------- SEND ---------------- */
     // accepts text, attachment/imageFile, voice, video and (optional) replyTo message
-    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo, isViewOnce, gift }) => {
+    sendMessage: ({ text, attachment, imageFile, voice, video, replyTo, isViewOnce, gift, sticker }) => {
       const { selectedUser } = get();
       const authUser = useAuthStore.getState().authUser;
       if (!selectedUser || !authUser) return;
@@ -1939,8 +1943,10 @@ export const useChatStore = create((set, get) => {
         replyTo: replySnapshot(replyMsg),
         reactions: [],
         gift: gift || null,
-        messageType: gift ? "gift" : "text",
+        sticker: sticker || null,
+        messageType: gift ? "gift" : sticker ? "sticker" : "text",
         _gift: gift || null,
+        _sticker: sticker || null,
         isDeleted: false,
         isViewOnce: Boolean(isViewOnce),
         _isViewOnce: Boolean(isViewOnce),

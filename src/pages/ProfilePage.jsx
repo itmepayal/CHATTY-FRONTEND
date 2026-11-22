@@ -10,6 +10,8 @@ import ProfileHeader from "../components/profile/common/ProfileHeader";
 import ProfileSidebar from "../components/profile/sidebar/ProfileSidebar";
 import ProfileTabNav from "../components/profile/tabs/ProfileTabNav";
 import ProfileInfoSection from "../components/profile/sections/ProfileInfoSection";
+import BadgesSection from "../components/badges/BadgesSection";
+import BadgeDetailModal from "../components/badges/BadgeDetailModal";
 import SecuritySection from "../components/profile/sections/SecuritySection";
 import AccountSection from "../components/profile/sections/AccountSection";
 import ConfirmDialog from "../components/profile/dialogs/ConfirmDialog";
@@ -136,11 +138,10 @@ export default function ProfilePage() {
   const fileInputRef = useRef(null);
   const formRef = useRef(null);
 
+  const VALID_TABS = ["profile", "badges", "security", "account"];
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawTab = searchParams.get("tab");
-  const tab = ["profile", "security", "account"].includes(rawTab)
-    ? rawTab
-    : "profile";
+  const rawTab = searchParams.get("tab")?.toLowerCase();
+  const tab = VALID_TABS.includes(rawTab) ? rawTab : "profile";
 
   const setTab = useCallback(
     (newTab) => {
@@ -167,6 +168,7 @@ export default function ProfilePage() {
   const [form, setForm] = useState(() => buildInitialForm(authUser));
   const [errors, setErrors] = useState({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [showcaseBadge, setShowcaseBadge] = useState(null);
 
   const [pw, setPw] = useState(EMPTY_PW);
   const [pwShow, setPwShow] = useState(HIDDEN_PW);
@@ -755,8 +757,24 @@ export default function ProfilePage() {
                       isUpdateProfile={isUpdateProfile}
                       copyText={copyText}
                       onEditField={(field) => openEditDrawer(field)}
+                      onNavigateBadges={() => setTab("badges")}
+                      onSelectBadge={(b) => setShowcaseBadge(b)}
                     />
                   )}
+
+                  {showcaseBadge && (
+                    <BadgeDetailModal
+                      badge={showcaseBadge}
+                      isOwned={true}
+                      isFeatured={
+                        authUser?.featuredBadge?._id === showcaseBadge._id ||
+                        authUser?.featuredBadge?.slug === showcaseBadge.slug
+                      }
+                      onClose={() => setShowcaseBadge(null)}
+                    />
+                  )}
+
+                  {tab === "badges" && <BadgesSection />}
 
                   {tab === "security" && (
                     <SecuritySection

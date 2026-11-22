@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   X,
   ChevronLeft,
@@ -9,7 +9,6 @@ import {
   Volume2,
   VolumeX,
   Clock,
-  Sparkles,
   Loader2,
   Layers,
   Play,
@@ -246,16 +245,16 @@ export const StoryViewerModal = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#080D19]/95 backdrop-blur-xl select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl select-none"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       {/* Ambient background bloom */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(34,199,242,0.1),_transparent_70%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--color-primary,rgba(56,189,248,0.15)),_transparent_70%)] pointer-events-none opacity-20" />
 
       {/* Floating Reaction Burst Animation */}
       {floatingReaction && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-60 animate-bounce text-8xl drop-shadow-[0_0_30px_rgba(34,199,242,0.6)]">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-60 animate-bounce text-8xl drop-shadow-[0_0_30px_rgba(255,255,255,0.6)]">
           <span>{floatingReaction}</span>
         </div>
       )}
@@ -265,7 +264,7 @@ export const StoryViewerModal = () => {
         <button
           onClick={prevStory}
           aria-label="Previous story"
-          className="hidden md:flex absolute left-4 lg:left-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-[#22C7F2]/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
+          className="hidden md:flex absolute left-4 lg:left-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-primary/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
         >
           <ChevronLeft className="size-6 text-white" />
         </button>
@@ -276,7 +275,7 @@ export const StoryViewerModal = () => {
         <button
           onClick={nextStory}
           aria-label="Next story"
-          className="hidden md:flex absolute right-4 lg:right-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-[#22C7F2]/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
+          className="hidden md:flex absolute right-4 lg:right-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-primary/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
         >
           <ChevronRight className="size-6 text-white" />
         </button>
@@ -284,13 +283,13 @@ export const StoryViewerModal = () => {
 
       {/* Main Story Container */}
       <div
-        className="relative w-full h-full md:w-[430px] md:h-[92vh] md:max-h-[880px] md:rounded-3xl overflow-hidden bg-[#101827] border-0 md:border md:border-white/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8),0_0_35px_rgba(34,199,242,0.12)] flex flex-col justify-between"
+        className="relative w-full h-full md:w-[430px] md:h-[92vh] md:max-h-[880px] md:rounded-3xl overflow-hidden bg-neutral text-neutral-content border-0 md:border md:border-neutral-content/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] flex flex-col justify-between"
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
       >
         {/* Top Header & Multi-segment Progress Bars */}
-        <div className="absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-[#080D19]/90 via-[#080D19]/50 to-transparent p-3 pt-3.5 space-y-2.5">
+        <div className="absolute top-0 inset-x-0 z-30 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-3 pt-3.5 space-y-2.5">
           {/* Multi-segment Progress Bars */}
           <div className="flex items-center gap-1.5 w-full">
             {currentUserGroup.stories.map((story, idx) => {
@@ -304,7 +303,7 @@ export const StoryViewerModal = () => {
                   className="h-1 flex-1 bg-white/25 rounded-full overflow-hidden"
                 >
                   <div
-                    className="h-full bg-gradient-to-r from-[#22C7F2] to-[#397BFF] transition-all duration-75 ease-linear rounded-full"
+                    className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-75 ease-linear rounded-full"
                     style={{ width: `${fillPercent}%` }}
                   />
                 </div>
@@ -315,7 +314,7 @@ export const StoryViewerModal = () => {
           {/* User Info & Controls Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-full ring-2 ring-[#22C7F2]/60 overflow-hidden bg-[#151F30] shrink-0">
+              <div className="size-9 rounded-full ring-2 ring-primary/80 overflow-hidden bg-base-300 shrink-0">
                 <img
                   src={userAvatar}
                   alt={userName}
@@ -326,11 +325,11 @@ export const StoryViewerModal = () => {
                 />
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-bold text-[#F8FAFC] leading-tight drop-shadow-md">
+                <span className="text-sm font-bold text-white leading-tight drop-shadow-md">
                   {userName}
                 </span>
-                <span className="text-[11px] text-[#94A3B8] flex items-center gap-1 drop-shadow-xs">
-                  <Clock className="size-3 text-[#22C7F2]" />
+                <span className="text-[11px] text-white/80 flex items-center gap-1 drop-shadow-xs">
+                  <Clock className="size-3 text-primary" />
                   {formatTimeAgo(currentStory.createdAt)}
                 </span>
               </div>
@@ -343,7 +342,7 @@ export const StoryViewerModal = () => {
                   title={isMuted ? "Unmute" : "Mute"}
                   className="p-1.5 rounded-full bg-black/40 text-white hover:bg-black/70 hover:scale-105 transition-all border border-white/10 cursor-pointer"
                 >
-                  {isMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4 text-[#22C7F2]" />}
+                  {isMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4 text-primary" />}
                 </button>
               )}
 
@@ -352,7 +351,7 @@ export const StoryViewerModal = () => {
                 title={isPaused ? "Play" : "Pause"}
                 className="p-1.5 rounded-full bg-black/40 text-white hover:bg-black/70 hover:scale-105 transition-all border border-white/10 cursor-pointer"
               >
-                {isPaused ? <Play className="size-4 text-[#22C7F2]" /> : <Pause className="size-4" />}
+                {isPaused ? <Play className="size-4 text-primary" /> : <Pause className="size-4" />}
               </button>
 
               {isMyStory && (
@@ -365,13 +364,13 @@ export const StoryViewerModal = () => {
                     title="Manage Stories"
                     className="p-1.5 rounded-full bg-black/40 text-white hover:bg-black/70 hover:scale-105 transition-all border border-white/10 cursor-pointer"
                   >
-                    <Layers className="size-4 text-[#22C7F2]" />
+                    <Layers className="size-4 text-primary" />
                   </button>
 
                   <button
                     onClick={() => setShowDeleteConfirm(true)}
                     title="Delete Story"
-                    className="p-1.5 rounded-full bg-black/40 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 hover:scale-105 transition-all border border-white/10 cursor-pointer"
+                    className="p-1.5 rounded-full bg-black/40 text-error hover:bg-error/20 hover:scale-105 transition-all border border-white/10 cursor-pointer"
                   >
                     <Trash2 className="size-4" />
                   </button>
@@ -456,7 +455,7 @@ export const StoryViewerModal = () => {
             <div className="relative size-full flex items-center justify-center">
               {isVideoBuffering && (
                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
-                  <Loader2 className="size-8 text-[#22C7F2] animate-spin" />
+                  <Loader2 className="size-8 text-primary animate-spin" />
                 </div>
               )}
               <video
@@ -509,7 +508,7 @@ export const StoryViewerModal = () => {
           {/* Floating Caption Banner */}
           {currentStory.caption && (
             <div className="absolute bottom-24 inset-x-4 z-20 px-4 py-2.5 rounded-2xl bg-black/60 backdrop-blur-md border border-white/10 text-center shadow-lg pointer-events-none">
-              <p className="text-sm text-[#F8FAFC] font-medium drop-shadow-md whitespace-pre-wrap leading-relaxed">
+              <p className="text-sm text-white font-medium drop-shadow-md whitespace-pre-wrap leading-relaxed">
                 {currentStory.caption}
               </p>
             </div>
@@ -517,15 +516,15 @@ export const StoryViewerModal = () => {
         </div>
 
         {/* Bottom Interactive Area */}
-        <div className="relative z-30 bg-gradient-to-t from-[#080D19]/95 via-[#080D19]/70 to-transparent p-3 pb-4 space-y-2.5">
+        <div className="relative z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pb-4 space-y-2.5">
           {isMyStory ? (
             /* Story Owner: Viewers summary button */
             <div className="flex items-center justify-between px-2">
               <button
                 onClick={() => fetchStoryViewers(currentStory)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-[#F8FAFC] text-xs font-semibold backdrop-blur-md transition-all cursor-pointer shadow-md hover:border-[#22C7F2]/50"
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-semibold backdrop-blur-md transition-all cursor-pointer shadow-md hover:border-primary/50"
               >
-                <Eye className="size-4 text-[#22C7F2]" />
+                <Eye className="size-4 text-primary" />
                 <span>
                   {currentStory.viewCount || currentStory.views?.length || 0} Viewers
                 </span>
@@ -536,7 +535,7 @@ export const StoryViewerModal = () => {
                   closeViewer();
                   setMyStoriesOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#22C7F2]/10 hover:bg-[#22C7F2]/20 border border-[#22C7F2]/30 text-xs font-semibold text-[#22C7F2] transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/20 hover:bg-primary/30 border border-primary/30 text-xs font-semibold text-primary transition-all cursor-pointer"
               >
                 <Layers className="size-3.5" />
                 <span>Manage Stories</span>
@@ -561,7 +560,7 @@ export const StoryViewerModal = () => {
               {/* Direct Reply Form */}
               <form
                 onSubmit={handleSendReply}
-                className="flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3.5 py-1.5 border border-white/15 focus-within:border-[#22C7F2] transition-colors"
+                className="flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-full px-3.5 py-1.5 border border-white/20 focus-within:border-primary transition-colors"
               >
                 <input
                   type="text"
@@ -570,12 +569,12 @@ export const StoryViewerModal = () => {
                   onChange={(e) => setReplyText(e.target.value)}
                   onFocus={() => setPaused(true)}
                   onBlur={() => setPaused(false)}
-                  className="grow bg-transparent text-xs text-[#F8FAFC] placeholder-white/50 focus:outline-none"
+                  className="grow bg-transparent text-xs text-white placeholder-white/50 focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!replyText.trim() || isSendingReply}
-                  className="p-1.5 rounded-full bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950 hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all cursor-pointer shadow-md"
+                  className="p-1.5 rounded-full bg-primary text-primary-content hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all cursor-pointer shadow-md"
                 >
                   <Send className="size-3.5" />
                 </button>
@@ -587,16 +586,16 @@ export const StoryViewerModal = () => {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-xs rounded-2xl bg-[#101827] border border-white/10 p-5 shadow-2xl space-y-4 text-[#F8FAFC]">
-            <h3 className="text-base font-bold text-[#F8FAFC]">Delete Story?</h3>
-            <p className="text-xs text-[#94A3B8]">
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/75 p-4">
+          <div className="w-full max-w-xs rounded-2xl bg-base-100 border border-base-300 p-5 shadow-2xl space-y-4 text-base-content">
+            <h3 className="text-base font-bold text-base-content">Delete Story?</h3>
+            <p className="text-xs text-base-content/70">
               This story will be permanently removed for everyone.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1.5 text-xs rounded-xl font-medium text-[#94A3B8] hover:bg-white/5 transition-colors"
+                className="btn btn-ghost btn-sm text-base-content/70 hover:text-base-content"
               >
                 Cancel
               </button>
@@ -605,7 +604,7 @@ export const StoryViewerModal = () => {
                   setShowDeleteConfirm(false);
                   await deleteStory(currentStory._id);
                 }}
-                className="px-3.5 py-1.5 text-xs rounded-xl font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors"
+                className="btn btn-error btn-sm font-bold"
               >
                 Delete
               </button>

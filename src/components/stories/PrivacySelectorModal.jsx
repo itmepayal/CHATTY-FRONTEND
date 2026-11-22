@@ -59,41 +59,41 @@ export const PrivacySelectorModal = ({
 
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 select-none">
-      <div className="relative w-full max-w-md bg-[#101827] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/10 max-h-[85vh] text-[#F8FAFC]">
+      <div className="relative w-full max-w-md bg-base-100 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-base-300 max-h-[85vh] text-base-content">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 bg-[#0B1120]/60">
+        <div className="flex items-center justify-between border-b border-base-200/80 px-5 py-4 bg-base-200/40">
           <div className="flex items-center gap-2">
-            <Users className="size-4.5 text-[#22C7F2] drop-shadow-[0_0_8px_rgba(34,199,242,0.5)]" />
-            <h3 className="text-sm font-bold text-[#F8FAFC]">{title}</h3>
-            <span className="px-2 py-0.5 rounded-full bg-[#22C7F2]/15 text-[#22C7F2] border border-[#22C7F2]/30 text-xs font-bold">
+            <Users className="size-4.5 text-primary drop-shadow-xs" />
+            <h3 className="text-sm font-bold text-base-content">{title}</h3>
+            <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/25 text-xs font-bold">
               {selectedIds.size} selected
             </span>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-[#94A3B8] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1 rounded-full text-base-content/60 hover:text-base-content hover:bg-base-200 transition-colors cursor-pointer"
           >
             <X className="size-4" />
           </button>
         </div>
 
         {/* Description & Quick Actions */}
-        <div className="p-3 bg-[#0B1120]/40 border-b border-white/10 flex items-center justify-between text-xs">
-          <span className="text-[#94A3B8] text-[11px] truncate pr-2">
+        <div className="p-3 bg-base-200/40 border-b border-base-200/80 flex items-center justify-between text-xs">
+          <span className="text-base-content/70 text-[11px] truncate pr-2">
             {description}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={selectAll}
-              className="text-[#22C7F2] hover:underline font-semibold text-[11px] cursor-pointer"
+              className="text-primary hover:underline font-semibold text-[11px] cursor-pointer"
             >
               Select All
             </button>
-            <span className="text-white/20">•</span>
+            <span className="text-base-content/20">•</span>
             <button
               onClick={clearAll}
-              className="text-[#94A3B8] hover:text-[#F8FAFC] font-semibold text-[11px] cursor-pointer"
+              className="text-base-content/60 hover:text-base-content font-semibold text-[11px] cursor-pointer"
             >
               Clear
             </button>
@@ -101,20 +101,20 @@ export const PrivacySelectorModal = ({
         </div>
 
         {/* Search Bar */}
-        <div className="p-3 border-b border-white/10">
-          <div className="flex items-center gap-2 rounded-xl bg-[#151F30] border border-white/10 px-3 py-1.5 focus-within:border-[#22C7F2]">
-            <Search className="size-3.5 text-[#94A3B8]" />
+        <div className="p-3 border-b border-base-200/80">
+          <div className="flex items-center gap-2 rounded-xl bg-base-200/80 border border-base-300 px-3 py-1.5 focus-within:border-primary">
+            <Search className="size-3.5 text-base-content/50" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search contacts..."
-              className="w-full bg-transparent text-xs text-[#F8FAFC] focus:outline-none placeholder:text-[#94A3B8]/60"
+              className="w-full bg-transparent text-xs text-base-content focus:outline-none placeholder:text-base-content/40"
             />
             {query && (
               <button
                 onClick={() => setQuery("")}
-                className="text-[#94A3B8] hover:text-[#F8FAFC]"
+                className="text-base-content/50 hover:text-base-content"
               >
                 <X className="size-3" />
               </button>
@@ -124,7 +124,7 @@ export const PrivacySelectorModal = ({
 
         {/* Selected Chips */}
         {selectedArray.length > 0 && (
-          <div className="p-2.5 border-b border-white/10 flex items-center gap-1.5 overflow-x-auto no-scrollbar max-h-16 bg-[#0B1120]/40">
+          <div className="p-2.5 border-b border-base-200/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar max-h-16 bg-base-200/30">
             {selectedArray.map((id) => {
               const contactObj = contacts.find(
                 (c) => String(c.contactId?._id || c.contactId || c._id) === id
@@ -135,12 +135,12 @@ export const PrivacySelectorModal = ({
               return (
                 <div
                   key={id}
-                  className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#22C7F2]/15 text-[#22C7F2] border border-[#22C7F2]/30 text-[11px] font-semibold shrink-0"
+                  className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/25 text-[11px] font-semibold shrink-0"
                 >
                   <span className="truncate max-w-[80px]">{name}</span>
                   <button
                     onClick={() => toggleSelect(id)}
-                    className="hover:text-white cursor-pointer"
+                    className="hover:text-primary-content cursor-pointer"
                   >
                     <X className="size-3" />
                   </button>
@@ -153,9 +153,9 @@ export const PrivacySelectorModal = ({
         {/* Contacts List */}
         <div className="overflow-y-auto p-3 space-y-1 grow min-h-[180px]">
           {filteredContacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-1 text-center text-[#94A3B8]">
-              <Users className="size-8 stroke-[1.5] mb-1 opacity-40 text-[#22C7F2]" />
-              <p className="text-xs font-semibold text-[#F8FAFC]">No contacts found</p>
+            <div className="flex flex-col items-center justify-center py-10 gap-1 text-center text-base-content/60">
+              <Users className="size-8 stroke-[1.5] mb-1 opacity-40 text-primary" />
+              <p className="text-xs font-semibold text-base-content">No contacts found</p>
             </div>
           ) : (
             filteredContacts.map((c) => {
@@ -174,11 +174,11 @@ export const PrivacySelectorModal = ({
                   key={id}
                   onClick={() => toggleSelect(id)}
                   className={`flex items-center justify-between p-2 rounded-xl cursor-pointer transition-colors ${
-                    isSelected ? "bg-[#22C7F2]/15 border border-[#22C7F2]/30" : "hover:bg-white/5"
+                    isSelected ? "bg-primary/10 border border-primary/30" : "hover:bg-base-200/60"
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="size-9 rounded-full overflow-hidden bg-[#151F30] shrink-0 ring-1 ring-white/10">
+                    <div className="size-9 rounded-full overflow-hidden bg-base-200 shrink-0 ring-1 ring-base-300">
                       <img
                         src={avatar}
                         alt={name}
@@ -189,11 +189,11 @@ export const PrivacySelectorModal = ({
                       />
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-[#F8FAFC] truncate">
+                      <span className="text-xs font-semibold text-base-content truncate">
                         {name}
                       </span>
                       {user.username && (
-                        <span className="text-[10px] text-[#94A3B8] truncate">
+                        <span className="text-[10px] text-base-content/60 truncate">
                           @{user.username}
                         </span>
                       )}
@@ -203,8 +203,8 @@ export const PrivacySelectorModal = ({
                   <div
                     className={`size-5 rounded-lg flex items-center justify-center border transition-all ${
                       isSelected
-                        ? "bg-[#22C7F2] border-[#22C7F2] text-slate-950 font-bold"
-                        : "border-white/20 bg-[#151F30]"
+                        ? "bg-primary border-primary text-primary-content font-bold"
+                        : "border-base-300 bg-base-200"
                     }`}
                   >
                     {isSelected && <Check className="size-3.5 stroke-[3]" />}
@@ -216,16 +216,16 @@ export const PrivacySelectorModal = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 border-t border-white/10 px-5 py-3.5 bg-[#0B1120]/60">
+        <div className="flex items-center justify-end gap-2.5 border-t border-base-200/80 px-5 py-3.5 bg-base-200/40">
           <button
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-white/5 transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-base-content/70 hover:text-base-content hover:bg-base-200 transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
-            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#22C7F2] to-[#397BFF] text-slate-950 font-bold text-xs hover:brightness-110 active:scale-95 shadow-[0_0_20px_rgba(34,199,242,0.35)] transition-all cursor-pointer"
+            className="btn btn-primary btn-sm px-5 font-bold shadow-md cursor-pointer"
           >
             Confirm ({selectedIds.size})
           </button>

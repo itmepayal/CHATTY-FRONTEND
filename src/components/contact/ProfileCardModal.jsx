@@ -36,6 +36,7 @@ import { useCall } from "../../context/CallContext";
 import { customToast as toast } from "../toast";
 import QRCodeModal from "./QRCodeModal";
 import ReportUserModal from "./ReportUserModal";
+import BadgePill from "../badges/BadgePill.jsx";
 
 export const ProfileCardModal = ({ open, onClose, user }) => {
   const navigate = useNavigate();
@@ -253,6 +254,9 @@ export const ProfileCardModal = ({ open, onClose, user }) => {
               <h3 className="text-xl font-bold text-base-content tracking-tight">
                 {user?.fullName || "User"}
               </h3>
+              {user?.featuredBadge && (
+                <BadgePill badge={user.featuredBadge} size="sm" />
+              )}
               {user?.isVerified && (
                 <CheckCircle2
                   className="size-4.5 text-primary shrink-0"

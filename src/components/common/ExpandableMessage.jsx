@@ -94,7 +94,7 @@ export const ExpandableMessage = ({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="underline hover:opacity-80 break-words [overflow-wrap:anywhere]"
+            className="underline hover:opacity-80 break-words"
           >
             {part}
           </a>
@@ -133,9 +133,7 @@ export const ExpandableMessage = ({
         );
 
         const targetUserIdentifier =
-          matchedMention?.user?.username ||
-          matchedMention?.userId ||
-          rawTarget;
+          matchedMention?.user?.username || matchedMention?.userId || rawTarget;
 
         return (
           <span

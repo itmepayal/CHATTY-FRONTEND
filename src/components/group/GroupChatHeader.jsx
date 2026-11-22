@@ -435,20 +435,7 @@ export const GroupChatHeader = ({
                   }
                   onClick={() => startGroupCall?.(group.id, "audio", group.name)}
                   disabled={callBlocked}
-                  className="hidden xs:flex"
-                />
-
-                {/* Group Video Call */}
-                <ChatHeaderActionButton
-                  icon={Video}
-                  label={
-                    hasActiveGroupCall
-                      ? "A call is already running"
-                      : "Group video call"
-                  }
-                  onClick={() => startGroupCall?.(group.id, "video", group.name)}
-                  disabled={callBlocked}
-                  className="hidden sm:flex"
+                  className="flex"
                 />
 
                 {/* Group Info */}

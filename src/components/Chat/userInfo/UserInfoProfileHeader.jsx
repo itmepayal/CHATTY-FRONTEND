@@ -10,6 +10,7 @@ import {
   Video,
 } from "lucide-react";
 import { ActionButton, Stat } from "./UserInfoUI.jsx";
+import BadgePill from "../../badges/BadgePill.jsx";
 
 export const UserInfoProfileHeader = ({
   targetUser,
@@ -79,9 +80,14 @@ export const UserInfoProfileHeader = ({
           )}
         </div>
 
-        <h3 className="mt-3 text-lg font-bold [overflow-wrap:anywhere]">
-          {targetUser.fullName}
-        </h3>
+        <div className="mt-3 flex items-center justify-center gap-1.5 flex-wrap">
+          <h3 className="text-lg font-bold [overflow-wrap:anywhere]">
+            {targetUser.fullName}
+          </h3>
+          {targetUser.featuredBadge && (
+            <BadgePill badge={targetUser.featuredBadge} size="sm" />
+          )}
+        </div>
         {targetUser.username && (
           <p className="text-xs text-base-content/60 [overflow-wrap:anywhere]">
             @{targetUser.username}

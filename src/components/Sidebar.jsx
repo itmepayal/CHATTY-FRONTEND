@@ -30,6 +30,7 @@ import ChatUnlockModal from "./settings/privacy/ChatUnlockModal.jsx";
 import NotificationCenterModal from "./contact/NotificationCenterModal.jsx";
 import BlockedUsersModal from "./contact/BlockedUsersModal.jsx";
 import StoryTray from "./stories/StoryTray.jsx";
+import { SidebarSearchInput } from "./Sidebar/SidebarSearchInput.jsx";
 
 const Sidebar = () => {
   const data = useSidebarData();
@@ -194,26 +195,11 @@ const Sidebar = () => {
         {mode === "chats" && <StoryTray />}
 
         <div className="px-3 pt-3 pb-2 sm:px-4 sm:pt-3.5 sm:pb-2.5 space-y-3">
-          <div className="group/search relative flex h-[42px] sm:h-[44px] w-full items-center gap-3 rounded-xl bg-[#111B2D] border border-white/[0.07] px-3.5 sm:px-4 shadow-sm transition-all duration-200 ease-in-out hover:border-white/15 focus-within:border-[#22C7F2]/60 focus-within:ring-1 focus-within:ring-[#22C7F2]/25">
-            <Search className="size-4 shrink-0 text-[#64748B] transition-colors duration-200 group-focus-within/search:text-[#22C7F2]" />
-            <input
-              type="text"
-              className="min-w-0 grow bg-transparent text-xs sm:text-sm text-[#E2E8F0] placeholder-[#64748B] focus:outline-none"
-              placeholder={searchPlaceholder}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-                className="grid size-5.5 shrink-0 place-items-center rounded-md text-[#64748B] transition-colors duration-150 hover:bg-white/10 hover:text-[#E2E8F0] cursor-pointer"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
-          </div>
+          <SidebarSearchInput
+            query={query}
+            setQuery={setQuery}
+            placeholder={searchPlaceholder}
+          />
 
           <AnimatePresence initial={false} mode="wait">
             {mode === "chats" && (
