@@ -15,6 +15,7 @@ export const SidebarHeader = ({
   setShowAddContact,
   setShowCreate,
   changeMode,
+  onNewCall,
 }) => {
   const onAddContact = openAddContact || (() => setShowAddContact?.(true));
   const onCreateGroup = openCreateGroup || (() => setShowCreate?.(true));
@@ -75,7 +76,7 @@ export const SidebarHeader = ({
             <HeaderButton
               icon={Phone}
               label="New call"
-              onClick={() => changeMode("chats")}
+              onClick={onNewCall || (() => changeMode("chats"))}
             />
           </>
         ) : (

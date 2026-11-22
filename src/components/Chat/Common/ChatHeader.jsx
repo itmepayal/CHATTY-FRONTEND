@@ -79,6 +79,7 @@ export const ChatHeader = ({
   const { selectedUser, setSelectedUser, typingFrom } = useChatStore();
   const hiddenUsers = useAuthStore((st) => st.hiddenUsers);
   const myStatusVisible = usePrivacyStore((st) => st.privacy.showOnlineStatus);
+  const contacts = useContactStore((st) => st.contacts);
 
   const { startCall, status: callStatus } = useCall();
   const [viewAvatar, setViewAvatar] = useState(false);
@@ -164,7 +165,6 @@ export const ChatHeader = ({
   const showRing = canShowOnline || isTyping;
 
   // Calling helpers
-  const contacts = useContactStore((st) => st.contacts);
   const isContact = contacts.some(
     (c) => String(c.id || c._id) === String(selectedUser.id),
   );

@@ -63,12 +63,28 @@ export const useStoryStore = create((set, get) => ({
   // Open the full-screen story viewer
   openViewer: (userIndex = 0, storyIndex = 0) => {
     const { feed } = get();
-    if (!feed || !feed[userIndex]) return;
+    if (!feed || !feed.length) return;
 
-    // If opening a contact's story, start at the first unviewed story if not specified
+    // Bounds check userIndex
+    let validUserIdx = userIndex;
+    if (validUserIdx < 0 || validUserIdx >= feed.length) {
+      validUserIdx = 0;
+    }
+    let targetGroup = feed[validUserIdx];
+    if (!targetGroup || !targetGroup.stories || targetGroup.stories.length === 0) {
+      const firstValidIdx = feed.findIndex((g) => g.stories && g.stories.length > 0);
+      if (firstValidIdx === -1) return;
+      validUserIdx = firstValidIdx;
+      targetGroup = feed[validUserIdx];
+    }
+
     let targetStoryIndex = storyIndex;
-    const targetGroup = feed[userIndex];
-    if (storyIndex === 0 && targetGroup.stories?.length > 1) {
+    if (targetStoryIndex < 0 || targetStoryIndex >= targetGroup.stories.length) {
+      targetStoryIndex = 0;
+    }
+
+    // If opening a contact's story, start at the first unviewed story if not explicitly jumping to an index
+    if (storyIndex === 0 && targetGroup.stories.length > 1 && !targetGroup.isSelf) {
       const firstUnviewed = targetGroup.stories.findIndex((s) => !s.hasViewed);
       if (firstUnviewed > 0) {
         targetStoryIndex = firstUnviewed;
@@ -76,7 +92,7 @@ export const useStoryStore = create((set, get) => ({
     }
 
     set({
-      activeUserIndex: userIndex,
+      activeUserIndex: validUserIdx,
       activeStoryIndex: targetStoryIndex,
       isViewerOpen: true,
       isPaused: false,
@@ -91,10 +107,23 @@ export const useStoryStore = create((set, get) => ({
 
   // Open viewer directly for a specific story of the logged-in user
   openMyStoryViewer: (storyId) => {
-    const { feed } = get();
-    const myIndex = feed.findIndex((g) => g.isSelf);
-    if (myIndex >= 0) {
-      const storyIdx = feed[myIndex].stories.findIndex((s) => s._id === storyId);
+    const { feed, myStories } = get();
+    let updatedFeed = feed;
+    let myIndex = feed.findIndex((g) => g.isSelf);
+    if (myIndex === -1 && myStories && myStories.length > 0) {
+      // Synthesize self group if not present in feed
+      const selfGroup = {
+        user: myStories[0]?.user || { fullName: "My Story" },
+        stories: myStories,
+        isSelf: true,
+        hasUnseen: false,
+      };
+      updatedFeed = [selfGroup, ...feed];
+      set({ feed: updatedFeed });
+      myIndex = 0;
+    }
+    if (myIndex >= 0 && updatedFeed[myIndex]?.stories) {
+      const storyIdx = updatedFeed[myIndex].stories.findIndex((s) => s._id === storyId);
       get().openViewer(myIndex, Math.max(0, storyIdx));
     }
   },
@@ -111,49 +140,87 @@ export const useStoryStore = create((set, get) => ({
   // Advance to next story / next user
   nextStory: () => {
     const { feed, activeUserIndex, activeStoryIndex } = get();
+    if (!feed || !feed.length || activeUserIndex < 0 || activeUserIndex >= feed.length) {
+      get().closeViewer();
+      return;
+    }
+
     const currentUserGroup = feed[activeUserIndex];
-    if (!currentUserGroup) return;
+    if (!currentUserGroup || !currentUserGroup.stories || currentUserGroup.stories.length === 0) {
+      let nextUserIdx = activeUserIndex + 1;
+      while (nextUserIdx < feed.length && (!feed[nextUserIdx]?.stories || feed[nextUserIdx].stories.length === 0)) {
+        nextUserIdx++;
+      }
+      if (nextUserIdx < feed.length) {
+        set({ activeUserIndex: nextUserIdx, activeStoryIndex: 0, isPaused: false });
+        const nextGroup = feed[nextUserIdx];
+        const firstStory = nextGroup.stories?.[0];
+        if (firstStory && !firstStory.hasViewed && !nextGroup.isSelf) {
+          get().recordView(firstStory._id);
+        }
+      } else {
+        get().closeViewer();
+      }
+      return;
+    }
 
     if (activeStoryIndex < currentUserGroup.stories.length - 1) {
+      // Advance within the same user's stories
       const nextStoryIdx = activeStoryIndex + 1;
       set({ activeStoryIndex: nextStoryIdx, isPaused: false });
       const nextStory = currentUserGroup.stories[nextStoryIdx];
       if (nextStory && !nextStory.hasViewed && !currentUserGroup.isSelf) {
         get().recordView(nextStory._id);
       }
-    } else if (activeUserIndex < feed.length - 1) {
-      // Move to next user's first story
-      const nextUserIdx = activeUserIndex + 1;
-      set({
-        activeUserIndex: nextUserIdx,
-        activeStoryIndex: 0,
-        isPaused: false,
-      });
-      const nextGroup = feed[nextUserIdx];
-      const firstStory = nextGroup.stories?.[0];
-      if (firstStory && !firstStory.hasViewed && !nextGroup.isSelf) {
-        get().recordView(firstStory._id);
-      }
     } else {
-      // Reached the end of all stories in feed
-      get().closeViewer();
+      // Reached the end of current user's stories: find next non-empty user group
+      let nextUserIdx = activeUserIndex + 1;
+      while (nextUserIdx < feed.length && (!feed[nextUserIdx]?.stories || feed[nextUserIdx].stories.length === 0)) {
+        nextUserIdx++;
+      }
+      if (nextUserIdx < feed.length) {
+        set({
+          activeUserIndex: nextUserIdx,
+          activeStoryIndex: 0,
+          isPaused: false,
+        });
+        const nextGroup = feed[nextUserIdx];
+        const firstStory = nextGroup.stories?.[0];
+        if (firstStory && !firstStory.hasViewed && !nextGroup.isSelf) {
+          get().recordView(firstStory._id);
+        }
+      } else {
+        // Reached the end of all stories in feed
+        get().closeViewer();
+      }
     }
   },
 
   // Go to previous story / previous user
   prevStory: () => {
     const { feed, activeUserIndex, activeStoryIndex } = get();
+    if (!feed || !feed.length) return;
+
     if (activeStoryIndex > 0) {
       set({ activeStoryIndex: activeStoryIndex - 1, isPaused: false });
     } else if (activeUserIndex > 0) {
-      const prevUserIdx = activeUserIndex - 1;
-      const prevGroup = feed[prevUserIdx];
-      const lastStoryIdx = (prevGroup.stories?.length || 1) - 1;
-      set({
-        activeUserIndex: prevUserIdx,
-        activeStoryIndex: lastStoryIdx,
-        isPaused: false,
-      });
+      let prevUserIdx = activeUserIndex - 1;
+      while (prevUserIdx >= 0 && (!feed[prevUserIdx]?.stories || feed[prevUserIdx].stories.length === 0)) {
+        prevUserIdx--;
+      }
+      if (prevUserIdx >= 0) {
+        const prevGroup = feed[prevUserIdx];
+        const lastStoryIdx = Math.max(0, (prevGroup.stories?.length || 1) - 1);
+        set({
+          activeUserIndex: prevUserIdx,
+          activeStoryIndex: lastStoryIdx,
+          isPaused: false,
+        });
+      } else {
+        set({ activeStoryIndex: 0, isPaused: false });
+      }
+    } else {
+      set({ activeStoryIndex: 0, isPaused: false });
     }
   },
 
@@ -177,7 +244,7 @@ export const useStoryStore = create((set, get) => ({
         });
         return { feed: newFeed };
       });
-    } catch (_err) {
+    } catch {
       // Fail silently for view tracking
     }
   },
@@ -241,13 +308,37 @@ export const useStoryStore = create((set, get) => ({
       // Refresh both feed and my stories
       await Promise.all([get().fetchFeed(), get().fetchMyStories()]);
       // Check if current viewer is open
-      const { isViewerOpen, feed, activeUserIndex } = get();
+      const { isViewerOpen, feed, activeUserIndex, activeStoryIndex } = get();
       if (isViewerOpen) {
+        if (!feed || feed.length === 0) {
+          get().closeViewer();
+          return;
+        }
         const group = feed[activeUserIndex];
         if (!group || !group.stories || group.stories.length === 0) {
-          get().closeViewer();
+          // If this user has no more stories, search for next non-empty user group
+          let nextUserIdx = activeUserIndex;
+          while (nextUserIdx < feed.length && (!feed[nextUserIdx]?.stories || feed[nextUserIdx].stories.length === 0)) {
+            nextUserIdx++;
+          }
+          if (nextUserIdx < feed.length) {
+            set({ activeUserIndex: nextUserIdx, activeStoryIndex: 0 });
+          } else {
+            // Check if there is an earlier group
+            let prevUserIdx = activeUserIndex - 1;
+            while (prevUserIdx >= 0 && (!feed[prevUserIdx]?.stories || feed[prevUserIdx].stories.length === 0)) {
+              prevUserIdx--;
+            }
+            if (prevUserIdx >= 0) {
+              const prevGroup = feed[prevUserIdx];
+              set({ activeUserIndex: prevUserIdx, activeStoryIndex: Math.max(0, prevGroup.stories.length - 1) });
+            } else {
+              get().closeViewer();
+            }
+          }
         } else {
-          set({ activeStoryIndex: 0 });
+          const clampedIdx = Math.min(activeStoryIndex, group.stories.length - 1);
+          set({ activeStoryIndex: Math.max(0, clampedIdx) });
         }
       }
     } catch (err) {
@@ -305,7 +396,34 @@ export const useStoryStore = create((set, get) => ({
           }))
           .filter((group) => group.stories.length > 0);
         const newMyStories = state.myStories.filter((s) => s._id !== storyId);
-        return { feed: newFeed, myStories: newMyStories };
+
+        let nextActiveUser = state.activeUserIndex;
+        let nextActiveStory = state.activeStoryIndex;
+        let nextIsOpen = state.isViewerOpen;
+
+        if (state.isViewerOpen) {
+          if (newFeed.length === 0) {
+            nextIsOpen = false;
+          } else {
+            if (nextActiveUser >= newFeed.length) {
+              nextActiveUser = newFeed.length - 1;
+            }
+            const group = newFeed[nextActiveUser];
+            if (!group || group.stories.length === 0) {
+              nextIsOpen = false;
+            } else if (nextActiveStory >= group.stories.length) {
+              nextActiveStory = Math.max(0, group.stories.length - 1);
+            }
+          }
+        }
+
+        return {
+          feed: newFeed,
+          myStories: newMyStories,
+          activeUserIndex: nextActiveUser,
+          activeStoryIndex: nextActiveStory,
+          isViewerOpen: nextIsOpen,
+        };
       });
     };
 

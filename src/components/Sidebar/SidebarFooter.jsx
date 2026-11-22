@@ -1,11 +1,11 @@
-import { LogOut, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { FooterAction } from "./SidebarComponents.jsx";
 import { avatarSrc } from "./sidebarUtils.js";
 
 /**
  * SidebarFooter
- * Compact, mobile-first account section.
- * Replaces bulky nested cards with a sleek, space-efficient horizontal bar.
+ * Compact, mobile-first account section focused exclusively on user profile and settings.
+ * The duplicate Logout action has been eliminated; Logout is centralized exclusively in the Main Sidebar.
  */
 export const SidebarFooter = ({
   authUser,
@@ -13,24 +13,23 @@ export const SidebarFooter = ({
   onProfile,
   onSettings,
   navigate,
-  setConfirmLogout,
 }) => {
   return (
-    <footer className="border-t border-base-300/80 bg-base-100/95 backdrop-blur-md px-2.5 py-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 sm:py-2 shrink-0">
-      <div className="flex items-center justify-between gap-1.5">
+    <footer className="border-t border-base-300/70 bg-base-100/95 backdrop-blur-md px-2.5 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 shrink-0">
+      <div className="flex items-center justify-between gap-2">
         {/* Profile identity button */}
         <button
           type="button"
           onClick={() => navigate("/profile")}
           aria-label="Open my profile"
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-base-200/70 active:scale-[0.99] cursor-pointer"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1 text-left transition-colors hover:bg-base-200/70 active:scale-[0.99] cursor-pointer group"
         >
           <div className="relative shrink-0">
             <img
               src={avatarSrc(authUser?.avatar)}
               alt={authUser?.fullName || "Me"}
               className={`size-8 sm:size-8.5 rounded-full object-cover ring-2 transition-colors ${
-                onProfile ? "ring-primary" : "ring-base-300/70"
+                onProfile ? "ring-primary" : "ring-base-300/80 group-hover:ring-primary/60"
               }`}
             />
             {meOnline && (
@@ -42,7 +41,7 @@ export const SidebarFooter = ({
           </div>
 
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-xs sm:text-sm font-semibold text-base-content">
+            <p className="truncate text-xs sm:text-[13px] font-semibold text-base-content group-hover:text-primary transition-colors">
               {authUser?.fullName || "My Account"}
             </p>
             <p className="truncate text-[11px] mt-0.5">
@@ -53,26 +52,22 @@ export const SidebarFooter = ({
                 </span>
               ) : (
                 <span className="text-base-content/55">
-                  {authUser?.email || "Offline"}
+                  {authUser?.username
+                    ? `@${authUser.username}`
+                    : authUser?.email || "Offline"}
                 </span>
               )}
             </p>
           </div>
         </button>
 
-        {/* Account actions: Settings & Logout */}
-        <div className="flex shrink-0 items-center gap-0.5">
+        {/* Account action: Settings only (Logout is exclusively in the Main Navigation Sidebar) */}
+        <div className="flex shrink-0 items-center">
           <FooterAction
             icon={Settings}
             label="Settings"
             active={onSettings}
             onClick={() => navigate("/settings")}
-          />
-          <FooterAction
-            icon={LogOut}
-            label="Log out"
-            danger
-            onClick={() => setConfirmLogout(true)}
           />
         </div>
       </div>

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { customToast as toast } from "../components/toast/customToastService.js";
 import { axiosInstance } from "../lib/axios.js";
 import {
+  encryptFor,
   encryptGroupText,
   decryptGroupText,
   loadGroupKeys,
@@ -1169,21 +1170,64 @@ export const useGroupStore = create((set, get) => ({
 
   closeThread: () => set({ activeThread: null }),
 
-  sendThreadReply: async (text) => {
+  sendThreadReply: async (replyData) => {
     const { activeThread, selectedGroup } = get();
     if (!activeThread?.parentMessage || !activeThread?.groupId) return;
     const parentId = activeThread.parentMessage.id || activeThread.parentMessage._id;
     const gid = activeThread.groupId;
 
     const clientId = newClientId();
-    let payload = { text, clientId };
+    const isObj = typeof replyData === "object" && replyData !== null;
+    const text = isObj ? (replyData.text || "") : (replyData || "");
+    const sticker = isObj ? replyData.sticker : undefined;
+    const gift = isObj ? replyData.gift : undefined;
+    const image = isObj ? replyData.image : undefined;
+    const file = isObj ? replyData.file : undefined;
+    const messageType = isObj && replyData.messageType
+      ? replyData.messageType
+      : sticker
+        ? "sticker"
+        : gift
+          ? "gift"
+          : image
+            ? "image"
+            : file
+              ? "file"
+              : "text";
+
+    let normalizedSticker = sticker;
+    if (typeof normalizedSticker === "string" && normalizedSticker.trim()) {
+      try {
+        normalizedSticker = JSON.parse(normalizedSticker);
+      } catch (_e) {
+        normalizedSticker = { url: normalizedSticker.trim() };
+      }
+    }
+    if (normalizedSticker && typeof normalizedSticker === "object") {
+      if (!normalizedSticker.url && (normalizedSticker.imageUrl || normalizedSticker.thumbnailUrl)) {
+        normalizedSticker = {
+          ...normalizedSticker,
+          url: normalizedSticker.imageUrl || normalizedSticker.thumbnailUrl,
+        };
+      }
+    }
+
+    let payload = {
+      text,
+      clientId,
+      sticker: normalizedSticker,
+      gift,
+      image,
+      file,
+      messageType,
+    };
     let enc = null;
 
     const isGroupEncrypted = Boolean(
       selectedGroup?.e2ee || activeThread.parentMessage.e2ee || activeThread.parentMessage.encrypted
     );
 
-    if (isGroupEncrypted && (await e2eeReady())) {
+    if (isGroupEncrypted && text && (await e2eeReady())) {
       try {
         enc = await encryptGroupText(gid, text);
       } catch (e) {
@@ -1194,12 +1238,12 @@ export const useGroupStore = create((set, get) => ({
       }
       if (enc) {
         payload = {
+          ...payload,
           text: enc.text,
           iv: enc.iv,
           keyVersion: enc.keyVersion,
           encrypted: true,
           e2ee: true,
-          clientId,
         };
       } else {
         toast.error("Failed to encrypt group reply.");

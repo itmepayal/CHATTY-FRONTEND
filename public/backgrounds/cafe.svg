@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="brick" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#7c2d12"/>
+        <stop offset="100%" stop-color="#431407"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#brick)"/>
+    <!-- Exposed Brick Patterns -->
+    <g opacity="0.3" stroke="#fed7aa" stroke-width="2">
+      <line x1="0" y1="0" x2="1280" y2="0"/>
+<line x1="0" y1="90" x2="1280" y2="90"/>
+<line x1="0" y1="180" x2="1280" y2="180"/>
+<line x1="0" y1="270" x2="1280" y2="270"/>
+<line x1="0" y1="360" x2="1280" y2="360"/>
+<line x1="0" y1="450" x2="1280" y2="450"/>
+<line x1="0" y1="540" x2="1280" y2="540"/>
+<line x1="0" y1="630" x2="1280" y2="630"/>
+    </g>
+    <!-- Warm Edison Bulbs hanging -->
+    
+      <line x1="320" y1="0" x2="320" y2="180" stroke="#171717" stroke-width="3"/>
+      <circle cx="320" cy="180" r="60" fill="#fbbf24" opacity="0.25"/>
+      <circle cx="320" cy="180" r="20" fill="#fef08a" opacity="0.9"/>
+    
+
+      <line x1="640" y1="0" x2="640" y2="180" stroke="#171717" stroke-width="3"/>
+      <circle cx="640" cy="180" r="60" fill="#fbbf24" opacity="0.25"/>
+      <circle cx="640" cy="180" r="20" fill="#fef08a" opacity="0.9"/>
+    
+
+      <line x1="960" y1="0" x2="960" y2="180" stroke="#171717" stroke-width="3"/>
+      <circle cx="960" cy="180" r="60" fill="#fbbf24" opacity="0.25"/>
+      <circle cx="960" cy="180" r="20" fill="#fef08a" opacity="0.9"/>
+    
+    <!-- Cafe Countertop -->
+    <rect y="540" width="1280" height="180" fill="#292524"/>
+    <line x1="0" y1="540" x2="1280" y2="540" stroke="#78350f" stroke-width="12"/>
+  </svg>

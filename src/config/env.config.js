@@ -1,16 +1,65 @@
-const { DEV, PROD, MODE, VITE_API_URL, VITE_SOCKET_URL } = import.meta.env;
+const LOCAL_API = "http://localhost:8080/api/v1";
+const LOCAL_SOCKET = "http://localhost:8080";
+const PRODUCTION_API = "https://chatty-backend-2l2t.onrender.com/api/v1";
+const PRODUCTION_SOCKET = "https://chatty-backend-2l2t.onrender.com";
 
-const resolvedApiUrl = (
+const metaEnv =
+  typeof import.meta !== "undefined" && import.meta.env
+    ? import.meta.env
+    : {};
+
+const proc =
+  typeof globalThis !== "undefined" && globalThis.process
+    ? globalThis.process
+    : undefined;
+const procEnv = proc && typeof proc.env === "object" ? proc.env : {};
+
+const DEV = Boolean(
+  metaEnv.DEV ?? (procEnv.NODE_ENV !== "production"),
+);
+const PROD = Boolean(
+  metaEnv.PROD ?? (procEnv.NODE_ENV === "production"),
+);
+const MODE = metaEnv.MODE || (PROD ? "production" : "development");
+const VITE_API_URL =
+  metaEnv.VITE_API_URL ||
+  procEnv.VITE_API_URL ||
+  "";
+const VITE_SOCKET_URL =
+  metaEnv.VITE_SOCKET_URL ||
+  procEnv.VITE_SOCKET_URL ||
+  "";
+
+let resolvedApiUrl = (
   VITE_API_URL || (DEV ? LOCAL_API : PROD ? PRODUCTION_API : "")
 )
   .trim()
   .replace(/\/+$/, "");
 
-const resolvedSocketUrl = (
+let resolvedSocketUrl = (
   VITE_SOCKET_URL || (DEV ? LOCAL_SOCKET : PROD ? PRODUCTION_SOCKET : "")
 )
   .trim()
   .replace(/\/+$/, "");
+
+if (resolvedApiUrl.startsWith("/")) {
+  const base =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : DEV
+        ? "http://localhost:8080"
+        : PRODUCTION_SOCKET;
+  resolvedApiUrl = `${base}${resolvedApiUrl}`;
+}
+
+if (!resolvedSocketUrl) {
+  resolvedSocketUrl =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : DEV
+        ? LOCAL_SOCKET
+        : PRODUCTION_SOCKET;
+}
 
 if (!DEV && !PROD) {
   throw new Error("[Chatty Config] Unsupported application environment.");

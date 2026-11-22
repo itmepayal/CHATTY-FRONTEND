@@ -302,6 +302,23 @@ export const claimAction = (actionType, messageId) => {
 };
 
 /**
+ * Triggers device vibration pattern if supported by browser/device.
+ */
+export const triggerVibration = (pattern = [200, 100, 200]) => {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      "navigator" in window &&
+      typeof navigator.vibrate === "function"
+    ) {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // Vibration ignored if unsupported or disallowed
+  }
+};
+
+/**
  * Detects browser Notification API permission state.
  * Returns: "granted" | "denied" | "default" | "unsupported"
  */
@@ -383,6 +400,7 @@ const playWebAudioChime = (volumeFraction) => {
 export const playMessageSound = ({
   volume = 60,
   soundEnabled = true,
+  masterEnabled = true,
   messageId = null,
   isMuted = false,
   isDnd = false,
@@ -390,7 +408,7 @@ export const playMessageSound = ({
   soft = false,
 } = {}) => {
   if (!force) {
-    if (!soundEnabled) return;
+    if (!soundEnabled || !masterEnabled) return;
     if (isMuted || isDnd) return;
 
     const now = Date.now();
@@ -435,6 +453,7 @@ export const playMessageSound = ({
 export const formatNotificationPreview = ({
   text = "",
   showPreview = true,
+  previewPrivacy = "full",
   senderName = "User",
   messageType = "text",
   hasImage = false,
@@ -446,6 +465,20 @@ export const formatNotificationPreview = ({
   if (!showPreview) {
     return {
       title: "Chatty",
+      body: "New message",
+    };
+  }
+
+  if (previewPrivacy === "hidden") {
+    return {
+      title: "Chatty",
+      body: "New notification",
+    };
+  }
+
+  if (previewPrivacy === "sender_only") {
+    return {
+      title: senderName ? String(senderName).trim() : "Chatty",
       body: "New message",
     };
   }
@@ -491,6 +524,8 @@ export const showDesktopNotification = ({
   hasLocation = false,
   messageId = null,
   showPreview = true,
+  previewPrivacy = "full",
+  masterEnabled = true,
   desktopNotifications = false,
   isMuted = false,
   isDnd = false,
@@ -502,7 +537,7 @@ export const showDesktopNotification = ({
   }
 
   if (!force) {
-    if (!desktopNotifications) return null;
+    if (!desktopNotifications || !masterEnabled) return null;
     if (Notification.permission !== "granted") return null;
     if (isMuted || isDnd) return null;
 
@@ -527,6 +562,7 @@ export const showDesktopNotification = ({
     const preview = formatNotificationPreview({
       text,
       showPreview,
+      previewPrivacy,
       senderName,
       messageType,
       hasImage,

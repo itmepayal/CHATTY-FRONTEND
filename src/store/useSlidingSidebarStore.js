@@ -2,10 +2,8 @@ import { create } from "zustand";
 
 export const useSlidingSidebarStore = create((set, get) => ({
   // Desktop state: collapsed (icon-only ~76px) vs expanded (~280px)
-  isCollapsed:
-    typeof window !== "undefined"
-      ? localStorage.getItem("chatty_sidebar_collapsed") === "true"
-      : false,
+  // Default to false (expanded by default on desktop)
+  isCollapsed: false,
 
   // Mobile & tablet off-canvas drawer open/close
   isMobileOpen: false,

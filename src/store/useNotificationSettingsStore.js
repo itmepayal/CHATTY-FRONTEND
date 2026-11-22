@@ -3,13 +3,33 @@ import { axiosInstance } from "../lib/axios.js";
 import { customToast as toast } from "../components/toast/customToastService.js";
 
 export const NOTIFICATION_SETTINGS_DEFAULTS = {
+  masterEnabled: true,
   soundEnabled: true,
   soundVolume: 60,
   desktopNotifications: false,
   showPreview: true,
+  inAppNotifications: true,
+  pushNotifications: true,
+  previewPrivacy: "full", // "full" | "sender_only" | "hidden"
+  vibrationEnabled: true,
+  ringtone: "default",
+};
+
+const getDetectedTimezone = () => {
+  try {
+    return (
+      (typeof Intl !== "undefined" &&
+        Intl.DateTimeFormat &&
+        Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+      "UTC"
+    );
+  } catch {
+    return "UTC";
+  }
 };
 
 export const NOTIFICATION_PREFERENCES_DEFAULTS = {
+  masterEnabled: true,
   messagesPersonal: true,
   messagesGroup: true,
   messageReplies: true,
@@ -24,6 +44,10 @@ export const NOTIFICATION_PREFERENCES_DEFAULTS = {
   contactAcceptance: true,
   groupInvitations: true,
   groupMembershipEvents: true,
+  storiesReplies: true,
+  storiesReactions: true,
+  storiesMentions: true,
+  storiesFavorites: true,
   securityNewDevice: true,
   securityDeviceLinking: true,
   securityCredentialChanges: true,
@@ -33,6 +57,11 @@ export const NOTIFICATION_PREFERENCES_DEFAULTS = {
   systemAlerts: true,
   dndEnabled: false,
   dndUntil: null,
+  quietHoursEnabled: false,
+  quietHoursStart: "22:00",
+  quietHoursEnd: "08:00",
+  quietHoursDays: [0, 1, 2, 3, 4, 5, 6],
+  quietHoursTimezone: getDetectedTimezone(),
   mutedConversations: [],
   mutedGroups: [],
 };
@@ -57,6 +86,11 @@ export const useNotificationSettingsStore = create((set, get) => ({
     const np = userData?.notificationPreferences || {};
     set((state) => ({
       settings: {
+        ...state.settings,
+        masterEnabled:
+          ns.masterEnabled !== undefined
+            ? Boolean(ns.masterEnabled)
+            : state.settings.masterEnabled,
         soundEnabled:
           ns.soundEnabled !== undefined
             ? Boolean(ns.soundEnabled)
@@ -73,6 +107,20 @@ export const useNotificationSettingsStore = create((set, get) => ({
           ns.showPreview !== undefined
             ? Boolean(ns.showPreview)
             : state.settings.showPreview,
+        inAppNotifications:
+          ns.inAppNotifications !== undefined
+            ? Boolean(ns.inAppNotifications)
+            : state.settings.inAppNotifications,
+        pushNotifications:
+          ns.pushNotifications !== undefined
+            ? Boolean(ns.pushNotifications)
+            : state.settings.pushNotifications,
+        previewPrivacy: ns.previewPrivacy || state.settings.previewPrivacy,
+        vibrationEnabled:
+          ns.vibrationEnabled !== undefined
+            ? Boolean(ns.vibrationEnabled)
+            : state.settings.vibrationEnabled,
+        ringtone: ns.ringtone || state.settings.ringtone,
       },
       preferences: {
         ...state.preferences,
@@ -94,6 +142,10 @@ export const useNotificationSettingsStore = create((set, get) => ({
 
       set({
         settings: {
+          masterEnabled:
+            data.masterEnabled !== undefined
+              ? Boolean(data.masterEnabled)
+              : NOTIFICATION_SETTINGS_DEFAULTS.masterEnabled,
           soundEnabled:
             data.soundEnabled !== undefined
               ? Boolean(data.soundEnabled)
@@ -110,6 +162,21 @@ export const useNotificationSettingsStore = create((set, get) => ({
             data.showPreview !== undefined
               ? Boolean(data.showPreview)
               : NOTIFICATION_SETTINGS_DEFAULTS.showPreview,
+          inAppNotifications:
+            data.inAppNotifications !== undefined
+              ? Boolean(data.inAppNotifications)
+              : NOTIFICATION_SETTINGS_DEFAULTS.inAppNotifications,
+          pushNotifications:
+            data.pushNotifications !== undefined
+              ? Boolean(data.pushNotifications)
+              : NOTIFICATION_SETTINGS_DEFAULTS.pushNotifications,
+          previewPrivacy:
+            data.previewPrivacy || NOTIFICATION_SETTINGS_DEFAULTS.previewPrivacy,
+          vibrationEnabled:
+            data.vibrationEnabled !== undefined
+              ? Boolean(data.vibrationEnabled)
+              : NOTIFICATION_SETTINGS_DEFAULTS.vibrationEnabled,
+          ringtone: data.ringtone || NOTIFICATION_SETTINGS_DEFAULTS.ringtone,
         },
         preferences: {
           ...NOTIFICATION_PREFERENCES_DEFAULTS,
@@ -120,7 +187,10 @@ export const useNotificationSettingsStore = create((set, get) => ({
       });
     } catch (err) {
       console.warn("[notificationSettings] fetch error:", err?.message);
-      set({ loading: false, error: err?.message || "Failed to load notification settings" });
+      set({
+        loading: false,
+        error: err?.message || "Failed to load notification settings",
+      });
     }
   },
 
@@ -147,7 +217,10 @@ export const useNotificationSettingsStore = create((set, get) => ({
         pendingVolumeValue = null;
         debounceTimer = null;
 
-        await get().persistPartial({ soundVolume: valToPersist }, { soundVolume: current.soundVolume });
+        await get().persistPartial(
+          { soundVolume: valToPersist },
+          { soundVolume: current.soundVolume },
+        );
       }, 400);
 
       return;
@@ -191,9 +264,14 @@ export const useNotificationSettingsStore = create((set, get) => ({
       console.error("[notificationSettings] update failed:", err?.message);
       set((state) => ({
         settings: { ...state.settings, ...rollbackState },
-        error: err?.response?.data?.message || err?.message || "Failed to save setting",
+        error:
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to save setting",
       }));
-      toast.error(err?.response?.data?.message || "Failed to update notification setting");
+      toast.error(
+        err?.response?.data?.message || "Failed to update notification setting",
+      );
     } finally {
       inFlightUpdateCount = Math.max(0, inFlightUpdateCount - 1);
       if (inFlightUpdateCount === 0) {
@@ -216,16 +294,22 @@ export const useNotificationSettingsStore = create((set, get) => ({
     }));
 
     try {
-      const res = await axiosInstance.patch("/settings/notifications/preferences", {
-        [key]: value,
-      });
+      const res = await axiosInstance.patch(
+        "/settings/notifications/preferences",
+        {
+          [key]: value,
+        },
+      );
       const updated = res?.data?.preferences || { [key]: value };
       set((state) => ({
         preferences: { ...state.preferences, ...updated },
         saving: false,
       }));
     } catch (err) {
-      console.error("[notificationSettings] preference update failed:", err?.message);
+      console.error(
+        "[notificationSettings] preference update failed:",
+        err?.message,
+      );
       set({
         preferences: previous,
         saving: false,
@@ -233,6 +317,85 @@ export const useNotificationSettingsStore = create((set, get) => ({
       });
       toast.error("Failed to update notification preference");
     }
+  },
+
+  /**
+   * Updates multiple preferences at once.
+   */
+  updatePreferences: async (partialPreferences) => {
+    const previous = { ...get().preferences };
+    set((state) => ({
+      preferences: { ...state.preferences, ...partialPreferences },
+      saving: true,
+    }));
+
+    try {
+      const res = await axiosInstance.patch(
+        "/settings/notifications/preferences",
+        partialPreferences,
+      );
+      const updated = res?.data?.preferences || partialPreferences;
+      set((state) => ({
+        preferences: { ...state.preferences, ...updated },
+        saving: false,
+      }));
+    } catch (err) {
+      console.error(
+        "[notificationSettings] preference batch update failed:",
+        err?.message,
+      );
+      set({
+        preferences: previous,
+        saving: false,
+        error: err?.response?.data?.message || "Failed to update preferences",
+      });
+      toast.error("Failed to update notification preferences");
+    }
+  },
+
+  /**
+   * Master Toggle: enables or disables all notifications across the application.
+   */
+  toggleMasterNotifications: async (enabled) => {
+    const previousSettings = { ...get().settings };
+    const previousPreferences = { ...get().preferences };
+
+    set((state) => ({
+      settings: { ...state.settings, masterEnabled: enabled },
+      preferences: { ...state.preferences, masterEnabled: enabled },
+      saving: true,
+    }));
+
+    try {
+      await Promise.all([
+        axiosInstance.patch("/settings/notifications", {
+          masterEnabled: enabled,
+        }),
+        axiosInstance.patch("/settings/notifications/preferences", {
+          masterEnabled: enabled,
+        }),
+      ]);
+      toast.success(
+        enabled ? "All notifications enabled" : "All notifications paused",
+      );
+    } catch (err) {
+      set({
+        settings: previousSettings,
+        preferences: previousPreferences,
+        error: err?.message,
+      });
+      toast.error("Failed to update master notification toggle");
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  enableAllNotifications: async () => {
+    return get().toggleMasterNotifications(true);
+  },
+
+  disableAllNotifications: async () => {
+    return get().toggleMasterNotifications(false);
   },
 
   /**
@@ -248,7 +411,9 @@ export const useNotificationSettingsStore = create((set, get) => ({
       if (updated) {
         set((state) => ({ preferences: { ...state.preferences, ...updated } }));
       }
-      toast.success(`${type === "group" ? "Group" : "Chat"} notifications muted`);
+      toast.success(
+        `${type === "group" ? "Group" : "Chat"} notifications muted`,
+      );
     } catch (err) {
       toast.error("Failed to mute notifications");
     }
@@ -266,7 +431,9 @@ export const useNotificationSettingsStore = create((set, get) => ({
       if (updated) {
         set((state) => ({ preferences: { ...state.preferences, ...updated } }));
       }
-      toast.success(`${type === "group" ? "Group" : "Chat"} notifications unmuted`);
+      toast.success(
+        `${type === "group" ? "Group" : "Chat"} notifications unmuted`,
+      );
     } catch (err) {
       toast.error("Failed to unmute notifications");
     }
@@ -281,28 +448,14 @@ export const useNotificationSettingsStore = create((set, get) => ({
 
     set((state) => ({
       settings: {
-        soundEnabled:
-          incoming.soundEnabled !== undefined
-            ? Boolean(incoming.soundEnabled)
-            : state.settings.soundEnabled,
-        soundVolume:
-          typeof incoming.soundVolume === "number" && !Number.isNaN(incoming.soundVolume)
-            ? Math.max(0, Math.min(100, Math.round(incoming.soundVolume)))
-            : state.settings.soundVolume,
-        desktopNotifications:
-          incoming.desktopNotifications !== undefined
-            ? Boolean(incoming.desktopNotifications)
-            : state.settings.desktopNotifications,
-        showPreview:
-          incoming.showPreview !== undefined
-            ? Boolean(incoming.showPreview)
-            : state.settings.showPreview,
+        ...state.settings,
+        ...incoming,
       },
     }));
   },
 
   handleSocketPreferencesUpdate: (payload) => {
-    const prefs = payload?.preferences;
+    const prefs = payload?.preferences || payload;
     if (prefs && typeof prefs === "object") {
       set((state) => ({
         preferences: { ...state.preferences, ...prefs },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   X,
   ChevronLeft,
@@ -15,7 +15,6 @@ import {
   Pause,
 } from "lucide-react";
 import { useStoryStore } from "../../store/useStoryStore.js";
-import { useAuthStore } from "../../store/useAuthStore.js";
 
 const DEFAULT_AVATAR = "/avatar.png";
 const QUICK_REACTIONS = ["❤️", "😂", "😍", "🔥", "👏", "😢", "😮", "👍"];
@@ -34,7 +33,6 @@ const formatTimeAgo = (dateStr) => {
 };
 
 export const StoryViewerModal = () => {
-  const { authUser } = useAuthStore();
   const {
     feed,
     activeUserIndex,
@@ -56,21 +54,77 @@ export const StoryViewerModal = () => {
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [progress, setProgress] = useState(0); // 0 to 100 for current slide
+  const [isMediaLoaded, setIsMediaLoaded] = useState(false);
   const [isVideoBuffering, setIsVideoBuffering] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [floatingReaction, setFloatingReaction] = useState(null);
 
   const videoRef = useRef(null);
+  const hasAdvancedRef = useRef(false);
+  const advanceTimeoutRef = useRef(null);
   const holdTimeoutRef = useRef(null);
   const touchStartRef = useRef({ x: 0, y: 0 });
+  const currentProgressRef = useRef(0);
 
   const currentUserGroup = feed[activeUserIndex];
   const currentStory = currentUserGroup?.stories?.[activeStoryIndex];
   const isMyStory = currentUserGroup?.isSelf;
 
   const isVideo = currentStory?.mediaType === "video";
-  const durationSec = currentStory?.duration || 5;
+  const durationSec = currentStory?.duration || (isVideo ? 15 : 5);
+
+  // Authoritative auto-advance guarded against duplicate calls
+  const advanceStory = useCallback(() => {
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+    if (hasAdvancedRef.current) return;
+    hasAdvancedRef.current = true;
+    nextStory();
+  }, [nextStory]);
+
+  // Safe manual navigation handlers
+  const handleNext = useCallback(() => {
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+    hasAdvancedRef.current = true;
+    setProgress(0);
+    currentProgressRef.current = 0;
+    nextStory();
+  }, [nextStory]);
+
+  const handlePrev = useCallback(() => {
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+    hasAdvancedRef.current = true;
+    setProgress(0);
+    currentProgressRef.current = 0;
+    prevStory();
+  }, [prevStory]);
+
+  // Fallback advance for media loading errors to avoid freezing
+  const triggerFallbackAdvance = useCallback(() => {
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+    advanceTimeoutRef.current = setTimeout(() => {
+      advanceStory();
+    }, 2500);
+  }, [advanceStory]);
+
+  // Reset progress and lock flags when active story changes
+  useEffect(() => {
+    if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+    hasAdvancedRef.current = false;
+    setProgress(0);
+    currentProgressRef.current = 0;
+    setIsVideoBuffering(false);
+    setVideoError(false);
+    setIsMediaLoaded(currentStory?.mediaType === "text");
+  }, [currentStory?._id, activeStoryIndex, currentStory?.mediaType]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (advanceTimeoutRef.current) clearTimeout(advanceTimeoutRef.current);
+      if (holdTimeoutRef.current) clearTimeout(holdTimeoutRef.current);
+    };
+  }, []);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -80,9 +134,9 @@ export const StoryViewerModal = () => {
       if (e.key === "Escape") {
         closeViewer();
       } else if (e.key === "ArrowRight") {
-        nextStory();
+        handleNext();
       } else if (e.key === "ArrowLeft") {
-        prevStory();
+        handlePrev();
       } else if (e.key === " ") {
         e.preventDefault();
         setPaused(!isPaused);
@@ -91,7 +145,7 @@ export const StoryViewerModal = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isViewerOpen, isPaused, closeViewer, nextStory, prevStory, setPaused]);
+  }, [isViewerOpen, isPaused, closeViewer, handleNext, handlePrev, setPaused]);
 
   // Video play/pause synchronization
   useEffect(() => {
@@ -103,11 +157,10 @@ export const StoryViewerModal = () => {
     }
   }, [isPaused, isVideo]);
 
-  // Non-video timer loop (Image & Text stories)
+  // Non-video timer loop (Image & Text stories) - pure progress updates, advance decoupled
   useEffect(() => {
-    if (!isViewerOpen || !currentStory || isVideo) return;
+    if (!isViewerOpen || !currentStory || isVideo || !isMediaLoaded) return;
 
-    setProgress(0);
     const intervalTime = 50; // update every 50ms
     const totalSteps = (durationSec * 1000) / intervalTime;
     const stepIncrement = 100 / totalSteps;
@@ -115,22 +168,22 @@ export const StoryViewerModal = () => {
     const interval = setInterval(() => {
       if (useStoryStore.getState().isPaused) return;
 
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          nextStory();
-          return 0;
-        }
-        return prev + stepIncrement;
-      });
+      currentProgressRef.current += stepIncrement;
+      if (currentProgressRef.current >= 100) {
+        clearInterval(interval);
+        setProgress(100);
+        advanceStory();
+      } else {
+        setProgress(currentProgressRef.current);
+      }
     }, intervalTime);
 
     return () => clearInterval(interval);
-  }, [isViewerOpen, currentStory?._id, isVideo, durationSec, nextStory]);
+  }, [isViewerOpen, currentStory, isVideo, isMediaLoaded, durationSec, advanceStory]);
 
   // Video time update listener
   const handleVideoTimeUpdate = () => {
-    if (!videoRef.current || !isVideo) return;
+    if (!videoRef.current || !isVideo || useStoryStore.getState().isPaused) return;
     const { currentTime, duration } = videoRef.current;
     if (duration > 0) {
       const p = (currentTime / duration) * 100;
@@ -140,7 +193,19 @@ export const StoryViewerModal = () => {
 
   const handleVideoEnded = () => {
     setProgress(100);
-    nextStory();
+    advanceStory();
+  };
+
+  const handleVideoError = () => {
+    setVideoError(true);
+    setIsVideoBuffering(false);
+    setIsMediaLoaded(true);
+    triggerFallbackAdvance();
+  };
+
+  const handleImageError = () => {
+    setIsMediaLoaded(true);
+    triggerFallbackAdvance();
   };
 
   // Content tap navigation
@@ -159,9 +224,9 @@ export const StoryViewerModal = () => {
     const width = rect.width;
 
     if (clickX < width * 0.35) {
-      prevStory();
+      handlePrev();
     } else {
-      nextStory();
+      handleNext();
     }
   };
 
@@ -262,7 +327,7 @@ export const StoryViewerModal = () => {
       {/* Desktop External Left Chevron */}
       {hasPrev && (
         <button
-          onClick={prevStory}
+          onClick={handlePrev}
           aria-label="Previous story"
           className="hidden md:flex absolute left-4 lg:left-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-primary/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
         >
@@ -273,7 +338,7 @@ export const StoryViewerModal = () => {
       {/* Desktop External Right Chevron */}
       {hasNext && (
         <button
-          onClick={nextStory}
+          onClick={handleNext}
           aria-label="Next story"
           className="hidden md:flex absolute right-4 lg:right-12 top-1/2 -translate-y-1/2 z-40 p-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 hover:border-primary/50 transition-all hover:scale-110 active:scale-95 shadow-2xl cursor-pointer"
         >
@@ -445,6 +510,8 @@ export const StoryViewerModal = () => {
               <img
                 src={currentStory.mediaUrl}
                 alt="Story content"
+                onLoad={() => setIsMediaLoaded(true)}
+                onError={handleImageError}
                 className="relative max-h-full max-w-full object-contain z-10 select-none"
               />
             </div>
@@ -464,14 +531,19 @@ export const StoryViewerModal = () => {
                 autoPlay
                 playsInline
                 muted={isMuted}
+                onLoadedMetadata={() => setIsMediaLoaded(true)}
+                onCanPlay={() => {
+                  setIsMediaLoaded(true);
+                  setIsVideoBuffering(false);
+                }}
                 onTimeUpdate={handleVideoTimeUpdate}
                 onEnded={handleVideoEnded}
                 onWaiting={() => setIsVideoBuffering(true)}
-                onPlaying={() => setIsVideoBuffering(false)}
-                onError={() => {
-                  setVideoError(true);
+                onPlaying={() => {
                   setIsVideoBuffering(false);
+                  setIsMediaLoaded(true);
                 }}
+                onError={handleVideoError}
                 className="relative max-h-full max-w-full object-contain z-10"
               />
               {videoError && (

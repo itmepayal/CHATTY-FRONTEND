@@ -252,13 +252,13 @@ const UserInfoPanel = ({ open, onToggle, hasActiveThread = false }) => {
     <>
       {/* Mobile & Tablet Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/20 xl:hidden"
+        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] xl:hidden transition-opacity"
         onClick={onToggle}
         aria-hidden="true"
       />
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-all duration-200 xl:relative xl:z-auto lg:w-[300px] xl:w-[320px] xl:max-w-none xl:shadow-none"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm sm:w-[340px] md:w-[360px] flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-all duration-200 xl:relative xl:z-auto xl:w-[320px] 2xl:w-[340px] xl:shrink-0 xl:max-w-none xl:shadow-none min-h-0 h-full overflow-hidden"
       >
         {/* Header */}
         <div className="flex h-13 sm:h-14 shrink-0 items-center justify-between px-4 sm:px-5 border-b border-base-300 bg-base-100/90 backdrop-blur-sm">
@@ -278,7 +278,7 @@ const UserInfoPanel = ({ open, onToggle, hasActiveThread = false }) => {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* SECTION A & B: PROFILE HEADER & ACTIONS */}
           <UserInfoProfileHeader
             targetUser={targetUser}

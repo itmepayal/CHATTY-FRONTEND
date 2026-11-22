@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import { customToast as toast } from "../components/toast/customToastService.js";
-import { playMessageSound } from "../services/notificationService.js";
+import {
+  playMessageSound,
+  triggerVibration,
+} from "../services/notificationService.js";
 import { useNotificationSettingsStore } from "./useNotificationSettingsStore.js";
 
 export const useNotificationStore = create((set, get) => ({
@@ -12,6 +15,7 @@ export const useNotificationStore = create((set, get) => ({
     group: 0,
     call: 0,
     contact: 0,
+    story: 0,
     security: 0,
     system: 0,
   },
@@ -44,7 +48,8 @@ export const useNotificationStore = create((set, get) => ({
     set({ loading: true, error: null });
     const { categoryFilter, activeTab, searchQuery, page, limit } = get();
 
-    const category = overrides.category !== undefined ? overrides.category : categoryFilter;
+    const category =
+      overrides.category !== undefined ? overrides.category : categoryFilter;
     const unreadOnly =
       overrides.unreadOnly !== undefined
         ? overrides.unreadOnly
@@ -70,12 +75,18 @@ export const useNotificationStore = create((set, get) => ({
         page: data.page || p,
         totalPages: data.totalPages || 1,
         unreadCount: data.unreadCount ?? get().unreadCount,
-        categoryCounts: data.categoryCounts || get().categoryCounts,
+        categoryCounts: {
+          ...get().categoryCounts,
+          ...(data.categoryCounts || {}),
+        },
         loading: false,
       });
     } catch (err) {
       console.warn("[notificationStore] fetch error:", err?.message);
-      set({ loading: false, error: err?.message || "Failed to fetch notifications" });
+      set({
+        loading: false,
+        error: err?.message || "Failed to fetch notifications",
+      });
     }
   },
 
@@ -85,7 +96,10 @@ export const useNotificationStore = create((set, get) => ({
       const data = res?.data?.data || res?.data || {};
       set({
         unreadCount: data.count || 0,
-        categoryCounts: data.categoryCounts || get().categoryCounts,
+        categoryCounts: {
+          ...get().categoryCounts,
+          ...(data.categoryCounts || {}),
+        },
       });
     } catch (err) {
       console.warn("[notificationStore] fetchUnreadCount error:", err?.message);
@@ -96,14 +110,26 @@ export const useNotificationStore = create((set, get) => ({
     if (!notificationId) return;
 
     // Optimistic local update
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
-        (n.id === notificationId || n._id === notificationId)
-          ? { ...n, isRead: true }
-          : n,
-      ),
-      unreadCount: Math.max(0, state.unreadCount - 1),
-    }));
+    set((state) => {
+      const target = state.notifications.find(
+        (n) => n.id === notificationId || n._id === notificationId,
+      );
+      if (!target || target.isRead) return state;
+
+      const cat = target.category || "system";
+      return {
+        notifications: state.notifications.map((n) =>
+          n.id === notificationId || n._id === notificationId
+            ? { ...n, isRead: true }
+            : n,
+        ),
+        unreadCount: Math.max(0, state.unreadCount - 1),
+        categoryCounts: {
+          ...state.categoryCounts,
+          [cat]: Math.max(0, (state.categoryCounts[cat] || 1) - 1),
+        },
+      };
+    });
 
     try {
       await axiosInstance.patch(`/notifications/${notificationId}/read`);
@@ -112,16 +138,59 @@ export const useNotificationStore = create((set, get) => ({
     }
   },
 
+  markAsUnread: async (notificationId) => {
+    if (!notificationId) return;
+
+    // Optimistic local update
+    set((state) => {
+      const target = state.notifications.find(
+        (n) => n.id === notificationId || n._id === notificationId,
+      );
+      if (!target || !target.isRead) return state;
+
+      const cat = target.category || "system";
+      return {
+        notifications: state.notifications.map((n) =>
+          n.id === notificationId || n._id === notificationId
+            ? { ...n, isRead: false }
+            : n,
+        ),
+        unreadCount: state.unreadCount + 1,
+        categoryCounts: {
+          ...state.categoryCounts,
+          [cat]: (state.categoryCounts[cat] || 0) + 1,
+        },
+      };
+    });
+
+    try {
+      await axiosInstance.patch(`/notifications/${notificationId}/unread`);
+    } catch (err) {
+      console.warn("[notificationStore] markAsUnread error:", err?.message);
+    }
+  },
+
   markAllAsRead: async (category = null) => {
     // Optimistic local update
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
-        !category || category === "all" || n.category === category
-          ? { ...n, isRead: true }
-          : n,
-      ),
-      unreadCount: category && category !== "all" ? Math.max(0, state.unreadCount - (state.categoryCounts[category] || 0)) : 0,
-    }));
+    set((state) => {
+      const isFiltered = category && category !== "all";
+      const clearedCount = isFiltered
+        ? state.categoryCounts[category] || 0
+        : state.unreadCount;
+
+      return {
+        notifications: state.notifications.map((n) =>
+          !isFiltered || n.category === category ? { ...n, isRead: true } : n,
+        ),
+        unreadCount: Math.max(0, state.unreadCount - clearedCount),
+        categoryCounts: isFiltered
+          ? { ...state.categoryCounts, [category]: 0 }
+          : Object.keys(state.categoryCounts).reduce((acc, k) => {
+              acc[k] = 0;
+              return acc;
+            }, {}),
+      };
+    });
 
     try {
       const params = category && category !== "all" ? { category } : {};
@@ -133,6 +202,30 @@ export const useNotificationStore = create((set, get) => ({
     }
   },
 
+  clearReadNotifications: async (category = null) => {
+    // Optimistic clear read notifications
+    set((state) => ({
+      notifications: state.notifications.filter((n) => {
+        if (!n.isRead) return true;
+        if (category && category !== "all" && n.category !== category)
+          return true;
+        return false;
+      }),
+    }));
+
+    try {
+      const params = category && category !== "all" ? { category } : {};
+      await axiosInstance.delete("/notifications/clear-read", { params });
+      toast.success("Read notifications cleared");
+    } catch (err) {
+      console.warn(
+        "[notificationStore] clearReadNotifications error:",
+        err?.message,
+      );
+      toast.error("Failed to clear read notifications");
+    }
+  },
+
   deleteNotification: async (notificationId) => {
     if (!notificationId) return;
 
@@ -140,19 +233,31 @@ export const useNotificationStore = create((set, get) => ({
       (n) => n.id === notificationId || n._id === notificationId,
     );
     const wasUnread = current && !current.isRead;
+    const cat = current?.category || "system";
 
     // Optimistic removal
     set((state) => ({
       notifications: state.notifications.filter(
         (n) => n.id !== notificationId && n._id !== notificationId,
       ),
-      unreadCount: wasUnread ? Math.max(0, state.unreadCount - 1) : state.unreadCount,
+      unreadCount: wasUnread
+        ? Math.max(0, state.unreadCount - 1)
+        : state.unreadCount,
+      categoryCounts: wasUnread
+        ? {
+            ...state.categoryCounts,
+            [cat]: Math.max(0, (state.categoryCounts[cat] || 1) - 1),
+          }
+        : state.categoryCounts,
     }));
 
     try {
       await axiosInstance.delete(`/notifications/${notificationId}`);
     } catch (err) {
-      console.warn("[notificationStore] deleteNotification error:", err?.message);
+      console.warn(
+        "[notificationStore] deleteNotification error:",
+        err?.message,
+      );
       toast.error("Failed to delete notification");
     }
   },
@@ -160,12 +265,24 @@ export const useNotificationStore = create((set, get) => ({
   clearAllNotifications: async (category = null) => {
     // Optimistic clear
     set((state) => ({
-      notifications: category && category !== "all"
-        ? state.notifications.filter((n) => n.category !== category)
-        : [],
-      unreadCount: category && category !== "all"
-        ? Math.max(0, state.unreadCount - (state.categoryCounts[category] || 0))
-        : 0,
+      notifications:
+        category && category !== "all"
+          ? state.notifications.filter((n) => n.category !== category)
+          : [],
+      unreadCount:
+        category && category !== "all"
+          ? Math.max(
+              0,
+              state.unreadCount - (state.categoryCounts[category] || 0),
+            )
+          : 0,
+      categoryCounts:
+        category && category !== "all"
+          ? { ...state.categoryCounts, [category]: 0 }
+          : Object.keys(state.categoryCounts).reduce((acc, k) => {
+              acc[k] = 0;
+              return acc;
+            }, {}),
     }));
 
     try {
@@ -173,7 +290,10 @@ export const useNotificationStore = create((set, get) => ({
       await axiosInstance.delete("/notifications/clear-all", { params });
       toast.success("Notifications cleared");
     } catch (err) {
-      console.warn("[notificationStore] clearAllNotifications error:", err?.message);
+      console.warn(
+        "[notificationStore] clearAllNotifications error:",
+        err?.message,
+      );
       toast.error("Failed to clear notifications");
     }
   },
@@ -183,36 +303,67 @@ export const useNotificationStore = create((set, get) => ({
     if (!socket) return;
 
     const handleNewNotification = (notification) => {
-      set((state) => ({
-        notifications: [notification, ...state.notifications],
-        unreadCount: state.unreadCount + 1,
-        categoryCounts: {
-          ...state.categoryCounts,
-          [notification.category]: (state.categoryCounts[notification.category] || 0) + 1,
-        },
-      }));
+      const settingsStore = useNotificationSettingsStore.getState();
+      const settings = settingsStore?.settings || {};
+      const preferences = settingsStore?.preferences || {};
 
-      // Play chime if sound enabled
-      const settings = useNotificationSettingsStore.getState()?.settings;
-      if (settings?.soundEnabled) {
-        playMessageSound({
-          volume: settings.soundVolume,
-          soundEnabled: true,
-        });
+      const isSecurity = notification?.category === "security";
+      const isMasterDisabled =
+        settings.masterEnabled === false || preferences.masterEnabled === false;
+
+      // In-app notifications list update
+      if (settings.inAppNotifications !== false || isSecurity) {
+        set((state) => ({
+          notifications: [notification, ...state.notifications],
+          unreadCount: state.unreadCount + 1,
+          categoryCounts: {
+            ...state.categoryCounts,
+            [notification.category]:
+              (state.categoryCounts[notification.category] || 0) + 1,
+          },
+        }));
+      }
+
+      // Check sound and vibration if not silent
+      if (!notification.silent) {
+        const canAlert = !isMasterDisabled || isSecurity;
+
+        if (canAlert && settings.soundEnabled) {
+          playMessageSound({
+            volume: settings.soundVolume,
+            soundEnabled: true,
+            masterEnabled: true,
+            force: isSecurity,
+          });
+        }
+
+        if (canAlert && settings.vibrationEnabled) {
+          triggerVibration();
+        }
       }
     };
 
     const handleCountUpdated = ({ count, categoryCounts }) => {
       set((state) => ({
         unreadCount: typeof count === "number" ? count : state.unreadCount,
-        categoryCounts: categoryCounts || state.categoryCounts,
+        categoryCounts: categoryCounts
+          ? { ...state.categoryCounts, ...categoryCounts }
+          : state.categoryCounts,
       }));
     };
 
     const handleNotificationRead = ({ id }) => {
       set((state) => ({
         notifications: state.notifications.map((n) =>
-          (n.id === id || n._id === id) ? { ...n, isRead: true } : n,
+          n.id === id || n._id === id ? { ...n, isRead: true } : n,
+        ),
+      }));
+    };
+
+    const handleNotificationUnread = ({ id }) => {
+      set((state) => ({
+        notifications: state.notifications.map((n) =>
+          n.id === id || n._id === id ? { ...n, isRead: false } : n,
         ),
       }));
     };
@@ -227,21 +378,24 @@ export const useNotificationStore = create((set, get) => ({
 
     const handleNotificationCleared = ({ category }) => {
       set((state) => ({
-        notifications: category && category !== "all"
-          ? state.notifications.filter((n) => n.category !== category)
-          : [],
+        notifications:
+          category && category !== "all"
+            ? state.notifications.filter((n) => n.category !== category)
+            : [],
       }));
     };
 
     socket.off("notification:new", handleNewNotification);
     socket.off("notification:count:updated", handleCountUpdated);
     socket.off("notification:read", handleNotificationRead);
+    socket.off("notification:unread", handleNotificationUnread);
     socket.off("notification:deleted", handleNotificationDeleted);
     socket.off("notification:cleared", handleNotificationCleared);
 
     socket.on("notification:new", handleNewNotification);
     socket.on("notification:count:updated", handleCountUpdated);
     socket.on("notification:read", handleNotificationRead);
+    socket.on("notification:unread", handleNotificationUnread);
     socket.on("notification:deleted", handleNotificationDeleted);
     socket.on("notification:cleared", handleNotificationCleared);
   },

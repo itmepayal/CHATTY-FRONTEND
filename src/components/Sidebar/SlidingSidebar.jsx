@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  MessageSquare,
+  LayoutDashboard,
   MessageCircle,
   UsersRound,
   Phone,
@@ -20,7 +20,6 @@ import {
   X,
   ChevronRight,
   Sparkles,
-  LayoutDashboard,
 } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useChatStore } from "../../store/useChatStore";
@@ -38,12 +37,15 @@ import NotificationCenterModal from "../contact/NotificationCenterModal";
 
 /**
  * SlidingSidebar
- * Modern, responsive, and animated sliding navigation sidebar.
- * Supports:
- * - Desktop: smooth width transition (76px collapsed icon-rail <-> 280px expanded panel)
- * - Mobile / Tablet: off-canvas drawer with backdrop blur overlay, escape key, and scroll lock
- * - Tooltips with animations for collapsed icon mode
- * - Active route / subtab highlighting and live badge notifications
+ *
+ * Professional, premium real-time messaging application navigation sidebar.
+ * Features:
+ * - Collapsed State: Polished icon-only vertical navigation rail (~76px) with perfect centering,
+ *   subtle active indicators, elegant hover states, and smooth floating tooltips.
+ * - Expanded State: Full navigation panel (~280px) with brand header, user profile summary,
+ *   hierarchical navigation groups (Main Menu & Preferences), unread badges, and bottom account controls.
+ * - Mobile / Tablet: Responsive off-canvas drawer with smooth backdrop blur, keyboard shortcuts, and body scroll lock.
+ * - Seamless Width Transition: Consistent icon positioning and zero jumping between states.
  */
 export const SlidingSidebar = ({ mobileOnly = false }) => {
   const navigate = useNavigate();
@@ -51,14 +53,20 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   const [searchParams] = useSearchParams();
 
   const { authUser, logout, onlineUsers } = useAuthStore();
-  const { isCollapsed, toggleCollapse, isMobileOpen, closeMobile, isHelpOpen, setHelpOpen } =
-    useSlidingSidebarStore();
+  const {
+    isCollapsed,
+    toggleCollapse,
+    isMobileOpen,
+    closeMobile,
+    isHelpOpen,
+    setHelpOpen,
+  } = useSlidingSidebarStore();
 
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
 
-  // Badge counts
+  // Live badge counts from stores
   const chatUsers = useChatStore((s) => s.users) || [];
   const groups = useGroupStore((s) => s.groups) || [];
   const incomingRequests = useContactStore((s) => s.requests?.incoming) || [];
@@ -66,16 +74,23 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   const unreadNotifs = useNotificationStore((s) => s.unreadCount) || 0;
 
   const chatUnread = useMemo(
-    () => chatUsers.filter((u) => !u.isArchived).reduce((acc, u) => acc + (u.unreadCount || 0), 0),
+    () =>
+      chatUsers
+        .filter((u) => !u.isArchived)
+        .reduce((acc, u) => acc + (u.unreadCount || 0), 0),
     [chatUsers]
   );
   const groupUnread = useMemo(
-    () => groups.filter((g) => !g.archived).reduce((acc, g) => acc + (g.unreadCount || 0), 0),
+    () =>
+      groups
+        .filter((g) => !g.archived)
+        .reduce((acc, g) => acc + (g.unreadCount || 0), 0),
     [groups]
   );
   const requestCount = incomingRequests.length;
   const missedCallsCount = useMemo(
-    () => calls.filter((c) => c.unseenMissed || (c.missed && !c.seen)).length,
+    () =>
+      calls.filter((c) => c.unseenMissed || (c.missed && !c.seen)).length,
     [calls]
   );
   const storyFeed = useStoryStore((s) => s.feed) || [];
@@ -96,7 +111,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
     return false;
   }, [authUser?._id, authUser?.id, onlineUsers]);
 
-  // Escape key handler to close mobile drawer
+  // Escape key listener for mobile drawer
   useEffect(() => {
     if (!isMobileOpen) return;
     const handleKeyDown = (e) => {
@@ -119,7 +134,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
     }
   }, [isMobileOpen]);
 
-  // Action dispatcher
+  // Unified navigation dispatcher
   const handleNav = useCallback(
     (action) => {
       if (typeof action === "string") {
@@ -143,12 +158,12 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
     }
   };
 
-  // Active check helpers
+  // Route & query parameter active checks
   const currentTab = searchParams.get("tab") || "chats";
   const isArchived = searchParams.get("archived") === "true";
   const isChatPage = location.pathname === "/chat";
 
-  // Navigation Items Definition
+  // MAIN MENU Navigation Items
   const mainNavItems = [
     {
       id: "dashboard",
@@ -163,6 +178,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
       label: "Direct Chats",
       icon: MessageCircle,
       badge: chatUnread,
+      badgeTone: "primary",
       active: isChatPage && !isArchived && currentTab === "chats",
       onClick: () => handleNav("/chat?tab=chats"),
     },
@@ -183,6 +199,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
       label: "Groups",
       icon: UsersRound,
       badge: groupUnread,
+      badgeTone: "primary",
       active: isChatPage && !isArchived && currentTab === "groups",
       onClick: () => handleNav("/chat?tab=groups"),
     },
@@ -234,6 +251,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
     },
   ];
 
+  // PREFERENCES & SECURITY Navigation Items
   const settingsNavItems = [
     {
       id: "profile-settings",
@@ -276,7 +294,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   ];
 
   /**
-   * Render single navigation row for expanded view
+   * Render single navigation item for Expanded Sidebar
    */
   const renderExpandedItem = (item) => {
     const Icon = item.icon;
@@ -288,24 +306,26 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
         type="button"
         onClick={item.onClick}
         aria-current={item.active ? "page" : undefined}
-        className={`group relative flex w-full items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+        className={`group relative flex w-full items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-[13px] font-medium transition-all duration-150 cursor-pointer select-none ${
           item.active
-            ? "bg-primary/10 text-primary font-semibold shadow-2xs border border-primary/20"
-            : "text-base-content/70 hover:bg-base-200/80 hover:text-base-content"
+            ? "bg-primary/12 text-primary font-semibold border border-primary/25 shadow-2xs"
+            : "text-base-content/75 hover:bg-base-200/80 hover:text-base-content"
         }`}
       >
         {item.active && (
           <span
-            className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-primary"
+            className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary"
             aria-hidden="true"
           />
         )}
-        <Icon className="size-4.5 shrink-0 group-hover:scale-110 transition-transform duration-200" />
+        <Icon className="size-4.5 shrink-0 group-hover:scale-105 transition-transform duration-150" />
         <span className="truncate flex-1 text-left">{item.label}</span>
         {Boolean(item.badge && item.badge > 0) && (
           <span
-            className={`badge badge-xs px-1.5 py-0.5 rounded-full font-bold ml-auto tabular-nums ${
-              isToneDanger ? "bg-error text-error-content" : "bg-primary text-primary-content"
+            className={`badge badge-sm px-2 py-0.5 rounded-full font-bold text-[10px] tabular-nums ml-auto shrink-0 ${
+              isToneDanger
+                ? "bg-error/15 text-error border border-error/30"
+                : "bg-primary text-primary-content shadow-2xs"
             }`}
           >
             {item.badge > 99 ? "99+" : item.badge}
@@ -316,74 +336,91 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   };
 
   /**
-   * Render single navigation item for collapsed icon-only rail
+   * Render single navigation item for Collapsed Navigation Rail
    */
   const renderCollapsedItem = (item) => {
     const Icon = item.icon;
     const isToneDanger = item.badgeTone === "danger";
 
     return (
-      <div key={item.id} className="relative group flex justify-center py-0.5">
+      <div key={item.id} className="relative group flex justify-center py-0.5 w-full">
         <button
           type="button"
           onClick={item.onClick}
           aria-label={item.label}
           aria-current={item.active ? "page" : undefined}
-          className={`relative flex size-10 items-center justify-center rounded-xl transition-all cursor-pointer ${
+          className={`relative flex size-10 items-center justify-center rounded-xl transition-all duration-150 cursor-pointer select-none ${
             item.active
-              ? "bg-primary text-primary-content shadow-xs"
-              : "text-base-content/70 hover:bg-base-200 hover:text-base-content hover:scale-105 active:scale-95"
+              ? "bg-primary/15 text-primary border border-primary/25 shadow-2xs font-semibold"
+              : "text-base-content/65 hover:text-base-content hover:bg-base-200/80 active:scale-95"
           }`}
         >
-          <Icon className="size-4.5 transition-transform duration-200 group-hover:scale-110" />
+          {item.active && (
+            <span
+              className="absolute -left-2.5 top-2 bottom-2 w-1 rounded-r-full bg-primary"
+              aria-hidden="true"
+            />
+          )}
 
-          {/* Collapsed dot badge */}
+          <Icon className="size-5 shrink-0 transition-transform duration-150 group-hover:scale-105" />
+
+          {/* Collapsed dot / count badge */}
           {Boolean(item.badge && item.badge > 0) && (
             <span
-              className={`absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-base-100 ${
-                isToneDanger ? "bg-error animate-pulse" : "bg-primary"
+              className={`absolute -top-1 -right-1 flex items-center justify-center rounded-full ring-2 ring-base-100 ${
+                isToneDanger
+                  ? "size-2.5 bg-error animate-pulse"
+                  : "min-w-[16px] h-4 px-1 bg-primary text-primary-content text-[9px] font-bold tabular-nums shadow-2xs"
               }`}
-            />
+            >
+              {!isToneDanger && (item.badge > 9 ? "9+" : item.badge)}
+            </span>
           )}
         </button>
 
-        {/* Hover Tooltip */}
-        <div className="absolute left-[72px] top-1/2 -translate-y-1/2 z-50 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral text-neutral-content text-xs font-semibold shadow-xl border border-base-content/10 pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 whitespace-nowrap">
-          <span>{item.label}</span>
-          {Boolean(item.badge && item.badge > 0) && (
-            <span
-              className={`badge badge-xs px-1 py-0.2 rounded-full font-bold text-[9px] ${
-                isToneDanger ? "bg-error text-error-content" : "bg-primary text-primary-content"
-              }`}
-            >
-              {item.badge > 99 ? "99+" : item.badge}
-            </span>
-          )}
+        {/* Refined Floating Tooltip on Hover */}
+        <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 pointer-events-none opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 whitespace-nowrap">
+          <div className="relative flex items-center gap-2 px-3 py-1.5 rounded-xl bg-base-300 text-base-content text-xs font-semibold shadow-xl border border-base-content/10">
+            {/* Tooltip caret */}
+            <div className="absolute -left-1 top-1/2 -translate-y-1/2 size-2 rotate-45 bg-base-300 border-l border-b border-base-content/10" />
+            <span className="relative z-10">{item.label}</span>
+            {Boolean(item.badge && item.badge > 0) && (
+              <span
+                className={`badge badge-xs px-1.5 py-0.5 rounded-full font-bold text-[9px] relative z-10 ${
+                  isToneDanger
+                    ? "bg-error text-error-content"
+                    : "bg-primary text-primary-content"
+                }`}
+              >
+                {item.badge > 99 ? "99+" : item.badge}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     );
   };
 
   /**
-   * Common drawer/sidebar inner content for expanded views
+   * Render Expanded Sidebar Content
    */
   const renderExpandedContent = (isDrawer = false) => (
-    <div className="flex flex-col h-full bg-base-100">
-      {/* 1. Header */}
-      <div className="h-14 shrink-0 flex items-center justify-between px-3.5 border-b border-base-300/70 bg-base-100/90 backdrop-blur-md">
+    <div className="flex flex-col h-full bg-base-100 overflow-hidden">
+      {/* A. Brand Header */}
+      <div className="h-13 sm:h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b border-base-300/70 bg-base-100/90 backdrop-blur-md">
         <Link
           to="/chat"
           onClick={() => isDrawer && closeMobile()}
-          className="flex items-center gap-2.5 group"
+          className="flex items-center gap-3 group select-none"
         >
-          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-2xs group-hover:scale-105 transition-transform">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 shadow-2xs group-hover:scale-105 transition-transform duration-200">
             <ChattyLogo className="size-6 text-primary" />
           </div>
-          <div className="flex flex-col leading-none">
-            <span className="font-extrabold text-base tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+          <div className="flex flex-col leading-tight">
+            <span className="font-extrabold text-base tracking-tight text-base-content">
               Chatty
             </span>
-            <span className="text-[10px] text-base-content/50 font-medium">
+            <span className="text-[10px] font-semibold text-primary uppercase tracking-wider">
               Messenger
             </span>
           </div>
@@ -404,43 +441,43 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
             onClick={toggleCollapse}
             aria-label="Collapse sidebar"
             title="Collapse sidebar (Cmd+B)"
-            className="flex size-8 items-center justify-center rounded-lg text-base-content/60 hover:text-base-content hover:bg-base-200 active:scale-95 transition-all cursor-pointer"
+            className="flex size-8 items-center justify-center rounded-lg text-base-content/50 hover:text-base-content hover:bg-base-200 active:scale-95 transition-all cursor-pointer"
           >
             <PanelLeftClose className="size-4.5" />
           </button>
         )}
       </div>
 
-      {/* 2. User Profile Summary Card */}
-      <div className="p-3 border-b border-base-300/40">
+      {/* B. User Profile Summary Card */}
+      <div className="p-3 border-b border-base-300/50 shrink-0">
         <div
           onClick={() => handleNav("/profile")}
-          className="flex items-center gap-2.5 p-2 rounded-xl bg-base-200/50 hover:bg-base-200/90 border border-base-300/50 cursor-pointer transition-all group"
+          className="flex items-center gap-3 p-2 rounded-xl bg-base-200/50 hover:bg-base-200/90 border border-base-300/60 hover:border-base-content/20 transition-all cursor-pointer group"
         >
           <div className="relative shrink-0">
             <img
               src={avatarSrc(authUser?.avatar)}
               alt={authUser?.fullName || "User"}
-              className="size-9 rounded-full object-cover ring-2 ring-primary/30 group-hover:ring-primary transition-all"
+              className="size-10 rounded-full object-cover ring-2 ring-primary/20 group-hover:ring-primary transition-all"
             />
             {meOnline && (
               <span
-                className="absolute bottom-0 right-0 size-2.5 rounded-full bg-success ring-2 ring-base-100"
+                className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-success ring-2 ring-base-100"
                 aria-label="Online status"
               />
             )}
           </div>
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="text-xs font-semibold text-base-content truncate group-hover:text-primary transition-colors">
+            <p className="text-xs sm:text-[13px] font-semibold text-base-content truncate group-hover:text-primary transition-colors">
               {authUser?.fullName || "My Account"}
             </p>
-            <p className="text-[11px] text-base-content/60 truncate mt-0.5 flex items-center gap-1">
+            <p className="text-[11px] text-base-content/60 truncate mt-0.5 flex items-center gap-1.5">
               <span
-                className={`size-1.5 rounded-full ${
-                  meOnline ? "bg-success" : "bg-base-content/30"
+                className={`size-1.5 rounded-full shrink-0 ${
+                  meOnline ? "bg-success animate-pulse" : "bg-base-content/30"
                 }`}
               />
-              <span>
+              <span className="truncate">
                 {meOnline
                   ? "Active now"
                   : authUser?.username
@@ -453,34 +490,37 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
         </div>
       </div>
 
-      {/* 3. Navigation Sections */}
-      <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-4">
-        {/* Section: Main */}
+      {/* C. Hierarchical Main Navigation */}
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-4 no-scrollbar">
+        {/* Main Menu Group */}
         <div>
-          <p className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-base-content/40 uppercase">
+          <p className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-base-content/40 uppercase select-none">
             Main Menu
           </p>
-          <div className="space-y-0.5">{mainNavItems.map(renderExpandedItem)}</div>
+          <div className="space-y-1">{mainNavItems.map(renderExpandedItem)}</div>
         </div>
 
-        {/* Section: Preferences */}
+        {/* Section Separator */}
+        <div className="h-px bg-base-300/50 mx-2 my-2" />
+
+        {/* Preferences & Security Group */}
         <div>
-          <p className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-base-content/40 uppercase">
+          <p className="px-3 pb-1.5 text-[10px] font-bold tracking-wider text-base-content/40 uppercase select-none">
             Preferences & Security
           </p>
-          <div className="space-y-0.5">{settingsNavItems.map(renderExpandedItem)}</div>
+          <div className="space-y-1">{settingsNavItems.map(renderExpandedItem)}</div>
         </div>
       </div>
 
-      {/* 4. Footer */}
-      <div className="p-3 border-t border-base-300/60 bg-base-100/95 flex items-center justify-between gap-2 shrink-0">
+      {/* D. Bottom Account Section */}
+      <div className="p-3 border-t border-base-300/70 bg-base-100/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0">
         <button
           type="button"
           onClick={() => handleNav("/settings/appearance")}
-          title="Customize Theme"
-          className="btn btn-xs btn-ghost gap-1.5 rounded-lg text-base-content/70 hover:text-base-content"
+          title="Customize Theme & Appearance"
+          className="btn btn-sm btn-ghost gap-2 rounded-xl text-xs font-medium text-base-content/75 hover:text-base-content hover:bg-base-200 h-9 px-3 flex-1 justify-start cursor-pointer transition-colors"
         >
-          <Palette className="size-3.5" />
+          <Palette className="size-4 text-primary" />
           <span>Theme</span>
         </button>
 
@@ -488,9 +528,9 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
           type="button"
           onClick={() => setConfirmLogout(true)}
           title="Sign out of Chatty"
-          className="btn btn-xs btn-ghost gap-1.5 rounded-lg text-error hover:bg-error/10 hover:text-error"
+          className="btn btn-sm btn-ghost gap-1.5 rounded-xl text-xs font-semibold text-error/80 hover:text-error hover:bg-error/10 h-9 px-3 shrink-0 cursor-pointer transition-colors"
         >
-          <LogOut className="size-3.5" />
+          <LogOut className="size-4" />
           <span>Log out</span>
         </button>
       </div>
@@ -498,18 +538,18 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
   );
 
   /**
-   * Collapsed Icon-Only View (Desktop only ~76px)
+   * Render Collapsed Navigation Rail Content
    */
   const renderCollapsedContent = () => (
-    <div className="flex flex-col h-full bg-base-100 justify-between items-center py-3">
-      {/* Top section: Logo + Toggle */}
-      <div className="flex flex-col items-center gap-3 w-full shrink-0">
+    <div className="flex flex-col h-full bg-base-100 justify-between items-center py-3 overflow-hidden">
+      {/* Top section: Logo + Expand Toggle */}
+      <div className="flex flex-col items-center gap-2.5 w-full shrink-0">
         <button
           type="button"
           onClick={toggleCollapse}
           aria-label="Expand sidebar"
           title="Expand navigation (Cmd+B)"
-          className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary/20 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-2xs"
         >
           <ChattyLogo className="size-6 text-primary" />
         </button>
@@ -518,58 +558,85 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
           type="button"
           onClick={toggleCollapse}
           aria-label="Expand sidebar control"
-          title="Expand sidebar"
-          className="flex size-7 items-center justify-center rounded-lg text-base-content/45 hover:text-base-content hover:bg-base-200 transition-colors cursor-pointer"
+          title="Expand sidebar (Cmd+B)"
+          className="flex size-7 items-center justify-center rounded-lg text-base-content/45 hover:text-base-content hover:bg-base-200 active:scale-95 transition-all cursor-pointer"
         >
           <PanelLeft className="size-4" />
         </button>
 
-        <div className="w-8 h-px bg-base-300/60" />
+        <div className="w-8 h-px bg-base-300/70 mx-auto my-1" />
       </div>
 
-      {/* Middle scrollable icons */}
-      <div className="flex-1 w-full overflow-y-auto no-scrollbar py-2 space-y-1">
+      {/* Middle scrollable navigation icons */}
+      <div className="flex-1 w-full overflow-y-auto no-scrollbar py-1 space-y-1">
         {mainNavItems.map(renderCollapsedItem)}
         <div className="w-8 h-px bg-base-300/60 mx-auto my-2" />
         {settingsNavItems.map(renderCollapsedItem)}
       </div>
 
-      {/* Bottom section: Avatar + Logout */}
-      <div className="flex flex-col items-center gap-2 pt-2 border-t border-base-300/60 w-full shrink-0">
-        {/* Profile Avatar with tooltip */}
-        <div className="relative group">
+      {/* Bottom section: Theme + Profile Avatar + Logout */}
+      <div className="flex flex-col items-center gap-2 pt-2.5 border-t border-base-300/70 w-full shrink-0">
+        {/* Theme quick toggle button */}
+        <div className="relative group flex justify-center w-full">
+          <button
+            type="button"
+            onClick={() => handleNav("/settings/appearance")}
+            aria-label="Customize Theme"
+            className="flex size-10 items-center justify-center rounded-xl text-base-content/65 hover:text-base-content hover:bg-base-200/80 active:scale-95 transition-all cursor-pointer"
+          >
+            <Palette className="size-4.5" />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 pointer-events-none opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 whitespace-nowrap">
+            <div className="relative px-3 py-1.5 rounded-xl bg-base-300 text-base-content text-xs font-semibold shadow-xl border border-base-content/10">
+              <div className="absolute -left-1 top-1/2 -translate-y-1/2 size-2 rotate-45 bg-base-300 border-l border-b border-base-content/10" />
+              Theme & Appearance
+            </div>
+          </div>
+        </div>
+
+        {/* User Profile Avatar */}
+        <div className="relative group flex justify-center w-full">
           <button
             type="button"
             onClick={() => handleNav("/profile")}
             aria-label="My profile"
-            className="relative flex size-9 items-center justify-center rounded-full hover:ring-2 hover:ring-primary transition-all cursor-pointer"
+            className="relative flex size-10 items-center justify-center rounded-full hover:ring-2 hover:ring-primary active:scale-95 transition-all cursor-pointer"
           >
             <img
               src={avatarSrc(authUser?.avatar)}
               alt={authUser?.fullName || "User"}
-              className="size-8.5 rounded-full object-cover"
+              className="size-9 rounded-full object-cover"
             />
             {meOnline && (
-              <span className="absolute bottom-0 right-0 size-2.5 rounded-full bg-success ring-2 ring-base-100" />
+              <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-success ring-2 ring-base-100" />
             )}
           </button>
-          <div className="absolute left-[72px] top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-lg bg-neutral text-neutral-content text-xs font-semibold shadow-xl border border-base-content/10 pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 whitespace-nowrap">
-            {authUser?.fullName || "Profile"}
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 pointer-events-none opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 whitespace-nowrap">
+            <div className="relative px-3 py-1.5 rounded-xl bg-base-300 text-base-content text-xs font-semibold shadow-xl border border-base-content/10 flex items-center gap-1.5">
+              <div className="absolute -left-1 top-1/2 -translate-y-1/2 size-2 rotate-45 bg-base-300 border-l border-b border-base-content/10" />
+              <span className="font-bold">{authUser?.fullName || "Profile"}</span>
+              <span className="text-base-content/50 text-[10px]">
+                {meOnline ? "(Active)" : ""}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Logout icon with tooltip */}
-        <div className="relative group">
+        {/* Logout action */}
+        <div className="relative group flex justify-center w-full">
           <button
             type="button"
             onClick={() => setConfirmLogout(true)}
             aria-label="Log out"
-            className="flex size-9 items-center justify-center rounded-xl text-error/80 hover:bg-error/10 hover:text-error transition-all cursor-pointer"
+            className="flex size-10 items-center justify-center rounded-xl text-error/75 hover:text-error hover:bg-error/10 active:scale-95 transition-all cursor-pointer"
           >
-            <LogOut className="size-4" />
+            <LogOut className="size-4.5" />
           </button>
-          <div className="absolute left-[72px] top-1/2 -translate-y-1/2 z-50 px-2.5 py-1.5 rounded-lg bg-error text-error-content text-xs font-semibold shadow-xl pointer-events-none opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 whitespace-nowrap">
-            Log out
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-50 pointer-events-none opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 whitespace-nowrap">
+            <div className="relative px-3 py-1.5 rounded-xl bg-error text-error-content text-xs font-bold shadow-xl">
+              <div className="absolute -left-1 top-1/2 -translate-y-1/2 size-2 rotate-45 bg-error" />
+              Log out
+            </div>
           </div>
         </div>
       </div>
@@ -584,7 +651,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
       {!mobileOnly && (
         <aside
           aria-label="Application Navigation"
-          className={`relative z-20 hidden md:flex flex-col h-full bg-base-100 border-r border-base-300/80 shrink-0 transition-[width] duration-300 ease-in-out select-none ${
+          className={`relative z-20 hidden md:flex flex-col h-full bg-base-100 border-r border-base-300/80 shrink-0 transition-[width] duration-300 ease-in-out select-none overflow-x-hidden ${
             isCollapsed ? "w-[76px]" : "w-[280px]"
           }`}
         >
@@ -601,7 +668,7 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
         }`}
         aria-hidden={!isMobileOpen}
       >
-        {/* Backdrop Overlay */}
+        {/* Backdrop Blur Overlay */}
         <div
           onClick={closeMobile}
           className={`fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
@@ -609,12 +676,12 @@ export const SlidingSidebar = ({ mobileOnly = false }) => {
           }`}
         />
 
-        {/* Drawer Panel */}
+        {/* Off-Canvas Sliding Drawer Panel */}
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Mobile Navigation Menu"
-          className={`fixed inset-y-0 left-0 w-[285px] max-w-[85vw] h-full bg-base-100 shadow-2xl flex flex-col z-50 border-r border-base-300 transform transition-transform duration-300 ease-in-out ${
+          className={`fixed inset-y-0 left-0 w-[290px] max-w-[85vw] h-full bg-base-100 shadow-2xl flex flex-col z-50 border-r border-base-300 transform transition-transform duration-300 ease-in-out ${
             isMobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >

@@ -61,15 +61,24 @@ describe("Mobile-First Responsive Redesign Validation Suite", () => {
     );
   });
 
-  it("4. Search bar is compact (h-8.5 sm:h-9) with clear button and focus styling", async () => {
+  it("4. Search bar is compact with clear button and focus styling", async () => {
     const fs = await import("node:fs");
-    const content = fs.readFileSync(
+    const sidebarContent = fs.readFileSync(
       "src/components/Sidebar.jsx",
       "utf8",
     );
+    const searchInputContent = fs.existsSync(
+      "src/components/Sidebar/SidebarSearchInput.jsx",
+    )
+      ? fs.readFileSync(
+          "src/components/Sidebar/SidebarSearchInput.jsx",
+          "utf8",
+        )
+      : "";
+    const content = sidebarContent + "\n" + searchInputContent;
     assert.match(
       content,
-      /h-8\.5\s+sm:h-9/,
+      /(h-8\.5\s+sm:h-9|h-\[42px\]\s+sm:h-\[44px\])/,
       "Search field must use compact mobile height",
     );
     assert.match(
@@ -133,7 +142,11 @@ describe("Mobile-First Responsive Redesign Validation Suite", () => {
       "Footer must respect safe-area-inset-bottom",
     );
     assert.match(content, /Settings/);
-    assert.match(content, /Log out/);
+    assert.doesNotMatch(
+      content,
+      /Log out/,
+      "Duplicate Logout must be eliminated from Messages sidebar footer",
+    );
   });
 
   it("8. Viewport meta includes viewport-fit=cover for mobile edge-to-edge support", async () => {

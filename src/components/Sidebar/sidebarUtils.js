@@ -26,6 +26,8 @@ export const PRESENCE = [
 export const CALL_FILTERS = [
   { key: "all", label: "All" },
   { key: "missed", label: "Missed" },
+  { key: "incoming", label: "Incoming" },
+  { key: "outgoing", label: "Outgoing" },
 ];
 
 export const MODE_ORDER = ["chats", "groups", "calls", "requests"];
@@ -208,6 +210,8 @@ export const normalizeCall = (c, myId, isGroup) => {
   return {
     key: `${isGroup ? "g" : "u"}-${c._id ?? c.id ?? Math.random()}`,
     id: c._id ?? c.id,
+    callId: c.callId || c.id || c._id,
+    rawCall: c,
     isGroup,
     groupId,
     otherId,

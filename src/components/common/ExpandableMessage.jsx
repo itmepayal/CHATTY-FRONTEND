@@ -1,6 +1,7 @@
 import { useState, useRef, useLayoutEffect, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { parseDeepLink } from "../../utils/deepLink";
+import { isEmojiOnly } from "../../utils/emojiUtils";
 
 // In-memory set of expanded message IDs to preserve expansion state across scroll/rerenders
 const expandedMessageIds = new Set();
@@ -11,9 +12,16 @@ const escapeRegex = (s) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
 
 /**
  * ExpandableMessage
+ *
  * WhatsApp-style expandable long-text message component with @mention & link rendering.
- * Automatically collapses messages exceeding `maxLines` (default: 8 lines)
+ * Automatically collapses messages genuinely exceeding `maxLines` (default: 8 lines)
  * with a "Read More" button. Clicking expands the full message with "Read Less".
+ *
+ * Guardrails:
+ * - Single/multiple emojis and emoji-only messages NEVER display "Read More".
+ * - Short text messages and short messages with emojis NEVER display "Read More".
+ * - Empty or whitespace-only content NEVER displays "Read More".
+ * - Truncation is only evaluated when message content can physically exceed `maxLines`.
  */
 export const ExpandableMessage = ({
   text = "",
@@ -30,6 +38,27 @@ export const ExpandableMessage = ({
   );
   const [canExpand, setCanExpand] = useState(false);
   const textRef = useRef(null);
+
+  // Pre-qualification check: Can this message text ever exceed maxLines?
+  const isPotentiallyExpandable = useMemo(() => {
+    if (!text || typeof text !== "string") return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+
+    // Emoji-only messages must never be clamped or expandable
+    if (isEmojiOnly(trimmed)) return false;
+
+    const lineCount = trimmed.split(/\r\n|\r|\n/).length;
+
+    // In chat bubbles, standard text is ~25-40 chars per line.
+    // If explicit newlines are <= maxLines and character length is < maxLines * 20,
+    // the content cannot physically exceed maxLines.
+    if (lineCount <= maxLines && trimmed.length < Math.max(80, maxLines * 20)) {
+      return false;
+    }
+
+    return true;
+  }, [text, maxLines]);
 
   const formattedContent = useMemo(() => {
     if (!text || typeof text !== "string") return text;
@@ -185,23 +214,33 @@ export const ExpandableMessage = ({
     typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
   useIsomorphicEffect(() => {
+    // If not potentially expandable, immediately guarantee canExpand is false
+    if (!isPotentiallyExpandable) {
+      if (canExpand) setCanExpand(false);
+      return;
+    }
+
     const el = textRef.current;
     if (!el || !text) return;
 
     const checkOverflow = () => {
+      const computed = window.getComputedStyle(el);
+      const computedLineHeight = parseFloat(computed.lineHeight);
+      const lineHeight =
+        Number.isFinite(computedLineHeight) && computedLineHeight > 0
+          ? computedLineHeight
+          : (parseFloat(computed.fontSize) || 14) * 1.5;
+      const maxHeight = lineHeight * maxLines;
+
       if (!isExpanded) {
-        // In collapsed state, -webkit-line-clamp bounds clientHeight
-        const overflows = el.scrollHeight > el.clientHeight + 1;
+        // Genuine clamp requires the unconstrained scrollHeight to exceed maxHeight
+        // AND exceed clientHeight by at least a substantial line fraction (not 1-2px font noise).
+        const overflows =
+          el.scrollHeight > maxHeight + 4 &&
+          el.scrollHeight > el.clientHeight + Math.max(12, lineHeight * 0.6);
         setCanExpand(overflows);
       } else {
-        // In expanded state, check if content height exceeds maxLines height
-        const computed = window.getComputedStyle(el);
-        const computedLineHeight = parseFloat(computed.lineHeight);
-        const lineHeight =
-          Number.isFinite(computedLineHeight) && computedLineHeight > 0
-            ? computedLineHeight
-            : (parseFloat(computed.fontSize) || 14) * 1.5;
-        const maxHeight = lineHeight * maxLines;
+        // In expanded state, check if content height genuinely exceeds maxLines height
         setCanExpand(el.scrollHeight > maxHeight + 4);
       }
     };
@@ -223,7 +262,7 @@ export const ExpandableMessage = ({
       if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [text, isExpanded, maxLines]);
+  }, [text, isExpanded, maxLines, isPotentiallyExpandable]);
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -240,14 +279,14 @@ export const ExpandableMessage = ({
     });
   };
 
-  if (!text) return null;
+  if (!text || typeof text !== "string" || !text.trim()) return null;
 
   return (
     <div className="relative group/expandable">
       <p
         ref={textRef}
         style={
-          !isExpanded
+          isPotentiallyExpandable && !isExpanded
             ? {
                 display: "-webkit-box",
                 WebkitLineClamp: maxLines,
@@ -261,7 +300,7 @@ export const ExpandableMessage = ({
         {formattedContent}
       </p>
 
-      {canExpand && (
+      {isPotentiallyExpandable && canExpand && (
         <button
           type="button"
           onClick={handleToggle}

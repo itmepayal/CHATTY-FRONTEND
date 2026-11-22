@@ -16,7 +16,6 @@ import SidebarSkeleton from "../components/Skeleton/SidebarSkeleton";
 import CreateGroupModal from "./modal/CreateGroupModal";
 import AddContactModal from "./contact/AddContactModal";
 import { Segmented } from "./Sidebar/SidebarComponents.jsx";
-import { LogoutConfirm } from "./Sidebar/LogoutConfirmModal.jsx";
 import { SidebarHeader } from "./Sidebar/SidebarHeader.jsx";
 import { SidebarFooter } from "./Sidebar/SidebarFooter.jsx";
 import { SidebarFilterBar } from "./Sidebar/SidebarFilterBar.jsx";
@@ -31,11 +30,13 @@ import NotificationCenterModal from "./contact/NotificationCenterModal.jsx";
 import BlockedUsersModal from "./contact/BlockedUsersModal.jsx";
 import StoryTray from "./stories/StoryTray.jsx";
 import { SidebarSearchInput } from "./Sidebar/SidebarSearchInput.jsx";
+import { NewCallModal } from "./modal/NewCallModal.jsx";
 
 const Sidebar = () => {
   const data = useSidebarData();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
+  const [showNewCall, setShowNewCall] = useState(false);
 
   if (data.isUsersLoading || !data.contactsLoaded) {
     return <SidebarSkeleton />;
@@ -180,6 +181,7 @@ const Sidebar = () => {
           setShowAddContact={setShowAddContact}
           setShowCreate={setShowCreate}
           changeMode={changeMode}
+          onNewCall={() => setShowNewCall(true)}
         />
 
         <div className="px-3 pt-2 pb-1 sm:px-4 sm:pt-2.5 sm:pb-1.5">
@@ -303,6 +305,7 @@ const Sidebar = () => {
                   q={q}
                   callFilter={callFilter}
                   setCallFilter={setCallFilter}
+                  onOpenNewCall={() => setShowNewCall(true)}
                 />
               )}
 
@@ -365,7 +368,6 @@ const Sidebar = () => {
           onProfile={onProfile}
           onSettings={onSettings}
           navigate={navigate}
-          setConfirmLogout={setConfirmLogout}
         />
 
         <CreateGroupModal
@@ -377,6 +379,11 @@ const Sidebar = () => {
         <AddContactModal
           open={showAddContact && !showCreate}
           onClose={closeAddContact}
+        />
+
+        <NewCallModal
+          open={showNewCall}
+          onClose={() => setShowNewCall(false)}
         />
 
         {showNotifications && (
@@ -392,13 +399,6 @@ const Sidebar = () => {
             onClose={() => setShowBlockedUsers(false)}
           />
         )}
-
-        <LogoutConfirm
-          open={confirmLogout}
-          loading={isLoggingOut}
-          onCancel={() => setConfirmLogout(false)}
-          onConfirm={handleLogout}
-        />
 
         <ChatUnlockModal onUnlocked={handleChatUnlocked} />
       </aside>

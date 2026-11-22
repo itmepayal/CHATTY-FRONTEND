@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="alpineSky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0369a1"/>
+        <stop offset="50%" stop-color="#38bdf8"/>
+        <stop offset="100%" stop-color="#e0f2fe"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#alpineSky)"/>
+    <!-- Distant Mountains -->
+    <polygon points="120,500 360,220 620,520" fill="#475569" opacity="0.6"/>
+    <polygon points="360,220 330,270 380,290" fill="#f8fafc" opacity="0.9"/>
+    <polygon points="480,520 740,160 1020,520" fill="#334155" opacity="0.75"/>
+    <polygon points="740,160 690,230 780,240" fill="#ffffff"/>
+    <polygon points="860,520 1080,250 1280,520" fill="#1e293b" opacity="0.8"/>
+    <!-- Forefront Ridge -->
+    <path d="M0,720 L0,500 Q400,440 800,520 T1280,480 L1280,720 Z" fill="#0f172a"/>
+  </svg>

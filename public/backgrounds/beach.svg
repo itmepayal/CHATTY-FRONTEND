@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="sunset" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f97316"/>
+        <stop offset="40%" stop-color="#fb923c"/>
+        <stop offset="70%" stop-color="#f472b6"/>
+        <stop offset="100%" stop-color="#38bdf8"/>
+      </linearGradient>
+      <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0284c7"/>
+        <stop offset="70%" stop-color="#0369a1"/>
+        <stop offset="100%" stop-color="#075985"/>
+      </linearGradient>
+      <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#fde047"/>
+        <stop offset="100%" stop-color="#ca8a04"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="420" fill="url(#sunset)"/>
+    <!-- Golden Sunset Sun -->
+    <circle cx="640" cy="380" r="100" fill="#fef08a"/>
+    <!-- Ocean -->
+    <rect y="420" width="1280" height="160" fill="url(#ocean)"/>
+    <!-- Sand Beach -->
+    <path d="M0,560 Q400,520 800,570 T1280,540 L1280,720 L0,720 Z" fill="url(#sand)"/>
+    <!-- Palm Tree on Right -->
+    <path d="M1180,680 Q1120,480 1140,280" stroke="#78350f" stroke-width="18" fill="none" stroke-linecap="round"/>
+    <path d="M1140,280 Q1040,220 960,260" stroke="#166534" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <path d="M1140,280 Q1080,180 1020,160" stroke="#15803d" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <path d="M1140,280 Q1220,180 1260,210" stroke="#166534" stroke-width="10" fill="none" stroke-linecap="round"/>
+  </svg>

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0284c7"/>
+        <stop offset="100%" stop-color="#38bdf8"/>
+      </linearGradient>
+      <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#334155"/>
+        <stop offset="100%" stop-color="#0f172a"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="480" fill="url(#skyGrad)"/>
+    <rect y="480" width="1280" height="240" fill="url(#floor)"/>
+    <!-- Glass skyscraper skyline -->
+    <rect x="80" y="120" width="120" height="360" fill="#0f172a" opacity="0.7"/>
+    <rect x="230" y="80" width="150" height="400" fill="#1e293b" opacity="0.65"/>
+    <rect x="420" y="160" width="90" height="320" fill="#0f172a" opacity="0.8"/>
+    <rect x="780" y="100" width="140" height="380" fill="#1e293b" opacity="0.7"/>
+    <rect x="960" y="140" width="180" height="340" fill="#0f172a" opacity="0.6"/>
+    <!-- Architectural Glass Mullions -->
+    <line x1="0" y1="480" x2="1280" y2="480" stroke="#64748b" stroke-width="8"/>
+    <line x1="200" y1="0" x2="200" y2="480" stroke="#475569" stroke-width="4"/>
+    <line x1="640" y1="0" x2="640" y2="480" stroke="#475569" stroke-width="5"/>
+    <line x1="1080" y1="0" x2="1080" y2="480" stroke="#475569" stroke-width="4"/>
+    <!-- Modern Office Monstera Plant -->
+    <path d="M1160,540 Q1220,440 1250,380 Q1210,460 1180,540 Z" fill="#166534"/>
+    <path d="M1140,540 Q1100,450 1080,410 Q1120,470 1150,540 Z" fill="#15803d"/>
+    <circle cx="1160" cy="560" r="30" fill="#e2e8f0"/>
+  </svg>

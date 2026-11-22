@@ -4,10 +4,10 @@ import { motion } from "framer-motion";
 const SIZES = {
   xs: "size-8 text-xs",
   sm: "size-10 text-sm",
-  md: "size-14 sm:size-16 text-lg sm:text-xl",
-  lg: "size-20 sm:size-24 text-2xl sm:text-3xl",
-  xl: "size-28 sm:size-32 text-4xl sm:text-5xl",
-  "2xl": "size-32 sm:size-40 text-5xl sm:text-6xl",
+  md: "size-12 sm:size-16 text-base sm:text-xl",
+  lg: "size-16 xs:size-20 sm:size-24 text-xl xs:text-2xl sm:text-3xl",
+  xl: "size-20 xs:size-24 sm:size-32 text-2xl xs:text-3xl sm:text-5xl",
+  "2xl": "size-24 xs:size-28 sm:size-36 lg:size-40 text-3xl xs:text-4xl sm:text-6xl",
 };
 
 /**

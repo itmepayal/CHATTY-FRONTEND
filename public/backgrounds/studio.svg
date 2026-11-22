@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="studioWall" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#0a0a0a"/>
+        <stop offset="100%" stop-color="#171717"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#studioWall)"/>
+    <!-- Acoustic Hexagon Panels -->
+    
+      <polygon points="160,140 200,180 200,240 160,280 120,240 120,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="320,140 360,180 360,240 320,280 280,240 280,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="480,140 520,180 520,240 480,280 440,240 440,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="640,140 680,180 680,240 640,280 600,240 600,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="800,140 840,180 840,240 800,280 760,240 760,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="960,140 1000,180 1000,240 960,280 920,240 920,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+
+      <polygon points="1120,140 1160,180 1160,240 1120,280 1080,240 1080,180" fill="#262626" stroke="#404040" stroke-width="2"/>
+    
+    <!-- Neon Studio Rim Lights (Cyan & Purple) -->
+    <line x1="0" y1="60" x2="1280" y2="60" stroke="#06b6d4" stroke-width="6" opacity="0.8"/>
+    <line x1="0" y1="660" x2="1280" y2="660" stroke="#a855f7" stroke-width="6" opacity="0.8"/>
+    <circle cx="200" cy="360" r="140" fill="#06b6d4" opacity="0.12"/>
+    <circle cx="1080" cy="360" r="140" fill="#a855f7" opacity="0.12"/>
+  </svg>

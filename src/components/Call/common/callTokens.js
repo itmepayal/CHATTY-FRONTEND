@@ -22,33 +22,39 @@ export const CALL_SPRING_GENTLE = {
 };
 
 export const CALL_VARIANTS = {
-  glass: "bg-white/15 text-white hover:bg-white/25 active:bg-white/30 backdrop-blur-md border border-white/10",
-  active: "bg-white text-neutral hover:bg-white/90 active:bg-white/80 shadow-md",
-  danger: "bg-error text-error-content hover:brightness-110 active:brightness-95 shadow-md shadow-error/25",
-  success: "bg-success text-success-content hover:brightness-110 active:brightness-95 shadow-md shadow-success/25",
-  accent: "bg-primary text-primary-content hover:brightness-110 active:brightness-95 shadow-md shadow-primary/25",
-  subtle: "bg-black/40 text-white/90 hover:bg-black/60 active:bg-black/70 backdrop-blur-md border border-white/10",
+  glass:
+    "bg-white/[0.09] text-white/90 hover:bg-white/[0.18] active:bg-white/[0.24] hover:text-white backdrop-blur-xl border border-white/[0.12] shadow-sm transition-all duration-200",
+  active:
+    "bg-white text-neutral-900 hover:bg-white/90 active:bg-white/80 shadow-md font-semibold border border-white/40 transition-all duration-200",
+  danger:
+    "bg-rose-600 text-white hover:bg-rose-500 active:bg-rose-700 shadow-lg shadow-rose-950/40 border border-rose-400/30 transition-all duration-200",
+  success:
+    "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700 shadow-lg shadow-emerald-950/40 border border-emerald-400/30 transition-all duration-200",
+  accent:
+    "bg-primary text-primary-content hover:brightness-110 active:brightness-95 shadow-md shadow-primary/25 border border-primary/30 transition-all duration-200",
+  subtle:
+    "bg-black/45 text-white/90 hover:bg-black/65 active:bg-black/80 backdrop-blur-md border border-white/[0.10] transition-all duration-200",
 };
 
 export const CALL_BUTTON_SIZES = {
   sm: {
-    btn: "size-10 sm:size-11",
-    icon: "size-4 sm:size-5",
+    btn: "size-11 min-w-[44px] min-h-[44px]",
+    icon: "size-4 sm:size-4.5",
     text: "text-[10px]",
   },
   md: {
-    btn: "size-12 sm:size-14",
-    icon: "size-5 sm:size-6",
-    text: "text-[11px]",
+    btn: "size-11 sm:size-12 min-w-[44px] min-h-[44px] sm:min-w-[48px] sm:min-h-[48px]",
+    icon: "size-5 sm:size-5",
+    text: "text-[10px] sm:text-[11px]",
   },
   lg: {
-    btn: "size-14 sm:size-16",
-    icon: "size-6 sm:size-7",
-    text: "text-xs",
+    btn: "size-11 sm:size-12 min-w-[44px] min-h-[44px] sm:min-w-[48px] sm:min-h-[48px]",
+    icon: "size-5 sm:size-5.5",
+    text: "text-[10px] sm:text-[11px]",
   },
   xl: {
-    btn: "size-16 sm:size-[72px]",
-    icon: "size-7 sm:size-8",
+    btn: "size-14 xs:size-16 min-w-[56px] min-h-[56px]",
+    icon: "size-6 xs:size-7",
     text: "text-xs",
   },
 };

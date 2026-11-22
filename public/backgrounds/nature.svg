@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0284c7"/>
+        <stop offset="60%" stop-color="#38bdf8"/>
+        <stop offset="100%" stop-color="#bae6fd"/>
+      </linearGradient>
+      <linearGradient id="h1" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#166534"/>
+        <stop offset="100%" stop-color="#14532d"/>
+      </linearGradient>
+    </defs>
+    <rect width="1280" height="720" fill="url(#sky)"/>
+    <!-- Sun -->
+    <circle cx="1060" cy="180" r="70" fill="#fef08a" opacity="0.9"/>
+    <!-- Rolling Pine Hills -->
+    <path d="M-60,720 Q240,420 640,540 T1340,460 L1340,720 Z" fill="#15803d" opacity="0.85"/>
+    <path d="M-80,720 Q320,490 740,580 T1360,520 L1360,720 Z" fill="url(#h1)"/>
+    <!-- Pine Tree Silhouettes -->
+    
+      <polygon points="120,380 96,440 144,440" fill="#14532d"/>
+      <polygon points="120,420 88,490 152,490" fill="#14532d"/>
+      <polygon points="120,470 80,550 160,550" fill="#052e16"/>
+    
+
+      <polygon points="220,380 196,440 244,440" fill="#14532d"/>
+      <polygon points="220,420 188,490 252,490" fill="#14532d"/>
+      <polygon points="220,470 180,550 260,550" fill="#052e16"/>
+    
+
+      <polygon points="310,380 286,440 334,440" fill="#14532d"/>
+      <polygon points="310,420 278,490 342,490" fill="#14532d"/>
+      <polygon points="310,470 270,550 350,550" fill="#052e16"/>
+    
+
+      <polygon points="480,380 456,440 504,440" fill="#14532d"/>
+      <polygon points="480,420 448,490 512,490" fill="#14532d"/>
+      <polygon points="480,470 440,550 520,550" fill="#052e16"/>
+    
+
+      <polygon points="880,380 856,440 904,440" fill="#14532d"/>
+      <polygon points="880,420 848,490 912,490" fill="#14532d"/>
+      <polygon points="880,470 840,550 920,550" fill="#052e16"/>
+    
+
+      <polygon points="990,380 966,440 1014,440" fill="#14532d"/>
+      <polygon points="990,420 958,490 1022,490" fill="#14532d"/>
+      <polygon points="990,470 950,550 1030,550" fill="#052e16"/>
+    
+
+      <polygon points="1120,380 1096,440 1144,440" fill="#14532d"/>
+      <polygon points="1120,420 1088,490 1152,490" fill="#14532d"/>
+      <polygon points="1120,470 1080,550 1160,550" fill="#052e16"/>
+    
+  </svg>

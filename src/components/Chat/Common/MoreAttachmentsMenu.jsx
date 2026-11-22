@@ -174,29 +174,29 @@ export default function MoreAttachmentsMenu({
       ref={menuRef}
       role="menu"
       aria-label="Attachment Options"
-      className={`absolute bottom-full mb-3 left-2 sm:left-4 z-40 w-72 sm:w-80 rounded-3xl bg-base-100 border border-base-300 shadow-2xl p-2.5 animate-fade-in ${className}`}
+      className={`absolute bottom-full mb-3 left-2 sm:left-4 z-40 w-[min(20rem,calc(100vw-1rem))] max-h-[min(380px,calc(100dvh-100px))] flex flex-col rounded-3xl bg-base-100 border border-base-300 shadow-2xl p-2.5 animate-fade-in ${className}`}
     >
-      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-base-300/60 mb-1.5">
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-base-300/60 mb-1.5 shrink-0">
         <span className="text-xs font-bold text-base-content/80">
           Add Attachment
         </span>
         <button
           onClick={onClose}
-          className="p-1 rounded-lg hover:bg-base-200 text-base-content/50 hover:text-base-content"
+          className="p-1 rounded-lg hover:bg-base-200 text-base-content/50 hover:text-base-content min-w-[32px] min-h-[32px] flex items-center justify-center"
           aria-label="Close attachment menu"
         >
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      <div className="max-h-[320px] overflow-y-auto space-y-1 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto space-y-1 scrollbar-thin">
         {menuItems.map((item) => {
           const Icon = item.icon;
           return (
             <button
               key={item.id}
               onClick={item.action}
-              className="w-full flex items-center gap-3 p-2 rounded-2xl hover:bg-base-200 transition-colors text-left group"
+              className="w-full flex items-center gap-3 p-2 rounded-2xl hover:bg-base-200 transition-colors text-left group min-h-[44px]"
             >
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${item.iconColor}`}

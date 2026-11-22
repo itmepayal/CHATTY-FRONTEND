@@ -26,6 +26,27 @@ const PollCard = ({
   const [confirmEnd, setConfirmEnd] = useState(false);
 
   const poll = message?.poll;
+
+  // Calculate unique voters count and total selections
+  const { totalUniqueVoters, totalSelections } = useMemo(() => {
+    if (!poll?.options) return { totalUniqueVoters: 0, totalSelections: 0 };
+    const voterSet = new Set();
+    let selections = 0;
+    (poll.options || []).forEach((opt) => {
+      const votesArr = Array.isArray(opt.votes) ? opt.votes : [];
+      const count = votesArr.length || opt.voteCount || 0;
+      selections += count;
+      votesArr.forEach((v) => {
+        const vId = typeof v === "object" && v !== null ? (v._id || v.id) : v;
+        if (vId) voterSet.add(String(vId));
+      });
+    });
+    return {
+      totalUniqueVoters: poll.totalVoters !== undefined ? poll.totalVoters : voterSet.size,
+      totalSelections: poll.totalVotes !== undefined ? poll.totalVotes : selections,
+    };
+  }, [poll]);
+
   if (!poll || !poll.question) return null;
 
   const isClosed =
@@ -57,25 +78,6 @@ const PollCard = ({
     }
     return false;
   };
-
-  // Calculate unique voters count and total selections
-  const { totalUniqueVoters, totalSelections } = useMemo(() => {
-    const voterSet = new Set();
-    let selections = 0;
-    (poll.options || []).forEach((opt) => {
-      const votesArr = Array.isArray(opt.votes) ? opt.votes : [];
-      const count = votesArr.length || opt.voteCount || 0;
-      selections += count;
-      votesArr.forEach((v) => {
-        const vId = typeof v === "object" && v !== null ? (v._id || v.id) : v;
-        if (vId) voterSet.add(String(vId));
-      });
-    });
-    return {
-      totalUniqueVoters: poll.totalVoters !== undefined ? poll.totalVoters : voterSet.size,
-      totalSelections: poll.totalVotes !== undefined ? poll.totalVotes : selections,
-    };
-  }, [poll]);
 
   // Handle option click (single-choice or multiple-choice)
   const handleOptionClick = async (optionId) => {

@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import { customToast as toast } from "../components/toast/customToastService.js";
+import { useChatStore } from "./useChatStore.js";
+import { useGroupStore } from "./useGroupStore.js";
 
 export const useGiftStore = create((set, get) => ({
   catalog: [],
@@ -255,6 +257,7 @@ export const useGiftStore = create((set, get) => ({
     giftSlug = "",
     personalMessage = "",
     chatType = "direct",
+    parentMessageId = null,
   }) => {
     set({ sending: true });
     try {
@@ -267,6 +270,7 @@ export const useGiftStore = create((set, get) => ({
         personalMessage: personalMessage?.trim() || "",
         idempotencyKey,
         chatType,
+        parentMessageId: parentMessageId || undefined,
       });
 
       if (res.data?.data) {
@@ -287,6 +291,103 @@ export const useGiftStore = create((set, get) => ({
         // Update local sent history & transactions
         get().fetchSentHistory();
         get().fetchTransactions();
+
+        // Authoritative & immediate update to active conversation
+        if (message) {
+          if (parentMessageId) {
+            // Thread reply: update activeThread if open, and update parent message's threadReplyCount
+            if (chatType === "direct") {
+              const activeThread = useChatStore.getState().activeThread;
+              if (
+                activeThread &&
+                String(activeThread.parentMessage?.id || activeThread.parentMessage?._id) ===
+                  String(parentMessageId)
+              ) {
+                const exists = (activeThread.replies || []).some(
+                  (r) => String(r.id || r._id) === String(message.id || message._id),
+                );
+                if (!exists) {
+                  useChatStore.setState((st) => ({
+                    activeThread: {
+                      ...st.activeThread,
+                      replies: [...(st.activeThread.replies || []), message],
+                      totalReplies: (st.activeThread.totalReplies || 0) + 1,
+                    },
+                  }));
+                }
+              }
+              useChatStore.setState((st) => ({
+                messages: (st.messages || []).map((m) =>
+                  String(m.id || m._id) === String(parentMessageId)
+                    ? { ...m, threadReplyCount: (m.threadReplyCount || 0) + 1 }
+                    : m,
+                ),
+              }));
+              useChatStore.getState().openThread?.(parentMessageId);
+            } else {
+              const activeThread = useGroupStore.getState().activeThread;
+              if (
+                activeThread &&
+                String(activeThread.parentMessage?.id || activeThread.parentMessage?._id) ===
+                  String(parentMessageId)
+              ) {
+                const exists = (activeThread.replies || []).some(
+                  (r) => String(r.id || r._id) === String(message.id || message._id),
+                );
+                if (!exists) {
+                  useGroupStore.setState((st) => ({
+                    activeThread: {
+                      ...st.activeThread,
+                      replies: [...(st.activeThread.replies || []), message],
+                      totalReplies: (st.activeThread.totalReplies || 0) + 1,
+                    },
+                  }));
+                }
+              }
+              useGroupStore.setState((st) => ({
+                groupMessages: (st.groupMessages || []).map((m) =>
+                  String(m.id || m._id) === String(parentMessageId)
+                    ? { ...m, threadReplyCount: (m.threadReplyCount || 0) + 1 }
+                    : m,
+                ),
+              }));
+              useGroupStore.getState().openThread?.(groupId, parentMessageId);
+            }
+          } else {
+            // Top-level message: update conversation messages list
+            if (chatType === "direct" && recipientId) {
+              const chatStore = useChatStore.getState();
+              if (
+                chatStore.selectedUser &&
+                String(chatStore.selectedUser._id || chatStore.selectedUser.id) === String(recipientId)
+              ) {
+                const exists = chatStore.messages.some(
+                  (m) => String(m.id || m._id) === String(message.id || message._id),
+                );
+                if (!exists) {
+                  useChatStore.setState((st) => ({
+                    messages: [...st.messages, message],
+                  }));
+                }
+              }
+            } else if (chatType === "group" && groupId) {
+              const groupStore = useGroupStore.getState();
+              if (
+                groupStore.selectedGroup &&
+                String(groupStore.selectedGroup._id || groupStore.selectedGroup.id) === String(groupId)
+              ) {
+                const exists = (groupStore.groupMessages || []).some(
+                  (m) => String(m.id || m._id) === String(message.id || message._id),
+                );
+                if (!exists) {
+                  useGroupStore.setState((st) => ({
+                    groupMessages: [...(st.groupMessages || []), message],
+                  }));
+                }
+              }
+            }
+          }
+        }
 
         toast.success(`Sent ${gift?.name || "gift"} successfully!`);
         return { success: true, message, gift, wallet };
